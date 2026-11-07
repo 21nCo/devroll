@@ -109,6 +109,8 @@ export class IterbarBarElement extends ElementBase {
   #connectionKey: string | null = null;
   #reconnectQueued = false;
   #state: BarState = parseBarState(null);
+  /** A `collapsed` assigned while disconnected, applied over the stored state on the next connection. */
+  #pendingCollapsed: boolean | undefined;
   #commentMode = false;
   #slotsForReport: readonly SlotState[] | null = null;
   #reportTimer: ReturnType<typeof setTimeout> | null = null;
@@ -184,7 +186,15 @@ export class IterbarBarElement extends ElementBase {
   }
 
   set collapsed(value: boolean) {
-    this.#setCollapsed(Boolean(value));
+    const collapsed = Boolean(value);
+    if (this.isConnected) {
+      this.#setCollapsed(collapsed);
+      return;
+    }
+    // The stored state is read on connection and would replace this, so remember it, even when it equals the default.
+    this.#pendingCollapsed = collapsed;
+    this.#state = { ...this.#state, collapsed };
+    this.#applyState();
   }
 
   attributeChangedCallback(name: string, _previous: string | null, value: string | null): void {
@@ -196,6 +206,9 @@ export class IterbarBarElement extends ElementBase {
   connectedCallback(): void {
     this.#state = readStoredState();
     this.#applyState();
+    const pending = this.#pendingCollapsed;
+    this.#pendingCollapsed = undefined;
+    if (pending !== undefined) this.#saveState({ ...this.#state, collapsed: pending });
     // Properties set on the element before it was upgraded are own properties that hide the accessors. They are
     // applied after the stored state, so an assigned `collapsed` wins over the saved one.
     for (const property of ["daemonUrl", "token", "commentMode", "collapsed"] as const) {

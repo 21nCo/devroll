@@ -1,7 +1,7 @@
 import { SCHEMA_VERSION, type Feedback, type SlotReport, type SlotState } from "iterbar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonConnection, parseDaemonConfig, REQUEST_TIMEOUT_MS } from "./connection.js";
-import { applyListing, isStale, mergeFeedback } from "./threads-state.js";
+import { ThreadsState } from "./threads-state.js";
 
 const token = "a".repeat(64);
 
@@ -78,14 +78,14 @@ const slot = (activeVersion: string): SlotState => ({
 
 describe("DaemonConnection", () => {
   let requests: PendingRequest[];
-  let threads: Map<string, Feedback>;
+  let threads: ThreadsState;
   let statuses: string[];
 
   beforeEach(() => {
     vi.useFakeTimers();
     FakeSocket.instances = [];
     requests = [];
-    threads = new Map();
+    threads = new ThreadsState(100);
     statuses = [];
     vi.stubGlobal("WebSocket", FakeSocket);
     vi.stubGlobal("fetch", (url: string, init: RequestInit) => new Promise<Response>((resolve) => {
@@ -107,12 +107,8 @@ describe("DaemonConnection", () => {
     const connection = new DaemonConnection({ url: "http://127.0.0.1:4555", token }, {
       onStatus: (status) => statuses.push(status.kind),
       // As ThreadsPanel.merge does.
-      onFeedback: (item) => {
-        const current = !isStale(threads, item);
-        mergeFeedback(threads, [item]);
-        return current;
-      },
-      onListing: (items, touched) => applyListing(threads, items, touched),
+      onFeedback: (item) => threads.merge(item) !== "stale",
+      onListing: (items, touched) => threads.applyListing(items, touched),
     });
     connection.start();
     return connection;
@@ -152,7 +148,7 @@ describe("DaemonConnection", () => {
     for (const item of events) socket().receive({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: item });
     pending("/feedback")[1]!.respond(200, list(second));
     await settle();
-    return [...threads.values()].map((item) => [item.id, item.status]);
+    return threads.shown().map((item) => [item.id, item.status]);
   }
 
   it("gives no precedence to a stale event over a newer or omitting listing", async () => {
@@ -206,7 +202,7 @@ describe("DaemonConnection", () => {
     socket().open();
     pending("/feedback")[1]!.respond(200, list([feedback("b", "done")]));
     await settle();
-    expect([...threads.keys()]).toEqual(["b"]);
+    expect(threads.shown().map((item) => item.id)).toEqual(["b"]);
     expect(threads.get("b")?.status).toBe("done");
   });
 

@@ -42,6 +42,34 @@ test.describe("threads from the daemon", () => {
     await expect(inBar(page, "[data-section=threads] h2")).toHaveText("Feedback (2)");
   });
 
+  test("shows the newest threads of a long history and keeps the counts exact as events arrive", async ({ page, openFixture, fixtureServer }) => {
+    const history = Array.from({ length: 250 }, (_, index) => comment(`Thread ${index}`));
+    // Listed in an order unrelated to creation.
+    const daemon = await fakeDaemon(page, fixtureServer.origin, history.map((_, index) => history[(index * 7) % history.length]!));
+    await openFixture();
+    await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+    const threads = inBar(page, ".thread");
+    const heading = inBar(page, "[data-section=threads] h2");
+    const more = inBar(page, "[data-section=threads] > p.muted:not([data-role])");
+    await expect(heading).toHaveText("Feedback (250)");
+    await expect(threads).toHaveCount(100);
+    await expect(threads.first().locator(".thread-text")).toHaveText("Thread 249");
+    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 150");
+    await expect(more).toHaveText("150 older not shown.");
+
+    // An update to a hidden thread adds no row; a new thread comes first and pushes the oldest shown one out.
+    const hidden = history[10]!;
+    daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: { ...hidden, status: "done", updatedAt: new Date(Date.parse(hidden.updatedAt) + 1000).toISOString() } });
+    const newest = comment("Newest thread");
+    daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.created", feedback: newest });
+    await expect(threads.first().locator(".thread-text")).toHaveText("Newest thread");
+    await expect(heading).toHaveText("Feedback (251)");
+    await expect(threads).toHaveCount(100);
+    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 151");
+    await expect(more).toHaveText("151 older not shown.");
+    await expect(inBar(page, `[data-feedback-id="${hidden.id}"]`)).toHaveCount(0);
+  });
+
   test("ignores malformed events, events from another schema version and stale copies", async ({ page, openFixture, fixtureServer }) => {
     const item = comment("Original", { status: "working" });
     const daemon = await fakeDaemon(page, fixtureServer.origin, [item]);

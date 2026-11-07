@@ -1,8 +1,8 @@
 import type { Feedback, FeedbackStatus } from "iterbar";
 import { h } from "./dom.js";
-import { applyListing, isStale, mergeFeedback, threadOrder } from "./threads-state.js";
+import { ThreadsState } from "./threads-state.js";
 
-/** Most threads listed at once; older ones are counted but not shown. */
+/** Most threads kept and listed at once; older ones are counted but not shown. */
 export const MAX_SHOWN_THREADS = 100;
 
 const STATUS_LABELS: Readonly<Record<FeedbackStatus, string>> = {
@@ -75,7 +75,7 @@ class ThreadItem {
 /** The feedback threads, newest first, kept current from daemon listings and events. */
 export class ThreadsPanel {
   readonly element: HTMLElement;
-  readonly #items = new Map<string, Feedback>();
+  readonly #state = new ThreadsState(MAX_SHOWN_THREADS);
   readonly #rows = new Map<string, ThreadItem>();
   readonly #heading = h("h2", { class: "section-title", id: "iterbar-threads-title" }, "Feedback");
   readonly #list = h("ol", { class: "threads", "aria-labelledby": "iterbar-threads-title" });
@@ -87,30 +87,28 @@ export class ThreadsPanel {
   }
 
   /**
-   * Merges an item from an event; see {@link mergeFeedback}. Returns whether the event's copy is current (applied, or
-   * the same as the one held) rather than stale, so it may take precedence over a listing in flight.
+   * Merges an item from an event; see {@link ThreadsState.merge}. Returns whether the event's copy is current (applied,
+   * or as recent as the one held) rather than stale, so it may take precedence over a listing in flight.
    */
   merge(item: Feedback): boolean {
-    const current = !isStale(this.#items, item);
-    if (mergeFeedback(this.#items, [item])) this.#render();
-    return current;
+    const result = this.#state.merge(item);
+    if (result === "changed") this.#render();
+    return result !== "stale";
   }
 
-  /** Replaces the threads with a complete listing; see {@link applyListing}. */
+  /** Replaces the threads with a complete listing; see {@link ThreadsState.applyListing}. */
   replace(items: readonly Feedback[], touched: ReadonlySet<string>): void {
-    if (applyListing(this.#items, items, touched)) this.#render();
+    if (this.#state.applyListing(items, touched)) this.#render();
   }
 
   /** Forgets every thread, as when the bar switches to another daemon. */
   clear(): void {
-    if (this.#items.size === 0) return;
-    this.#items.clear();
-    this.#render();
+    if (this.#state.clear()) this.#render();
   }
 
   #render(): void {
-    const ordered = threadOrder(this.#items.values());
-    const shown = ordered.slice(0, MAX_SHOWN_THREADS);
+    const shown = this.#state.shown();
+    const total = this.#state.total;
     const shownIds = new Set(shown.map((item) => item.id));
     for (const [id, row] of this.#rows) {
       if (shownIds.has(id)) continue;
@@ -132,9 +130,9 @@ export class ThreadsPanel {
       }
       previous = row.element;
     }
-    this.#heading.textContent = `Feedback (${ordered.length})`;
-    this.#empty.hidden = ordered.length > 0;
-    const hiddenCount = ordered.length - shown.length;
+    this.#heading.textContent = `Feedback (${total})`;
+    this.#empty.hidden = total > 0;
+    const hiddenCount = total - shown.length;
     this.#more.hidden = hiddenCount === 0;
     this.#more.textContent = `${hiddenCount} older not shown.`;
   }

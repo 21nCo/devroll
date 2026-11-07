@@ -92,6 +92,37 @@ test("applies a collapsed property set before the element was defined, over the 
   expect(await page.evaluate(() => localStorage.getItem(window.fixture.BAR_STATE_STORAGE_KEY))).toContain('"collapsed":false');
 });
 
+test("applies a collapsed property assigned after definition but before connection, over saved or unreadable state", async ({ page, openFixture }) => {
+  await openFixture();
+  // Saved collapsed, then an explicit `false` (the default) before the element is added: it opens expanded.
+  await page.evaluate(() => {
+    localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ collapsed: true }));
+    window.fixture.defineIterbarBar();
+    const bar = document.createElement("iterbar-bar") as HTMLElement & { collapsed: boolean };
+    bar.collapsed = false;
+    document.body.append(bar);
+  });
+  await expect(inBar(page, "#iterbar-body")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem(window.fixture.BAR_STATE_STORAGE_KEY))).toContain('"collapsed":false');
+
+  // Storage that cannot be read, then an explicit `true` before the element is added: it opens collapsed.
+  await page.evaluate(() => {
+    document.querySelector("iterbar-bar")!.remove();
+    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new DOMException("denied", "SecurityError"); } });
+    const bar = document.createElement("iterbar-bar") as HTMLElement & { collapsed: boolean };
+    bar.collapsed = true;
+    document.body.append(bar);
+  });
+  await expect(inBar(page, "#iterbar-body")).toBeHidden();
+  // Later assignments and the toggle still apply.
+  await page.evaluate(() => {
+    (document.querySelector("iterbar-bar") as HTMLElement & { collapsed: boolean }).collapsed = false;
+  });
+  await expect(inBar(page, "#iterbar-body")).toBeVisible();
+  await inBar(page, "[data-role=toggle]").click();
+  await expect(inBar(page, "#iterbar-body")).toBeHidden();
+});
+
 test("fits narrow screens, expanded and collapsed, while reconnecting, and keeps one row when there is room", async ({ page, openFixture, fixtureServer }) => {
   // Nothing answers the socket, so the bar keeps reconnecting.
   const daemon = await fakeDaemon(page, fixtureServer.origin, [], { socket: false });
@@ -106,14 +137,27 @@ test("fits narrow screens, expanded and collapsed, while reconnecting, and keeps
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(Math.min(width, bar.x + bar.width) + 0.5);
     }
-    if (width >= 640) expect(new Set(boxes.map((box) => Math.round(box.y + box.height / 2))).size).toBe(1);
+    // The header wraps only when its controls do not fit side by side in it; font metrics differ by platform, so the
+    // room is measured rather than assumed from the viewport.
+    const room = await page.evaluate(() => {
+      const header = document.querySelector("iterbar-bar")!.shadowRoot!.querySelector<HTMLElement>(".header")!;
+      const style = getComputedStyle(header);
+      const controls = [...header.children].map((control) => control.getBoundingClientRect().width);
+      const needed = controls.reduce((sum, controlWidth) => sum + controlWidth, 0) + parseFloat(style.columnGap) * (controls.length - 1);
+      return header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - needed;
+    });
+    const rows = new Set(boxes.map((box) => Math.round(box.y + box.height / 2))).size;
+    if (room >= 0.5) expect(rows).toBe(1);
+    return rows;
   };
   for (const width of [1280, 320, 280]) {
     await page.setViewportSize({ width, height: 568 });
     await fits(width);
     await toggle.click();
     await expect(inBar(page, "#iterbar-body")).toBeHidden();
-    await fits(width);
+    // Collapsed, the bar is as wide as its header, so on a wide screen it is one row.
+    const collapsedRows = await fits(width);
+    if (width === 1280) expect(collapsedRows).toBe(1);
     await toggle.focus();
     await page.keyboard.press("Enter");
     await expect(inBar(page, "#iterbar-body")).toBeVisible();
