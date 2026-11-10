@@ -1,0 +1,26 @@
+{
+  "name": "@iterbar/example-vite-react",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Iterbar example: a Vite and React app whose page has two Variants slots and shows the bar in vite dev.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@iterbar/react": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@iterbar/vite": "workspace:*",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.3.6"
+  }
+}

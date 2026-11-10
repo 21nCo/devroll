@@ -8,6 +8,7 @@ coverage/
 
 test-results/
 playwright-report/
+.svelte-kit/
 
 # Codex hooks are global (~/.codex/hooks.json); never commit repo-level ones
 .codex/hooks.json

@@ -12,6 +12,7 @@ export default defineConfig([
       '**/.turbo/**',
       '**/test-results/**',
       '**/playwright-report/**',
+      '**/.svelte-kit/**',
       ...['.claude', '.codex', '.cursor', '.factory', '.gemini', '.entire', '.opencode', '.pi']
         .map((directory) => `**/${directory}/**`),
     ],

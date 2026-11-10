@@ -20,7 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -40,13 +40,19 @@ jobs:
         env:
           CI: "true"
         run: pnpm --filter @iterbar/bar test:browser
+      - name: Run the example apps' browser tests (Vite plugin in dev, production builds)
+        env:
+          CI: "true"
+        run: pnpm --filter @iterbar/examples-e2e test:browser
       - name: Keep the Playwright report of a failed run
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: iterbar-bar-playwright-${{ matrix.os }}
+          name: iterbar-playwright-${{ matrix.os }}
           path: |
             products/iterbar/bar/playwright-report
             products/iterbar/bar/test-results
+            products/iterbar/examples/e2e/playwright-report
+            products/iterbar/examples/e2e/test-results
           if-no-files-found: ignore
           retention-days: 7

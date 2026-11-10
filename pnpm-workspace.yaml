@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - products/*/*
+  - products/iterbar/examples/*
 
 linkWorkspacePackages: true
 
