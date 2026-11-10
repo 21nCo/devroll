@@ -171,4 +171,55 @@ describe("a long feedback history", () => {
     expect(state.merge(item(4, "open", 0))).toBe("stale");
     expect(state.total).toBe(HISTORY - 2);
   });
+
+  /** A listing in flight replaced by one that holds only `hidden`'s listed copy, so it comes into view. */
+  const promoting = (hiddenListed: Feedback[], touched: string[]) => {
+    const state = new ThreadsState(LIMIT);
+    state.applyListing(Array.from({ length: LIMIT + 1 }, (_, n) => item(n)), new Set());
+    return { state, promote: () => state.applyListing(hiddenListed, new Set(touched)) };
+  };
+
+  it("shows what an event delivered when a listing brings a hidden thread into view", () => {
+    const newer = promoting([item(0, "open", 0)], [item(0).id]);
+    expect(newer.state.merge({ ...item(0, "working", 1), replies: [{ id: "rp_1", author: { kind: "agent", name: "Agent" }, text: "On it.", createdAt: created(1) }] })).toBe("unchanged");
+    newer.promote();
+    expect(ids(newer.state)).toEqual([item(0).id]);
+    expect(newer.state.get(item(0).id)?.status).toBe("working");
+    expect(newer.state.get(item(0).id)?.replies).toHaveLength(1);
+
+    const tie = promoting([item(0, "open", 0)], [item(0).id]);
+    tie.state.merge(item(0, "done", 0));
+    tie.promote();
+    expect(tie.state.get(item(0).id)?.status).toBe("done");
+  });
+
+  it("shows a touched hidden thread that the listing omits, and lets an event fill a gap in the window", () => {
+    const omitted = promoting([], [item(0).id]);
+    omitted.state.merge(item(0, "working", 1));
+    omitted.promote();
+    expect(omitted.state.total).toBe(1);
+    expect(omitted.state.get(item(0).id)?.status).toBe("working");
+
+    // A listing that omits the window's threads leaves room the next event for a hidden thread fills.
+    const gap = promoting([item(0)], []);
+    gap.promote();
+    expect(gap.state.merge(item(0, "done", 1))).toBe("changed");
+    expect(gap.state.get(item(0).id)?.status).toBe("done");
+  });
+
+  it("keeps aside at most the window's worth of hidden copies, and never counts a thread it cannot show", () => {
+    const state = new ThreadsState(LIMIT);
+    const all = history();
+    state.applyListing(all, new Set());
+    const touched = Array.from({ length: LIMIT + 1 }, (_, n) => item(n).id);
+    for (let n = LIMIT; n >= 0; n -= 1) state.merge(item(n, "working", 1));
+    // The newest thread's copy was dropped first; omitted by a listing that leaves it room, it is not counted without a
+    // row, while the oldest stays counted.
+    state.applyListing([], new Set(touched));
+    expect(state.shown()).toHaveLength(LIMIT);
+    expect(state.total).toBe(LIMIT);
+    expect(state.get(item(LIMIT).id)).toBeUndefined();
+    expect(ids(state).at(-1)).toBe(item(0).id);
+    expect(state.shown().every((entry) => entry.status === "working")).toBe(true);
+  });
 });
