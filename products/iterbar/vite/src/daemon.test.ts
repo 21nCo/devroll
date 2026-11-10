@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createNetServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -112,6 +112,21 @@ describe("DaemonLink", () => {
     expect(access.token).not.toBe(other.info.token);
     expect(await readMatchingDaemonFile(root)).toMatchObject({ projectRoot: root, token: access.token, pid: process.pid });
     expect(await allowedOrigins(other.url, other.info.token)).not.toContain("http://localhost:5173");
+  });
+
+  it("reuses a daemon started through a symlink to the root, while another project still does not match it", async () => {
+    const root = await tempRoot();
+    const linked = join(await tempRoot(), "linked-project");
+    await symlink(root, linked, "dir");
+    const daemon = await external(linked);
+    expect(daemon.info.projectRoot).toBe(linked);
+
+    const access = await link(root).connect(ORIGINS);
+    expect(access).toEqual({ daemonUrl: daemon.url, token: daemon.info.token, started: false });
+    const other = await tempRoot();
+    await mkdir(iterbarPaths(other).directory, { recursive: true });
+    await copyFile(iterbarPaths(root).daemonFile, iterbarPaths(other).daemonFile);
+    expect(await readMatchingDaemonFile(other)).toBeNull();
   });
 
   it("starts a daemon when daemon.json describes one that is gone, and stops it on close", async () => {

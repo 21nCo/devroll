@@ -27,7 +27,10 @@ const RESOLVED_CLIENT_ID = "\0iterbar:client";
 const BAR_ID = "@iterbar/bar";
 /** This file, so the bar resolves from the plugin's own dependencies rather than the app's. */
 const PLUGIN_FILE = fileURLToPath(import.meta.url);
-/** Vite's own `server.fs.deny`, which a config that sets the option replaces rather than extends. */
+/**
+ * Vite's own `server.fs.deny` (7.3.x), which a config that sets the option replaces rather than extends. Vite does not
+ * export it; plugin.test.ts compares this copy with the defaults the installed Vite resolves.
+ */
 const VITE_DEFAULT_FS_DENY = [".env", ".env.*", "*.{crt,pem}", "**/.git/**"];
 
 /** A path below Vite's `base`, which in dev is an absolute path (`/`, `/app/`). */

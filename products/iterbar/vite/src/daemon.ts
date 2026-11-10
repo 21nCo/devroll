@@ -177,7 +177,19 @@ async function acquireOwned(projectRoot: string, create: boolean): Promise<Lease
   };
 }
 
-/** The `daemon.json` of a project when it is valid and names the same project root; otherwise `null`. */
+/** A recorded project root as the file system resolves it, so a daemon started through a symlink still matches. */
+async function canonicalRoot(recorded: string): Promise<string> {
+  try {
+    return await realpath(recorded);
+  } catch {
+    return recorded;
+  }
+}
+
+/**
+ * The `daemon.json` of a project when it is valid and names the same project root; otherwise `null`. The caller
+ * passes the root's real path; the recorded root is resolved too, as a daemon started directly may record a symlink.
+ */
 export async function readMatchingDaemonFile(projectRoot: string): Promise<DaemonInfo | null> {
   const paths = iterbarPaths(projectRoot);
   let json: unknown;
@@ -187,7 +199,9 @@ export async function readMatchingDaemonFile(projectRoot: string): Promise<Daemo
     return null;
   }
   const parsed = safeParseMessage(daemonInfoSchema, json, "daemon info");
-  return parsed.success && parsed.data.projectRoot === paths.projectRoot ? parsed.data : null;
+  if (!parsed.success) return null;
+  const recorded = parsed.data.projectRoot;
+  return recorded === paths.projectRoot || (await canonicalRoot(recorded)) === paths.projectRoot ? parsed.data : null;
 }
 
 /** Whether a process runs with this id (`EPERM`: it runs as another user). */

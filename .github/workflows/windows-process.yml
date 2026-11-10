@@ -36,3 +36,9 @@ jobs:
         run: pnpm rebuild esbuild
       - name: Test Windows process lifecycle
         run: pnpm --filter @diffpanel/git exec vitest run src/process.test.ts src/windows-process.test.ts
+      - name: Enable 8.3 short names on the temp volume
+        run: fsutil 8dot3name set 'C:' 0
+      - name: Build the Iterbar Vite plugin's workspace dependencies
+        run: pnpm --filter "@iterbar/vite^..." build
+      - name: Test the Iterbar store guard against a real 8.3 short name
+        run: pnpm --filter @iterbar/vite exec vitest run src/store.windows.test.ts

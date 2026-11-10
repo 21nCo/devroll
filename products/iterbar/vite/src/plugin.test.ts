@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } f
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { build, createServer, type InlineConfig, type ViteDevServer } from "vite";
+import { build, createServer, resolveConfig, type InlineConfig, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
 import { checkConfigRequest } from "./endpoint.js";
@@ -211,6 +211,13 @@ describe("iterbar() in vite dev", () => {
       "/base/ITERBA~1/daemon.json",
       `/base/@fs${root}/.iterbar./daemon.json`,
       `/base/@fs/${root}/.iterbar/daemon.json`,
+      // Every shape of a Windows short name of the store, not just the first one Windows hands out.
+      "/base/ITERB~10/daemon.json",
+      "/base/ITER~100/daemon.json",
+      "/base/IT1A2B~1/daemon.json",
+      "/base/it5f2a~12./daemon.json",
+      "/base/%49TER~100/daemon.json",
+      `/base/@fs${root}/ITERB~10%20/daemon.json`,
     ];
     for (const path of paths) {
       const answer = await get(port, path, { origin: "http://localhost:3000", "sec-fetch-site": "cross-site" });
@@ -221,10 +228,40 @@ describe("iterbar() in vite dev", () => {
   });
 
   it("adds the store to Vite's server.fs.deny, next to Vite's own denials or the configured ones", async () => {
-    const { server } = await devServer();
-    expect(server.config.server.fs.deny).toEqual(expect.arrayContaining([".env", "**/.git/**", "**/.iterbar/**"]));
+    // Vite's defaults as this Vite resolves them, so a new default the plugin's copy lacks fails here.
+    const viteDefaults = (await resolveConfig({ root, configFile: false, logLevel: "silent" }, "serve")).server.fs.deny;
+    expect(viteDefaults.length).toBeGreaterThan(0);
+    const { server, port } = await devServer();
+    expect(server.config.server.fs.deny).toEqual([...viteDefaults, "**/.iterbar/**"]);
     const configured = await devServer({ server: { fs: { deny: ["secrets/**"] } } });
     expect(configured.server.config.server.fs.deny).toEqual(["secrets/**", "**/.iterbar/**"]);
+
+    // Vite's own denials still hold with the plugin installed.
+    await writeFile(join(root, ".env"), "SECRET=ENV-SECRET");
+    await writeFile(join(root, "dev-cert.pem"), "PEM-SECRET");
+    for (const path of [
+      `/@fs${root}/.env`, `/@fs${root}/.env?raw`, "/.env?import", "/.env?raw",
+      `/@fs${root}/dev-cert.pem?raw`, "/dev-cert.pem?import", "/dev-cert.pem?raw",
+    ]) {
+      const answer = await get(port, path);
+      expect(answer.status, path).not.toBe(200);
+      for (const secret of ["ENV-SECRET", "PEM-SECRET"]) expect(answer.body, path).not.toContain(secret);
+    }
+  });
+
+  it("checks a request path in time linear in its length, however many trailing dots or spaces a segment has", () => {
+    const timed = (length: number): number => {
+      const segments = [".".repeat(length) + "x", ". ".repeat(length / 2) + "x", ".iterbar" + ". ".repeat(length / 2) + "x"];
+      const started = performance.now();
+      for (const segment of segments) for (let round = 0; round < 5; round += 1) isStoreRequest(`/${segment}/daemon.json`);
+      return performance.now() - started;
+    };
+    timed(16_000);
+    const small = Math.max(timed(4_000), 0.5);
+    const large = timed(16_000);
+    // A quadratic check takes about 16 times as long for 4 times the length; a linear one about 4 times.
+    expect(large / 15).toBeLessThan(20);
+    expect(large / small).toBeLessThan(10);
   });
 
   it("recognizes a store path however it is written, and nothing else", () => {
@@ -233,12 +270,15 @@ describe("iterbar() in vite dev", () => {
       "/a\\.iterbar\\daemon.json", "http://host/.iterbar/daemon.json", "/.iterbar", "/%E0%A4%A.iterbar/x",
       "//.iterbar/daemon.json", "//.iterbar", "/.iterbar./x", "/.iterbar%20/x", "/.ITERBAR.. ./x", "/.iterbar:x/y",
       "/ITERBA~1/daemon.json", "/IT3F2A~2/x", "/@fs/C:/p/.iterbar./daemon.json", "/@fs/C:/p/iterba~1/daemon.json",
+      "/ITERB~10/x", "/ITER~100/x", "/IT~1234/x", "/IT1A2B~1/x", "/it5f2a~12/x", "/ITERB~10./x", "/ITER~100%20/x",
+      "/@fs/C:/p/IT1A2B~1/daemon.json", "/a/it~1.d/x",
     ]) {
       expect(isStoreRequest(url), url).toBe(true);
     }
     for (const url of [
       "/", "/@id/@iterbar/vite/client", "/__iterbar/config", "/iterbar/.iterbarx/a", "/src/main.ts?iterbar",
-      "/x.iterbar/a", "/iterba~x/a", "/@fs/C:/p/src/main.ts", "//host.example/app.js",
+      "/x.iterbar/a", "/iterba~x/a", "/@fs/C:/p/src/main.ts", "//host.example/app.js", "/PROGRA~1/x", "/it~/x",
+      "/itemlist~12345/x", "/iterba~1.json5/x", "/item~1x/a",
     ]) {
       expect(isStoreRequest(url), url).toBe(false);
     }
