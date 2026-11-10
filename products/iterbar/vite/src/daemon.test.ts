@@ -187,6 +187,22 @@ describe("DaemonLink", () => {
     expect(await created.connect(ORIGINS)).toEqual(first);
   });
 
+  it("takes over from a daemon of another process that answers it is shutting down", async () => {
+    const root = await tempRoot();
+    const stopping = await external(root);
+    const created = link(root);
+    expect((await created.connect(ORIGINS)).token).toBe(stopping.info.token);
+
+    // What the daemon answers while it shuts down; this link then waits for the store and starts its own.
+    failNextRegistration(() => {
+      void stopping.close();
+      return Promise.resolve(Response.json({ error: { code: "internal", message: "The daemon is shutting down" } }, { status: 503 }));
+    });
+    const access = await created.connect(ORIGINS);
+    expect(access.started).toBe(true);
+    expect(await readMatchingDaemonFile(root)).toMatchObject({ token: access.token, pid: process.pid });
+  });
+
   it("replaces a daemon.json daemon that does not answer in time once its process is gone", async () => {
     const root = await tempRoot();
     const gone = await external(root);

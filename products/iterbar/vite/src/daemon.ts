@@ -40,8 +40,8 @@ const delay = (ms: number) => new Promise((done) => setTimeout(done, ms));
  * - `refused`: it answered `400`, as it does for origins it does not take (past its cap on allowed origins), which a
  *   new daemon would refuse too;
  * - `failed`: no answer in time, or a server error: a live daemon that is busy may answer the next time;
- * - `gone`: nothing listens on its port, or what answers does not take this token (it stopped, or another server
- *   took the port).
+ * - `gone`: nothing listens on its port, the daemon answered `503` (it is shutting down, or lost its store), or what
+ *   answers does not take this token (it stopped, or another server took the port).
  */
 type Registration =
   | { readonly result: "ok" }
@@ -51,6 +51,7 @@ type FailedRegistration = Exclude<Registration, { readonly result: "ok" }>;
 function statusRegistration(status: number): FailedRegistration {
   const detail = `answered HTTP ${status}`;
   if (status === 400) return { result: "refused", detail };
+  if (status === 503) return { result: "gone", detail };
   if (status >= 500 || status === 408 || status === 429) return { result: "failed", detail };
   return { result: "gone", detail };
 }
