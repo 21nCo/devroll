@@ -11,30 +11,56 @@ export const STORE_DENY_PATTERN = `**/${STORE_DIR}/**`;
 const MAX_DECODE_ROUNDS = 4;
 /** An absolute-form request target (`http://host/path`); anything else, `//x` included, is a path. */
 const ABSOLUTE_FORM = /^[a-z][a-z\d+.-]*:\/\//i;
-/** The length of a Windows 8.3 name with its dot and extension, the longest a short name can be. */
-const SHORT_NAME_MAX_LENGTH = 12;
+/** The name Windows makes a short name from: the store's name without its leading dot. */
+const STORE_SHORT_SOURCE = STORE_DIR.slice(1);
+/** The longest base (the part before an extension) of a Windows 8.3 name. */
+const SHORT_BASE_MAX_LENGTH = 8;
+/** Windows' hashed short names keep this many characters of the name before up to four hex digits of its hash. */
+const SHORT_HASH_PREFIX_LENGTH = 2;
+const SHORT_HASH_MAX_DIGITS = 4;
+
+function isDigit(code: number): boolean {
+  return code >= 48 && code <= 57;
+}
+
+function isHexDigit(code: number): boolean {
+  return isDigit(code) || (code >= 97 && code <= 102);
+}
+
+/** Whether every character of `text` from `start` to `end` passes `test`, which it checks by code point. */
+function every(text: string, start: number, end: number, test: (code: number) => boolean): boolean {
+  for (let index = start; index < end; index += 1) {
+    if (!test(text.codePointAt(index) ?? -1)) return false;
+  }
+  return true;
+}
 
 /**
- * Whether a lower-case segment could be a Windows 8.3 short name of `.iterbar`. Windows drops the leading dot and
- * keeps the name's first characters before a `~` and a number: `ITERBA~1`, then `ITERB~10` and `ITER~100` as the
- * number grows, or `IT` with four hex digits (`IT3F2A~1`) once many similar names exist. Each form starts with `it`
- * and ends in `~` and digits, so any such segment of up to 12 characters is refused rather than only the forms
- * seen so far, with room to spare over the 8-character base; a URL segment like `it~1` costs a false positive. A
- * name with a 1 to 3 character extension counts too. Checked without a regular expression, in linear time.
+ * Whether a lower-case segment is a name Windows could have given `.iterbar` as its 8.3 short name. Windows drops
+ * the leading dot and keeps the start of `iterbar` before a `~` and a number, `ITERBA~1`, shortening it as the
+ * number grows (`ITERB~10`, `ITER~100`); once several names collide it keeps `IT` and up to four hex digits of a
+ * hash instead (`IT3F2A~1`). The base stays within 8 characters, and a 1 to 3 character extension is tolerated.
+ * Any other segment is served, even one shaped like a short name, such as a profile folder `ITADMI~1`: it cannot be
+ * the store. Only the hashed form is ambiguous, since another name starting with `it` can get one too. Checked
+ * without a regular expression, in linear time.
  */
 function isShortNameOfStore(name: string): boolean {
-  if (name.length > SHORT_NAME_MAX_LENGTH || !name.startsWith("it")) return false;
   const dot = name.indexOf(".");
   const base = dot === -1 ? name : name.slice(0, dot);
   const extension = dot === -1 ? "" : name.slice(dot + 1);
   if (dot !== -1 && (extension.length === 0 || extension.length > 3 || extension.includes("."))) return false;
-  const tilde = base.lastIndexOf("~");
-  if (tilde < 2 || tilde === base.length - 1) return false;
-  for (let index = tilde + 1; index < base.length; index += 1) {
-    const code = base.charCodeAt(index);
-    if (code < 48 || code > 57) return false;
-  }
-  return true;
+  const tilde = base.indexOf("~");
+  if (base.length > SHORT_BASE_MAX_LENGTH || tilde < SHORT_HASH_PREFIX_LENGTH || tilde === base.length - 1) return false;
+  if (!every(base, tilde + 1, base.length, isDigit)) return false;
+  const prefix = base.slice(0, tilde);
+  if (STORE_SHORT_SOURCE.startsWith(prefix)) return true;
+  const hashDigits = prefix.length - SHORT_HASH_PREFIX_LENGTH;
+  return (
+    prefix.startsWith(STORE_SHORT_SOURCE.slice(0, SHORT_HASH_PREFIX_LENGTH)) &&
+    hashDigits >= 1 &&
+    hashDigits <= SHORT_HASH_MAX_DIGITS &&
+    every(prefix, SHORT_HASH_PREFIX_LENGTH, prefix.length, isHexDigit)
+  );
 }
 
 /** The path of a request URL, in origin form (`/a/b`) or absolute form (`http://host/a/b`), without query or hash. */
@@ -85,7 +111,7 @@ function isStoreSegment(segment: string): boolean {
 /**
  * Whether a request URL names a path inside an Iterbar store. Any path segment the file system resolves to
  * `.iterbar` counts: in any case (macOS and Windows file systems ignore it), under `/` or `\`, encoded or not, with
- * trailing dots or spaces or a stream name, or as anything shaped like its Windows short name. That covers each way
+ * trailing dots or spaces or a stream name, or as a Windows short name it could have. That covers each way
  * Vite could serve the store: relative to its root or `base`, from the public directory, under `/@fs/<absolute
  * path>`, through `/@id/`, and with `?raw`, `?url` or `?import`, wherever the project root is. A target that starts with `//` is a path, as
  * Vite reads it, not a host.

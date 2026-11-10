@@ -215,7 +215,7 @@ describe("iterbar() in vite dev", () => {
       "/base/ITERB~10/daemon.json",
       "/base/ITER~100/daemon.json",
       "/base/IT1A2B~1/daemon.json",
-      "/base/it5f2a~12./daemon.json",
+      "/base/it5f2~12./daemon.json",
       "/base/%49TER~100/daemon.json",
       `/base/@fs${root}/ITERB~10%20/daemon.json`,
     ];
@@ -225,6 +225,26 @@ describe("iterbar() in vite dev", () => {
       for (const secret of [info?.token ?? "", "FEEDBACK-SECRET", "APP-STORE-SECRET"]) expect(answer.body, path).not.toContain(secret);
     }
     expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
+  });
+
+  it("serves a project under a directory whose name looks like a short name but is not the store's", async () => {
+    // As under a Windows profile such as C:\Users\ITADMI~1, which every /@fs path of the project passes through.
+    const project = join(root, "itadmi~1");
+    await mkdir(join(project, "src"), { recursive: true });
+    await writeFile(join(project, "index.html"), "<!doctype html><html><body></body></html>");
+    await writeFile(join(project, "src", "a.js"), 'export const marker = "MODULE-UNDER-ITADMI";');
+    const { port } = await devServer({ root: project });
+    for (const path of ["/src/a.js", `/@fs${project}/src/a.js`]) {
+      const answer = await get(port, path);
+      expect(answer.status, path).toBe(200);
+      expect(answer.body, path).toContain("MODULE-UNDER-ITADMI");
+    }
+    expect((await get(port, "/__iterbar/config")).status).toBe(200);
+    const info = await readMatchingDaemonFile(project);
+    expect(info).not.toBeNull();
+    const store = await get(port, `/@fs${project}/.iterbar/daemon.json?raw`);
+    expect(store.status).toBe(404);
+    expect(store.body).not.toContain(String(info?.token));
   });
 
   it("adds the store to Vite's server.fs.deny, next to Vite's own denials or the configured ones", async () => {
@@ -256,9 +276,11 @@ describe("iterbar() in vite dev", () => {
       for (const segment of segments) for (let round = 0; round < 5; round += 1) isStoreRequest(`/${segment}/daemon.json`);
       return performance.now() - started;
     };
+    // The fastest of several runs, so a pause of the test process does not count as the check's own time.
+    const fastest = (length: number): number => Math.min(...Array.from({ length: 5 }, () => timed(length)));
     timed(16_000);
-    const small = Math.max(timed(4_000), 0.5);
-    const large = timed(16_000);
+    const small = Math.max(fastest(4_000), 0.5);
+    const large = fastest(16_000);
     // A quadratic check takes about 16 times as long for 4 times the length; a linear one about 4 times.
     expect(large / 15).toBeLessThan(20);
     expect(large / small).toBeLessThan(10);
@@ -270,8 +292,9 @@ describe("iterbar() in vite dev", () => {
       "/a\\.iterbar\\daemon.json", "http://host/.iterbar/daemon.json", "/.iterbar", "/%E0%A4%A.iterbar/x",
       "//.iterbar/daemon.json", "//.iterbar", "/.iterbar./x", "/.iterbar%20/x", "/.ITERBAR.. ./x", "/.iterbar:x/y",
       "/ITERBA~1/daemon.json", "/IT3F2A~2/x", "/@fs/C:/p/.iterbar./daemon.json", "/@fs/C:/p/iterba~1/daemon.json",
-      "/ITERB~10/x", "/ITER~100/x", "/IT~1234/x", "/IT1A2B~1/x", "/it5f2a~12/x", "/ITERB~10./x", "/ITER~100%20/x",
-      "/@fs/C:/p/IT1A2B~1/daemon.json", "/a/it~1.d/x",
+      "/ITERB~10/x", "/ITER~100/x", "/IT~1234/x", "/IT1A2B~1/x", "/it5f2~12/x", "/ITERB~10./x", "/ITER~100%20/x",
+      "/@fs/C:/p/IT1A2B~1/daemon.json", "/a/it~1.d/x", "/iterba~1/x", "/IT3F2A~1/x", "/it3f2a~1./x", "/%49TERBA~1/x",
+      "/@fs/C:/Users/ITADMI~1/p/ITERBA~1/daemon.json",
     ]) {
       expect(isStoreRequest(url), url).toBe(true);
     }
@@ -279,6 +302,10 @@ describe("iterbar() in vite dev", () => {
       "/", "/@id/@iterbar/vite/client", "/__iterbar/config", "/iterbar/.iterbarx/a", "/src/main.ts?iterbar",
       "/x.iterbar/a", "/iterba~x/a", "/@fs/C:/p/src/main.ts", "//host.example/app.js", "/PROGRA~1/x", "/it~/x",
       "/itemlist~12345/x", "/iterba~1.json5/x", "/item~1x/a",
+      // Short names of other directories that start with `it`, in a project path or anywhere else, are not the store.
+      "/@fs/C:/Users/ITADMI~1/proj/node_modules/.vite/deps/react.js", "/@fs/C:/Users/ITEMS~2/app/src/main.tsx",
+      "/@fs/home/u/it~1x/src/a.ts", "/itadmi~1/a.js", "/items~2/a.js", "/it3g2a~1/a.js", "/ITEMSA~1/a.js",
+      "/iterbarx~1/a.js", "/it5f2a~12/a.js", "/itez~1/a.js", "/i~1/a.js",
     ]) {
       expect(isStoreRequest(url), url).toBe(false);
     }
