@@ -45,11 +45,11 @@ describe("applyListing", () => {
   it("replaces held items with the listing and drops what it no longer lists", () => {
     const state = new ThreadsState(100);
     listed(state, [feedback("a", at, at), feedback("gone", at, at)]);
-    expect(listed(state, [feedback("a", at, at, "done"), feedback("b", at, at)])).toBe(true);
+    expect(listed(state, [feedback("a", at, at, "done"), feedback("b", at, at)])).toEqual({ changed: true, complete: true });
     expect(ids(state)).toEqual(["a", "b"]);
     expect(state.total).toBe(2);
     expect(state.get("a")?.status).toBe("done");
-    expect(listed(state, [feedback("a", at, at, "done"), feedback("b", at, at)])).toBe(false);
+    expect(listed(state, [feedback("a", at, at, "done"), feedback("b", at, at)]).changed).toBe(false);
   });
 
   it("keeps what events delivered during the listing, ties and unlisted items included", () => {
@@ -207,19 +207,44 @@ describe("a long feedback history", () => {
     expect(gap.state.get(item(0).id)?.status).toBe("done");
   });
 
-  it("keeps aside at most the window's worth of hidden copies, and never counts a thread it cannot show", () => {
-    const state = new ThreadsState(LIMIT);
-    const all = history();
-    state.applyListing(all, new Set());
-    const touched = Array.from({ length: LIMIT + 1 }, (_, n) => item(n).id);
-    for (let n = LIMIT; n >= 0; n -= 1) state.merge(item(n, "working", 1));
-    // The newest thread's copy was dropped first; omitted by a listing that leaves it room, it is not counted without a
-    // row, while the oldest stays counted.
-    state.applyListing([], new Set(touched));
-    expect(state.shown()).toHaveLength(LIMIT);
-    expect(state.total).toBe(LIMIT);
-    expect(state.get(item(LIMIT).id)).toBeUndefined();
-    expect(ids(state).at(-1)).toBe(item(0).id);
-    expect(state.shown().every((entry) => entry.status === "working")).toBe(true);
+  describe("more hidden updates during a listing than are kept aside", () => {
+    /** Updates hidden threads `LIMIT` down to 0 while a listing is in flight, so the newest one's copy is dropped. */
+    const overflowing = (status: Feedback["status"] = "working", minutes = 1) => {
+      const state = new ThreadsState(LIMIT);
+      state.applyListing(history(), new Set());
+      for (let n = LIMIT; n >= 0; n -= 1) state.merge(item(n, status, minutes));
+      return { state, touched: new Set(Array.from({ length: LIMIT + 1 }, (_, n) => item(n).id)) };
+    };
+
+    it("never counts out or rolls back an event, and reports the listing incomplete until a fresh one", () => {
+      for (const listing of [[], [item(LIMIT, "open", 0)]]) {
+        const { state, touched } = overflowing();
+        expect(state.applyListing(listing, touched).complete).toBe(false);
+        expect(state.total).toBe(LIMIT + 1);
+        expect(state.shown().every((entry) => entry.status === "working")).toBe(true);
+        expect(state.get(item(LIMIT).id)).toBeUndefined();
+        // A stale copy stays stale; a fresh listing carries the current content.
+        expect(state.merge(item(LIMIT, "open", 0))).toBe("stale");
+        const fresh = [...state.shown(), item(LIMIT, "working", 1)];
+        expect(state.applyListing(fresh, new Set())).toEqual({ changed: true, complete: true });
+        expect(ids(state)[0]).toBe(item(LIMIT).id);
+        expect(state.get(item(LIMIT).id)?.status).toBe("working");
+        expect(state.total).toBe(LIMIT + 1);
+      }
+    });
+
+    it("holds an equal-time event the same way, and takes an authoritative listing as it is", () => {
+      const tie = overflowing("done", 0);
+      expect(tie.state.applyListing([item(LIMIT, "open", 0)], tie.touched).complete).toBe(false);
+      expect(tie.state.get(item(LIMIT).id)).toBeUndefined();
+
+      const listedStale = overflowing();
+      expect(listedStale.state.applyListing([item(LIMIT, "open", 0)], listedStale.touched, true).complete).toBe(true);
+      expect(listedStale.state.get(item(LIMIT).id)?.status).toBe("open");
+      const omitted = overflowing();
+      expect(omitted.state.applyListing([], omitted.touched, true).complete).toBe(true);
+      expect(omitted.state.total).toBe(LIMIT);
+      expect(omitted.state.shown()).toHaveLength(LIMIT);
+    });
   });
 });

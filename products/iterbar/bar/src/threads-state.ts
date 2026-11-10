@@ -9,6 +9,15 @@ interface Known {
 /** How an event's copy of an item compared with what was held. */
 export type MergeResult = "stale" | "unchanged" | "changed";
 
+/**
+ * What a listing did: whether anything shown or counted `changed`, and whether it is `complete`, that is every thread
+ * that belongs in view has content at least as recent as any event delivered for it.
+ */
+export interface ListingResult {
+  readonly changed: boolean;
+  readonly complete: boolean;
+}
+
 const time = (value: string): number => Date.parse(value);
 
 function compareIds(left: string, right: string): number {
@@ -22,8 +31,9 @@ const sameFeedback = (left: Feedback, right: Feedback): boolean => JSON.stringif
  * The feedback threads the bar knows about. Only the newest `limit` by creation are kept in full, newest first, ties
  * by id, so an item's place never changes once it is shown; the rest are remembered by id and timestamps only, except
  * that the latest copies of at most `limit` hidden threads that events delivered or pushed out of view are kept
- * aside, so a listing that brings such a thread into view shows what the event delivered. Memory and the work per
- * event are bounded by `limit`, however much feedback the daemon has accumulated, and the total stays exact.
+ * aside, so a listing that brings such a thread into view shows what the event delivered (see {@link applyListing}
+ * for when more were delivered than are kept). Memory and the work per event are bounded by `limit`, however much
+ * feedback the daemon has accumulated, and the total stays exact.
  */
 export class ThreadsState {
   readonly #limit: number;
@@ -85,27 +95,41 @@ export class ThreadsState {
    * Applies a complete listing from the daemon, which replaces what is held. An item it omits is dropped unless an
    * event that was not stale delivered it while the listing was in flight (`touched`). The listing may predate such an
    * event even with an equal `updatedAt`, so for a touched item the held copy also wins a tie; a strictly newer listed
-   * copy still wins. A held copy that wins but is not shown takes its content from the copies kept aside; failing that,
-   * the listed copy is taken whole, and an omitted touched thread without content is kept only while it is hidden.
-   * Returns whether anything shown or counted changed.
+   * copy still wins. A held copy that wins but is not shown takes its content from the copies kept aside. When none is
+   * kept, the thread stays counted with its held timestamps but without a row, and if it belongs in view the result is
+   * not `complete`: a later listing, requested after the event arrived, carries its content. An `authoritative` listing
+   * is the last such attempt, so it is taken as it is: its copy stands, and an omitted thread without content is
+   * dropped if it belongs in view.
    */
-  applyListing(listed: readonly Feedback[], touched: ReadonlySet<string>): boolean {
+  applyListing(listed: readonly Feedback[], touched: ReadonlySet<string>, authoritative = false): ListingResult {
     const known = new Map<string, Known>();
     const shown: Feedback[] = [];
     const shownById = new Map<string, Feedback>();
     const keptCopies: Feedback[] = [];
+    const contentless: string[] = [];
     for (const item of listed) {
       if (known.has(item.id)) continue;
       const held = this.#known.get(item.id);
       const listedAt = time(item.updatedAt);
       const heldWins = held !== undefined && (held.updatedAt > listedAt || (touched.has(item.id) && held.updatedAt === listedAt));
-      // A winning held copy whose content is no longer kept gives way entirely, so content and timestamp agree.
       const kept = heldWins ? this.#heldCopy(item.id) : undefined;
+      if (heldWins && !kept && !authoritative) {
+        // The listed copy is older than what an event delivered, so it never stands in for it.
+        known.set(item.id, { ...held! });
+        contentless.push(item.id);
+        continue;
+      }
       known.set(item.id, { createdAt: time(item.createdAt), updatedAt: kept ? held!.updatedAt : listedAt });
       this.#insert(shown, shownById, kept ?? item, known);
       if (kept) keptCopies.push(kept);
     }
-    this.#keepOmittedTouched(touched, known, shown, shownById, keptCopies);
+    this.#keepOmittedTouched(touched, known, shown, shownById, keptCopies, contentless);
+    let complete = true;
+    for (const id of contentless) {
+      if (this.#position(shown, id, known) >= this.#limit) continue;
+      if (authoritative) known.delete(id);
+      else complete = false;
+    }
     const changed = known.size !== this.#known.size || shown.length !== this.#shown.length
       || shown.some((item, index) => !sameFeedback(item, this.#shown[index]!));
     this.#known = known;
@@ -113,7 +137,7 @@ export class ThreadsState {
     this.#shownById = shownById;
     // Held copies that won but stay hidden keep their content for a later listing.
     this.#aside = new Map(keptCopies.filter((item) => !shownById.has(item.id)).slice(-this.#limit).map((item) => [item.id, item]));
-    return changed;
+    return { changed, complete };
   }
 
   /** Forgets every thread. Returns whether there was any. */
@@ -126,10 +150,9 @@ export class ThreadsState {
     return changed;
   }
 
-  /** Keeps the touched threads a listing omits in the listing's new `known`, `shown` and `shownById`. */
+  /** Keeps the touched threads a listing omits in its new state; those without content go to `contentless`. */
   #keepOmittedTouched(touched: ReadonlySet<string>, known: Map<string, Known>, shown: Feedback[],
-    shownById: Map<string, Feedback>, keptCopies: Feedback[]): void {
-    const contentless: string[] = [];
+    shownById: Map<string, Feedback>, keptCopies: Feedback[], contentless: string[]): void {
     for (const id of touched) {
       const held = this.#known.get(id);
       if (!held || known.has(id)) continue;
@@ -142,8 +165,6 @@ export class ThreadsState {
         contentless.push(id);
       }
     }
-    // Counting a thread that would be shown but whose content is unknown would leave a row missing.
-    for (const id of contentless) if (this.#position(shown, id, known) < this.#limit) known.delete(id);
   }
 
   /** The full copy held for a thread, shown or kept aside. */

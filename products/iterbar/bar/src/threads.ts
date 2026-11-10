@@ -96,9 +96,14 @@ export class ThreadsPanel {
     return result !== "stale";
   }
 
-  /** Replaces the threads with a complete listing; see {@link ThreadsState.applyListing}. */
-  replace(items: readonly Feedback[], touched: ReadonlySet<string>): void {
-    if (this.#state.applyListing(items, touched)) this.#render();
+  /**
+   * Replaces the threads with a complete listing; see {@link ThreadsState.applyListing}. Returns whether the listing
+   * was complete, so a fresh one is needed when it was not.
+   */
+  replace(items: readonly Feedback[], touched: ReadonlySet<string>, authoritative: boolean): boolean {
+    const { changed, complete } = this.#state.applyListing(items, touched, authoritative);
+    if (changed) this.#render();
+    return complete;
   }
 
   /** Forgets every thread, as when the bar switches to another daemon. */

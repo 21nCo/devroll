@@ -108,7 +108,7 @@ describe("DaemonConnection", () => {
       onStatus: (status) => statuses.push(status.kind),
       // As ThreadsPanel.merge does.
       onFeedback: (item) => threads.merge(item) !== "stale",
-      onListing: (items, touched) => threads.applyListing(items, touched),
+      onListing: (items, touched, authoritative) => threads.applyListing(items, touched, authoritative).complete,
     });
     connection.start();
     return connection;
@@ -162,6 +162,34 @@ describe("DaemonConnection", () => {
 
   it("lets an event identical to the held copy keep it against an equal-timestamp listing in flight", async () => {
     expect(await relist([feedback("a", "done")], [feedback("a", "done")], [feedback("a", "working")])).toEqual([["a", "done"]]);
+  });
+
+  it("requests a fresh listing after an incomplete one, a bounded number of times, keeping events in flight", async () => {
+    const calls: { ids: string[]; touched: string[]; authoritative: boolean }[] = [];
+    new DaemonConnection({ url: "http://127.0.0.1:4555", token }, {
+      onStatus: () => {},
+      onFeedback: () => true,
+      onListing: (items, touched, authoritative) => {
+        calls.push({ ids: items.map((item) => item.id), touched: [...touched], authoritative });
+        return false;
+      },
+    }).start();
+    socket().open();
+    pending("/feedback")[0]!.respond(200, list([feedback("a", "open")]));
+    await settle();
+    // The fresh listing tracks the events that arrive while it is in flight.
+    socket().receive({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: feedback("b", "working") });
+    pending("/feedback")[1]!.respond(200, list([feedback("a", "working")]));
+    await settle();
+    pending("/feedback")[2]!.respond(200, list([]));
+    await settle();
+    expect(calls).toEqual([
+      { ids: ["a"], touched: [], authoritative: false },
+      { ids: ["a"], touched: ["b"], authoritative: false },
+      { ids: [], touched: [], authoritative: true },
+    ]);
+    expect(pending("/feedback")).toHaveLength(3);
+    expect(socket().closed).toBe(false);
   });
 
   it("fails a stalled listing, diagnosis or slot report after the deadline, with the socket open", async () => {

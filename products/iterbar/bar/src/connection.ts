@@ -72,6 +72,9 @@ function nextReportedAt(): string {
 /** Longest a daemon request may take, body included, before it fails like any other transient error. */
 export const REQUEST_TIMEOUT_MS = 10_000;
 
+/** Fresh listings requested after an incomplete one before the next is taken as it is. */
+export const MAX_RECOVERY_LISTINGS = 2;
+
 /** Reconnect delays in milliseconds; the last one repeats. */
 const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15_000, 30_000];
 
@@ -84,9 +87,11 @@ export interface ConnectionCallbacks {
   onFeedback(item: Feedback): boolean;
   /**
    * The daemon's complete feedback listing, which replaces what the bar shows. `touched` holds the ids of items that
-   * current events delivered while the listing was in flight; those events may be newer than the listing.
+   * current events delivered while the listing was in flight; those events may be newer than the listing. Returns
+   * `false` when the listing left a thread in view without its latest content, so a fresh listing is requested;
+   * after {@link MAX_RECOVERY_LISTINGS} of those, the listing is `authoritative` and taken as it is.
    */
-  onListing(items: readonly Feedback[], touched: ReadonlySet<string>): void;
+  onListing(items: readonly Feedback[], touched: ReadonlySet<string>, authoritative: boolean): boolean;
 }
 
 class UnauthorizedError extends Error {}
@@ -197,8 +202,11 @@ export class DaemonConnection {
     });
   }
 
-  /** Lists every feedback item. A failure closes the socket, so the next open lists again. */
-  async #list(socket: WebSocket): Promise<void> {
+  /**
+   * Lists every feedback item, again when the listing was incomplete. A failure closes the socket, so the next open
+   * lists again.
+   */
+  async #list(socket: WebSocket, recoveries = 0): Promise<void> {
     const touched = new Set<string>();
     this.#touched = touched;
     try {
@@ -206,7 +214,10 @@ export class DaemonConnection {
       if (!body.success) throw body.error;
       if (this.#socket !== socket) return;
       this.#attempt = 0;
-      this.#callbacks.onListing(body.data.items, touched);
+      const authoritative = recoveries >= MAX_RECOVERY_LISTINGS;
+      if (!this.#callbacks.onListing(body.data.items, touched, authoritative) && !authoritative) {
+        void this.#list(socket, recoveries + 1);
+      }
     } catch (error) {
       if (this.#stopped || this.#socket !== socket) return;
       if (error instanceof UnauthorizedError) this.#reject();
