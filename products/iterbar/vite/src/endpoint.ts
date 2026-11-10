@@ -12,7 +12,13 @@ export interface BarConfigResponse {
 
 export type ConfigRequestCheck =
   | { readonly allowed: true; readonly origin: string }
-  | { readonly allowed: false; readonly status: number; readonly error: string };
+  | {
+    readonly allowed: false;
+    readonly status: number;
+    readonly error: string;
+    /** Headers the refusal needs, such as `Allow` on a `405`. */
+    readonly headers?: Readonly<Record<string, string>>;
+  };
 
 /** What the config endpoint needs to know about the dev server. */
 export interface ConfigRequestContext {
@@ -29,11 +35,17 @@ export interface ConfigRequestContext {
 
 const FORBIDDEN = "Only the dev server's own pages may read the Iterbar config";
 
-/** The host the request was sent to: `Host` in HTTP/1.1, the `:authority` pseudo-header in HTTP/2. */
+/** A bare `host[:port]`: no user info, path, query, fragment, backslash or white space for a URL parser to drop. */
+const BARE_AUTHORITY = /^[^@/\\?#\s]+$/;
+
+/**
+ * The host the request was sent to: `Host` in HTTP/1.1, the `:authority` pseudo-header in HTTP/2. `undefined` when
+ * missing or not a bare `host[:port]`, so `user@127.0.0.1:5173` or `127.0.0.1:5173/x` never passes as a loopback host.
+ */
 function requestAuthority(request: IncomingMessage): string | undefined {
-  const authority = request.headers[":authority"];
-  if (typeof authority === "string" && authority !== "") return authority;
-  return request.headers.host;
+  const pseudo = request.headers[":authority"];
+  const authority = typeof pseudo === "string" && pseudo !== "" ? pseudo : request.headers.host;
+  return authority !== undefined && BARE_AUTHORITY.test(authority) ? authority : undefined;
 }
 
 /**
@@ -43,7 +55,7 @@ function requestAuthority(request: IncomingMessage): string | undefined {
  */
 function candidateOrigins(request: IncomingMessage, context: ConfigRequestContext): string[] {
   const authority = requestAuthority(request);
-  if (authority === undefined || authority === "") return [];
+  if (authority === undefined) return [];
   const own = originOf(`${context.https ? "https" : "http"}://${authority}`);
   if (own === null) return [];
   const candidates = [own];
@@ -63,7 +75,7 @@ function candidateOrigins(request: IncomingMessage, context: ConfigRequestContex
  */
 export function checkConfigRequest(request: IncomingMessage, context: ConfigRequestContext): ConfigRequestCheck {
   if (request.method !== "GET") {
-    return { allowed: false, status: 405, error: "Only GET is allowed" };
+    return { allowed: false, status: 405, error: "Only GET is allowed", headers: { allow: "GET" } };
   }
   const site = request.headers["sec-fetch-site"];
   if (site !== undefined && site !== "same-origin") {
@@ -88,9 +100,15 @@ export function checkConfigRequest(request: IncomingMessage, context: ConfigRequ
 }
 
 /** Sends a JSON answer that no cache keeps and no browser sniffs as another type. */
-export function sendJson(response: ServerResponse, status: number, body: unknown): void {
+export function sendJson(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Readonly<Record<string, string>> = {},
+): void {
   const text = JSON.stringify(body);
   response.writeHead(status, {
+    ...headers,
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",

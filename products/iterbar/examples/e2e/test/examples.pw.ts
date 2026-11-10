@@ -71,7 +71,7 @@ for (const app of APPS) {
 
         // The bar reached the daemon with the token it was given.
         await expect.poll(async () => (await daemonSlots(info as DaemonInfo)).flatMap((entry) => entry.slots)
-          .map(({ slot, activeVersion }) => `${slot}:${activeVersion}`).sort()).toEqual(["hero:bold", "pricing:cards"]);
+          .map(({ slot, activeVersion }) => `${slot}:${activeVersion}`).sort((a, b) => a.localeCompare(b))).toEqual(["hero:bold", "pricing:cards"]);
       } finally {
         await dev.stop(stopSignal);
       }

@@ -1,13 +1,13 @@
 import { isHttpOrigin } from "iterbar";
 
 /** Host names that all reach this machine's loopback interface; a page may use any of them for the same server. */
-const LOOPBACK_HOSTS: readonly string[] = ["localhost", "127.0.0.1", "[::1]"];
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/** The origin of an http(s) URL, or `null` for anything else. */
+/** The origin of an http(s) URL, or `null` for anything else, a URL with user info included. */
 export function originOf(url: string): string | null {
   try {
-    const { origin } = new URL(url);
-    return isHttpOrigin(origin) ? origin : null;
+    const { origin, username, password } = new URL(url);
+    return isHttpOrigin(origin) && username === "" && password === "" ? origin : null;
   } catch {
     return null;
   }
@@ -38,11 +38,11 @@ export function devServerOrigins(urls: readonly string[]): string[] {
     if (origin === null) continue;
     origins.add(origin);
     const parsed = new URL(origin);
-    if (!LOOPBACK_HOSTS.includes(parsed.hostname)) continue;
+    if (!LOOPBACK_HOSTS.has(parsed.hostname)) continue;
     for (const host of LOOPBACK_HOSTS) {
       parsed.hostname = host;
       origins.add(parsed.origin);
     }
   }
-  return [...origins].sort();
+  return [...origins].sort((a, b) => a.localeCompare(b));
 }

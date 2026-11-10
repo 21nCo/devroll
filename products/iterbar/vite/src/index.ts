@@ -4,7 +4,7 @@ import type { HtmlTagDescriptor, Plugin, ResolvedConfig, ViteDevServer } from "v
 import { DaemonLink } from "./daemon.js";
 import { checkConfigRequest, CONFIG_PATH, sendJson, type BarConfigResponse } from "./endpoint.js";
 import { checkExtraOrigins, devServerOrigins, originOf } from "./origins.js";
-import { storeGuard } from "./store.js";
+import { STORE_DENY_PATTERN, storeGuard } from "./store.js";
 
 export type { BarConfigResponse } from "./endpoint.js";
 
@@ -27,11 +27,14 @@ const RESOLVED_CLIENT_ID = "\0iterbar:client";
 const BAR_ID = "@iterbar/bar";
 /** This file, so the bar resolves from the plugin's own dependencies rather than the app's. */
 const PLUGIN_FILE = fileURLToPath(import.meta.url);
+/** Vite's own `server.fs.deny`, which a config that sets the option replaces rather than extends. */
+const VITE_DEFAULT_FS_DENY = [".env", ".env.*", "*.{crt,pem}", "**/.git/**"];
 
 /** A path below Vite's `base`, which in dev is an absolute path (`/`, `/app/`). */
 function withBase(base: string, path: string): string {
   if (!base.startsWith("/")) return `/${path}`;
-  return `${base.endsWith("/") ? base : `${base}/`}${path}`;
+  const directory = base.endsWith("/") ? base : `${base}/`;
+  return directory + path;
 }
 
 /** The client module: mounts the bar once the dev server has answered with the daemon's URL and token. */
@@ -109,6 +112,13 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
     enforce: "pre",
     apply: (_config, env) => env.command === "serve" && !env.isPreview,
 
+    // Vite refuses to read the store by its resolved path too; Vite's own denials stay. A config that sets
+    // `server.fs.deny` keeps its list, and this pattern is added to it.
+    config(user) {
+      const deny = user.server?.fs?.deny ? [STORE_DENY_PATTERN] : [...VITE_DEFAULT_FS_DENY, STORE_DENY_PATTERN];
+      return { server: { fs: { deny } } };
+    },
+
     configResolved(resolved) {
       config = resolved;
     },
@@ -161,7 +171,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
           allowedOrigins: origins,
           configuredOrigins: configuredOrigins(server, extraOrigins),
         });
-        if (!check.allowed) return sendJson(response, check.status, { error: check.error });
+        if (!check.allowed) return sendJson(response, check.status, { error: check.error }, check.headers);
         if (state.closing) return sendJson(response, 503, { error: "The dev server is closing" });
         state.link.connect(origins).then((access) => {
           const described = `${access.daemonUrl} (${access.started ? "started in this process" : "already running"})`;

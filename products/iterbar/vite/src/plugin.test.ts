@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { request as httpRequest, type OutgoingHttpHeaders } from "node:http";
+import { request as httpRequest, type IncomingMessage, type OutgoingHttpHeaders } from "node:http";
 import { connect as http2Connect, type OutgoingHttpHeaders as Http2Headers } from "node:http2";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { build, createServer, type InlineConfig, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
+import { checkConfigRequest } from "./endpoint.js";
 import { CLIENT_ID, iterbar } from "./index.js";
 import { isStoreRequest } from "./store.js";
 
@@ -127,7 +128,19 @@ describe("iterbar() in vite dev", () => {
       await get(port, "/app/__iterbar/config", {}, "POST"),
     ];
     expect(refused.map(({ status }) => status)).toEqual([403, 403, 403, 405]);
+    expect(refused[3]?.headers.allow).toBe("GET");
     for (const { body } of refused) expect(body).not.toContain(info?.token);
+  });
+
+  it("refuses a Host that is not a bare host and port, such as one with user info or a path", async () => {
+    // With every host allowed, the endpoint's own check is all that stands between such a Host and the token.
+    const { port } = await devServer({ server: { allowedHosts: true } });
+    for (const host of [`user@127.0.0.1:${port}`, `user:pass@localhost:${port}`, `127.0.0.1:${port}/x`, `127.0.0.1:${port}\\x`]) {
+      const answer = await get(port, "/__iterbar/config", { host, "sec-fetch-site": "same-origin" });
+      expect(answer.status, host).toBe(403);
+    }
+    expect(await readMatchingDaemonFile(root)).toBeNull();
+    expect((await get(port, "/__iterbar/config", { "sec-fetch-site": "same-origin" })).status).toBe(200);
   });
 
   it("refuses a page reached under a host name that is not the dev server's, even when Vite allows every host", async () => {
@@ -187,6 +200,17 @@ describe("iterbar() in vite dev", () => {
       `/base/@fs${root}/app/../.iterbar/daemon.json`,
       `/base/@id/${root}/.iterbar/daemon.json?raw`,
       `/@fs${root}/.iterbar/daemon.json`,
+      // A leading `//` is still a path to Vite, and Windows resolves trailing dots and spaces, streams and short names.
+      "//.iterbar/daemon.json",
+      "///.iterbar/daemon.json",
+      "/base//.iterbar/daemon.json",
+      "/base/.iterbar./daemon.json",
+      "/base/.iterbar%20/daemon.json",
+      "/base/.iterbar.%20./daemon.json",
+      "/base/.iterbar::$INDEX_ALLOCATION/daemon.json",
+      "/base/ITERBA~1/daemon.json",
+      `/base/@fs${root}/.iterbar./daemon.json`,
+      `/base/@fs/${root}/.iterbar/daemon.json`,
     ];
     for (const path of paths) {
       const answer = await get(port, path, { origin: "http://localhost:3000", "sec-fetch-site": "cross-site" });
@@ -196,14 +220,26 @@ describe("iterbar() in vite dev", () => {
     expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
   });
 
+  it("adds the store to Vite's server.fs.deny, next to Vite's own denials or the configured ones", async () => {
+    const { server } = await devServer();
+    expect(server.config.server.fs.deny).toEqual(expect.arrayContaining([".env", "**/.git/**", "**/.iterbar/**"]));
+    const configured = await devServer({ server: { fs: { deny: ["secrets/**"] } } });
+    expect(configured.server.config.server.fs.deny).toEqual(["secrets/**", "**/.iterbar/**"]);
+  });
+
   it("recognizes a store path however it is written, and nothing else", () => {
     for (const url of [
       "/.iterbar/daemon.json", "/a/.Iterbar/x", "/%2Eiterbar/daemon.json", "/a%2F.iterbar%2Fdaemon.json",
       "/a\\.iterbar\\daemon.json", "http://host/.iterbar/daemon.json", "/.iterbar", "/%E0%A4%A.iterbar/x",
+      "//.iterbar/daemon.json", "//.iterbar", "/.iterbar./x", "/.iterbar%20/x", "/.ITERBAR.. ./x", "/.iterbar:x/y",
+      "/ITERBA~1/daemon.json", "/IT3F2A~2/x", "/@fs/C:/p/.iterbar./daemon.json", "/@fs/C:/p/iterba~1/daemon.json",
     ]) {
       expect(isStoreRequest(url), url).toBe(true);
     }
-    for (const url of ["/", "/@id/@iterbar/vite/client", "/__iterbar/config", "/iterbar/.iterbarx/a", "/src/main.ts?iterbar"]) {
+    for (const url of [
+      "/", "/@id/@iterbar/vite/client", "/__iterbar/config", "/iterbar/.iterbarx/a", "/src/main.ts?iterbar",
+      "/x.iterbar/a", "/iterba~x/a", "/@fs/C:/p/src/main.ts", "//host.example/app.js",
+    ]) {
       expect(isStoreRequest(url), url).toBe(false);
     }
   });
@@ -238,6 +274,12 @@ describe("iterbar() in vite dev", () => {
       await getHttp2(port, "/__iterbar/config", { "sec-fetch-site": "cross-site" }),
     ];
     expect(refused.map(({ status }) => status)).toEqual([403, 403, 403]);
+
+    // HTTP/2 stacks refuse user info in :authority themselves; the endpoint refuses it too.
+    const context = { https: true, allowedOrigins: [`https://127.0.0.1:${port}`], configuredOrigins: [] };
+    const request = (authority: string) => ({ method: "GET", headers: { ":authority": authority } }) as unknown as IncomingMessage;
+    expect(checkConfigRequest(request(`127.0.0.1:${port}`), context)).toMatchObject({ allowed: true });
+    expect(checkConfigRequest(request(`user@127.0.0.1:${port}`), context)).toMatchObject({ allowed: false, status: 403 });
   });
 
   it("accepts a configured HTTPS origin whose TLS ends at a proxy in front of the HTTP dev server", async () => {

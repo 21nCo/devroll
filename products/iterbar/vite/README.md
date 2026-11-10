@@ -63,7 +63,9 @@ The plugin then registers the dev server's origins with the daemon: every
 URL Vite prints (each loopback one also as `localhost`, `127.0.0.1` and
 `[::1]`), `server.origin`, and the `origins` option. It repeats this on
 every page load, which also notices a daemon that stopped or restarted and
-moves to the current one.
+moves to the current one. A daemon that answers too slowly or with a server
+error is kept, with its token, and the page load gets a `503`: only a
+daemon that has shut down, or one that nothing answers for, is replaced.
 
 The bar gets the daemon's URL and token from `GET <base>__iterbar/config` on
 the dev server. Only the dev server's own pages can read it: the request
@@ -76,8 +78,11 @@ browsers reach over HTTP/2.
 
 The dev server never serves a `.iterbar/` store, which holds `daemon.json`
 with the token and the feedback: every request with a `.iterbar` path
-segment (in any case, encoded or not, under `base`, `/@fs/`, `/@id/` or the
-public directory) gets a `404` before Vite's own middleware sees it.
+segment (in any case, encoded or not, with trailing dots or spaces or as
+its Windows short name, under `base`, `/@fs/`, `/@id/` or the public
+directory) gets a `404` before Vite's own middleware sees it. The plugin
+also adds `**/.iterbar/**` to `server.fs.deny`, next to Vite's defaults or
+the list the config sets.
 
 Behind a proxy or tunnel that ends TLS and forwards plain HTTP with the
 original host, add its `https` origin to `origins` (and the host to
