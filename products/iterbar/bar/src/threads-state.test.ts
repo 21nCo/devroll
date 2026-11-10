@@ -209,10 +209,10 @@ describe("a long feedback history", () => {
 
   describe("more hidden updates during a listing than are kept aside", () => {
     /** Updates hidden threads `LIMIT` down to 0 while a listing is in flight, so the newest one's copy is dropped. */
-    const overflowing = (status: Feedback["status"] = "working", minutes = 1) => {
+    const overflowing = (status: Feedback["status"] = "working", minutes = 1, replies: Feedback["replies"] = []) => {
       const state = new ThreadsState(LIMIT);
       state.applyListing(history(), new Set());
-      for (let n = LIMIT; n >= 0; n -= 1) state.merge(item(n, status, minutes));
+      for (let n = LIMIT; n >= 0; n -= 1) state.merge({ ...item(n, status, minutes), replies: n === LIMIT ? replies : [] });
       return { state, touched: new Set(Array.from({ length: LIMIT + 1 }, (_, n) => item(n).id)) };
     };
 
@@ -233,18 +233,41 @@ describe("a long feedback history", () => {
       }
     });
 
-    it("holds an equal-time event the same way, and takes an authoritative listing as it is", () => {
+    it("holds an equal-time event the same way", () => {
       const tie = overflowing("done", 0);
       expect(tie.state.applyListing([item(LIMIT, "open", 0)], tie.touched).complete).toBe(false);
       expect(tie.state.get(item(LIMIT).id)).toBeUndefined();
+      expect(tie.state.complete).toBe(false);
+    });
 
-      const listedStale = overflowing();
-      expect(listedStale.state.applyListing([item(LIMIT, "open", 0)], listedStale.touched, true).complete).toBe(true);
-      expect(listedStale.state.get(item(LIMIT).id)?.status).toBe("open");
-      const omitted = overflowing();
-      expect(omitted.state.applyListing([], omitted.touched, true).complete).toBe(true);
-      expect(omitted.state.total).toBe(LIMIT);
-      expect(omitted.state.shown()).toHaveLength(LIMIT);
+    it("never rolls back or counts out an event, however many listings in a row leave it without content", () => {
+      const replies: Feedback["replies"] = [{ id: "rp_1", author: { kind: "agent", name: "Agent" }, text: "On it.", createdAt: created(LIMIT) }];
+      for (const listing of [[item(LIMIT, "open", 0)], [item(LIMIT, "working", 1)], []]) {
+        // The first event carries replies; the overflowing ones that follow push its copy out.
+        const { state, touched } = overflowing("working", 1, replies);
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          expect(state.applyListing(listing, touched).complete).toBe(false);
+          expect(state.complete).toBe(false);
+          expect(state.total).toBe(LIMIT + 1);
+          expect(state.get(item(LIMIT).id)).toBeUndefined();
+          expect(state.shown().every((entry) => entry.status === "working")).toBe(true);
+        }
+        // The held timestamp still stands: an older event is stale, and one as recent fills the row.
+        expect(state.merge(item(LIMIT, "open", 0.5))).toBe("stale");
+        expect(state.merge({ ...item(LIMIT, "working", 1), replies })).toBe("changed");
+        expect(state.complete).toBe(true);
+        expect(ids(state)[0]).toBe(item(LIMIT).id);
+        expect(state.get(item(LIMIT).id)?.replies).toEqual(replies);
+        expect(state.total).toBe(LIMIT + 1);
+      }
+    });
+
+    it("drops an omitted thread no event delivered during the listing, as before", () => {
+      const { state, touched } = overflowing();
+      state.applyListing([], touched);
+      const rest = state.shown().filter((entry) => entry.id !== item(0).id);
+      expect(state.applyListing(rest, new Set()).complete).toBe(true);
+      expect(state.total).toBe(LIMIT - 1);
     });
   });
 });

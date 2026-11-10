@@ -328,8 +328,7 @@ export class IterbarBarElement extends ElementBase {
         if (this.#connection === connection) this.#renderStatus(status);
       },
       onFeedback: (item): boolean => this.#connection === connection && this.#threads.merge(item),
-      onListing: (items, touched, authoritative): boolean =>
-        this.#connection !== connection || this.#threads.replace(items, touched, authoritative),
+      onListing: (items, touched): boolean => this.#connection !== connection || this.#threads.replace(items, touched),
     });
     this.#connection = connection;
     connection.start();

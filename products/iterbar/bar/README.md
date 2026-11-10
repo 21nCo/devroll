@@ -33,9 +33,15 @@ attributes. The bar never writes the token to an attribute.
 - **Feedback threads**, newest first, with status and replies. The bar lists
   them with `GET /feedback` each time the `/events` WebSocket opens, then
   applies `feedback.created` and `feedback.updated` events as they arrive.
-  Each listing replaces the threads shown, except for items that an event
-  delivered while the listing was in flight, which keep the event's copy. An
-  event replaces an item unless it is older (`updatedAt`) than the one shown.
+  Each listing replaces the threads, except that a listed copy older than the
+  one held never replaces it, and an item that an event delivered while the
+  listing was in flight keeps the event's copy against an equal-time listed
+  copy and stays when the listing omits it; a strictly newer listed copy
+  wins. When the bar no longer holds the content of such a thread, it counts
+  the thread without showing a row ("not shown; updating") and lists again:
+  twice at once, then with the reconnect backoff while the stream stays open,
+  until a listing or an event carries the content. An event replaces an item
+  unless it is older (`updatedAt`) than the one held.
   Events that are malformed or from another schema version are ignored.
   Switching to another daemon URL or token clears the threads.
 

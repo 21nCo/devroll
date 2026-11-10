@@ -72,7 +72,7 @@ function nextReportedAt(): string {
 /** Longest a daemon request may take, body included, before it fails like any other transient error. */
 export const REQUEST_TIMEOUT_MS = 10_000;
 
-/** Fresh listings requested after an incomplete one before the next is taken as it is. */
+/** Fresh listings requested at once after an incomplete one; later ones wait {@link RETRY_DELAYS_MS} between them. */
 export const MAX_RECOVERY_LISTINGS = 2;
 
 /** Reconnect delays in milliseconds; the last one repeats. */
@@ -88,10 +88,10 @@ export interface ConnectionCallbacks {
   /**
    * The daemon's complete feedback listing, which replaces what the bar shows. `touched` holds the ids of items that
    * current events delivered while the listing was in flight; those events may be newer than the listing. Returns
-   * `false` when the listing left a thread in view without its latest content, so a fresh listing is requested;
-   * after {@link MAX_RECOVERY_LISTINGS} of those, the listing is `authoritative` and taken as it is.
+   * `false` when the listing left a thread in view without its latest content, so a fresh listing is requested: at
+   * once up to {@link MAX_RECOVERY_LISTINGS} times, then with backoff while the socket stays open.
    */
-  onListing(items: readonly Feedback[], touched: ReadonlySet<string>, authoritative: boolean): boolean;
+  onListing(items: readonly Feedback[], touched: ReadonlySet<string>): boolean;
 }
 
 class UnauthorizedError extends Error {}
@@ -109,6 +109,8 @@ export class DaemonConnection {
   #socket: WebSocket | null = null;
   #retryTimer: ReturnType<typeof setTimeout> | null = null;
   #attempt = 0;
+  /** Requests a fresh listing after incomplete ones, while the socket it was set for stays open. */
+  #relistTimer: ReturnType<typeof setTimeout> | null = null;
   /** Resends the latest slot report after a transient failure, independently of the socket. */
   #reportRetryTimer: ReturnType<typeof setTimeout> | null = null;
   #reportAttempt = 0;
@@ -139,6 +141,7 @@ export class DaemonConnection {
     this.#abort.abort();
     if (this.#retryTimer) clearTimeout(this.#retryTimer);
     this.#retryTimer = null;
+    this.#cancelRelist();
     this.#cancelReportRetry();
     const socket = this.#socket;
     this.#socket = null;
@@ -196,6 +199,8 @@ export class DaemonConnection {
       if (this.#socket !== socket) return;
       this.#socket = null;
       this.#connected = false;
+      // The next open lists again.
+      this.#cancelRelist();
       if (opened) this.#retry("The connection to the daemon was lost.");
       // A refused upgrade looks like any other failure to a page, so ask over HTTP why.
       else void this.#diagnose();
@@ -203,8 +208,9 @@ export class DaemonConnection {
   }
 
   /**
-   * Lists every feedback item, again when the listing was incomplete. A failure closes the socket, so the next open
-   * lists again.
+   * Lists every feedback item, again when the listing was incomplete: at once {@link MAX_RECOVERY_LISTINGS} times,
+   * then with backoff, so a daemon that keeps answering with older copies costs at most one request per backoff
+   * delay. A failure closes the socket, so the next open lists again.
    */
   async #list(socket: WebSocket, recoveries = 0): Promise<void> {
     const touched = new Set<string>();
@@ -214,10 +220,17 @@ export class DaemonConnection {
       if (!body.success) throw body.error;
       if (this.#socket !== socket) return;
       this.#attempt = 0;
-      const authoritative = recoveries >= MAX_RECOVERY_LISTINGS;
-      if (!this.#callbacks.onListing(body.data.items, touched, authoritative) && !authoritative) {
+      if (this.#callbacks.onListing(body.data.items, touched)) return;
+      if (recoveries < MAX_RECOVERY_LISTINGS) {
         void this.#list(socket, recoveries + 1);
+        return;
       }
+      const delay = RETRY_DELAYS_MS[Math.min(recoveries - MAX_RECOVERY_LISTINGS, RETRY_DELAYS_MS.length - 1)]!;
+      this.#cancelRelist();
+      this.#relistTimer = setTimeout(() => {
+        this.#relistTimer = null;
+        if (!this.#stopped && this.#socket === socket) void this.#list(socket, recoveries + 1);
+      }, delay);
     } catch (error) {
       if (this.#stopped || this.#socket !== socket) return;
       if (error instanceof UnauthorizedError) this.#reject();
@@ -274,6 +287,11 @@ export class DaemonConnection {
       // While disconnected the report stays pending, and the next open sends it.
       if (!this.#stopped && this.#connected) this.#flushReport();
     }, delay);
+  }
+
+  #cancelRelist(): void {
+    if (this.#relistTimer) clearTimeout(this.#relistTimer);
+    this.#relistTimer = null;
   }
 
   #cancelReportRetry(): void {

@@ -100,8 +100,8 @@ export class ThreadsPanel {
    * Replaces the threads with a complete listing; see {@link ThreadsState.applyListing}. Returns whether the listing
    * was complete, so a fresh one is needed when it was not.
    */
-  replace(items: readonly Feedback[], touched: ReadonlySet<string>, authoritative: boolean): boolean {
-    const { changed, complete } = this.#state.applyListing(items, touched, authoritative);
+  replace(items: readonly Feedback[], touched: ReadonlySet<string>): boolean {
+    const { changed, complete } = this.#state.applyListing(items, touched);
     if (changed) this.#render();
     return complete;
   }
@@ -139,6 +139,6 @@ export class ThreadsPanel {
     this.#empty.hidden = total > 0;
     const hiddenCount = total - shown.length;
     this.#more.hidden = hiddenCount === 0;
-    this.#more.textContent = `${hiddenCount} older not shown.`;
+    this.#more.textContent = this.#state.complete ? `${hiddenCount} older not shown.` : `${hiddenCount} not shown; updating.`;
   }
 }

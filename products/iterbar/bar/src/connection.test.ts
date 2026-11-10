@@ -108,7 +108,8 @@ describe("DaemonConnection", () => {
       onStatus: (status) => statuses.push(status.kind),
       // As ThreadsPanel.merge does.
       onFeedback: (item) => threads.merge(item) !== "stale",
-      onListing: (items, touched, authoritative) => threads.applyListing(items, touched, authoritative).complete,
+      // As ThreadsPanel.replace does, passing on everything the connection gives.
+      onListing: (...listing: Parameters<ThreadsState["applyListing"]>) => threads.applyListing(...listing).complete,
     });
     connection.start();
     return connection;
@@ -164,13 +165,13 @@ describe("DaemonConnection", () => {
     expect(await relist([feedback("a", "done")], [feedback("a", "done")], [feedback("a", "working")])).toEqual([["a", "done"]]);
   });
 
-  it("requests a fresh listing after an incomplete one, a bounded number of times, keeping events in flight", async () => {
-    const calls: { ids: string[]; touched: string[]; authoritative: boolean }[] = [];
+  it("requests a fresh listing after an incomplete one, at once twice and then with backoff, keeping events in flight", async () => {
+    const calls: { ids: string[]; touched: string[] }[] = [];
     new DaemonConnection({ url: "http://127.0.0.1:4555", token }, {
       onStatus: () => {},
       onFeedback: () => true,
-      onListing: (items, touched, authoritative) => {
-        calls.push({ ids: items.map((item) => item.id), touched: [...touched], authoritative });
+      onListing: (items, touched) => {
+        calls.push({ ids: items.map((item) => item.id), touched: [...touched] });
         return false;
       },
     }).start();
@@ -183,13 +184,68 @@ describe("DaemonConnection", () => {
     await settle();
     pending("/feedback")[2]!.respond(200, list([]));
     await settle();
-    expect(calls).toEqual([
-      { ids: ["a"], touched: [], authoritative: false },
-      { ids: ["a"], touched: ["b"], authoritative: false },
-      { ids: [], touched: [], authoritative: true },
-    ]);
+    expect(calls).toEqual([{ ids: ["a"], touched: [] }, { ids: ["a"], touched: ["b"] }, { ids: [], touched: [] }]);
+    // Later listings wait for the reconnect backoff: never a request storm, however long the listings stay incomplete.
+    await vi.advanceTimersByTimeAsync(999);
     expect(pending("/feedback")).toHaveLength(3);
+    const answered = new Set<PendingRequest>();
+    for (let second = 0; second < 120; second += 1) {
+      for (const request of pending("/feedback").filter((request) => !answered.has(request))) {
+        answered.add(request);
+        request.respond(200, list([]));
+      }
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    // 1, 2, 4, 8, 15 and 30 s apart: by 120 s the fourth to eleventh listings.
+    expect(pending("/feedback")).toHaveLength(11);
     expect(socket().closed).toBe(false);
+    // A closed socket cancels the pending relist; the next open lists again.
+    socket().close();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(pending("/feedback")).toHaveLength(11);
+  });
+
+  it("never rolls back or drops an event, however many listings in a row come back without its content", async () => {
+    const at = (n: number, minutes = 0) => new Date(Date.UTC(2026, 0, 1) + n * 60_000 + minutes * 30_000).toISOString();
+    const entry = (n: number, status: Feedback["status"], minutes = 0): Feedback =>
+      ({ ...feedback(`f${String(n).padStart(3, "0")}`, status, at(n, minutes)), createdAt: at(n) });
+    const send = (item: Feedback) => socket().receive({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: item });
+    const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => from + index);
+    connect();
+    socket().open();
+    pending("/feedback")[0]!.respond(200, list(range(0, 249).map((n) => entry(n, "open"))));
+    await settle();
+    socket().close();
+    await vi.advanceTimersByTimeAsync(1000);
+    socket().open();
+    // While the listing is in flight, more hidden threads are updated than the bar keeps copies of; f100 goes first.
+    for (const n of range(0, 100).reverse()) send(entry(n, "working", 2));
+    // The daemon keeps answering with f100's copy from before the event.
+    const lagging = [entry(100, "open"), ...range(0, 99).map((n) => entry(n, "working", 2))];
+    pending("/feedback")[1]!.respond(200, list(lagging.slice(0, 1)));
+    await settle();
+    pending("/feedback")[2]!.respond(200, list(lagging));
+    await settle();
+    // An event arrives during the last immediate listing, which predates it.
+    send(entry(50, "done", 4));
+    pending("/feedback")[3]!.respond(200, list(lagging));
+    await settle();
+    expect(threads.get("f100")).toBeUndefined();
+    expect(threads.total).toBe(101);
+    expect(threads.get("f050")?.status).toBe("done");
+    expect(threads.merge(entry(100, "open", 1))).toBe("stale");
+    expect(threads.complete).toBe(false);
+    expect(pending("/feedback")).toHaveLength(4);
+    // The next listing, after the backoff, carries the current copy.
+    await vi.advanceTimersByTimeAsync(1000);
+    pending("/feedback")[4]!.respond(200, list([entry(100, "working", 2), ...range(0, 99).map((n) => entry(n, n === 50 ? "done" : "working", n === 50 ? 4 : 2))]));
+    await settle();
+    expect(threads.complete).toBe(true);
+    expect(threads.get("f100")?.status).toBe("working");
+    expect(threads.get("f050")?.status).toBe("done");
+    expect(threads.total).toBe(101);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pending("/feedback")).toHaveLength(5);
   });
 
   it("fails a stalled listing, diagnosis or slot report after the deadline, with the socket open", async () => {

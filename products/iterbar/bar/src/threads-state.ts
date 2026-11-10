@@ -43,6 +43,8 @@ export class ThreadsState {
   #shownById = new Map<string, Feedback>();
   /** Full copies of hidden threads that events delivered or pushed out of view, oldest first; at most `limit`. */
   #aside = new Map<string, Feedback>();
+  /** Threads in view after the last listing that are counted without content until an event or listing carries it. */
+  #unreconciled = new Set<string>();
 
   constructor(limit: number) {
     this.#limit = limit;
@@ -56,6 +58,14 @@ export class ThreadsState {
   /** The kept threads, newest first. */
   shown(): readonly Feedback[] {
     return this.#shown;
+  }
+
+  /**
+   * Whether every thread in view has content as recent as any event delivered for it. When not, those threads stay
+   * counted with the event's timestamps but without a row, never with an older copy, until content arrives.
+   */
+  get complete(): boolean {
+    return this.#unreconciled.size === 0;
   }
 
   /** The kept copy of a thread; `undefined` for one that is not shown. */
@@ -72,6 +82,7 @@ export class ThreadsState {
     const known = this.#known.get(item.id);
     const updatedAt = time(item.updatedAt);
     if (known && known.updatedAt > updatedAt) return "stale";
+    this.#unreconciled.delete(item.id);
     if (known) known.updatedAt = updatedAt;
     else this.#known.set(item.id, { createdAt: time(item.createdAt), updatedAt });
     const held = this.#shownById.get(item.id);
@@ -97,11 +108,10 @@ export class ThreadsState {
    * event even with an equal `updatedAt`, so for a touched item the held copy also wins a tie; a strictly newer listed
    * copy still wins. A held copy that wins but is not shown takes its content from the copies kept aside. When none is
    * kept, the thread stays counted with its held timestamps but without a row, and if it belongs in view the result is
-   * not `complete`: a later listing, requested after the event arrived, carries its content. An `authoritative` listing
-   * is the last such attempt, so it is taken as it is: its copy stands, and an omitted thread without content is
-   * dropped if it belongs in view.
+   * not `complete`: a later event or listing carries its content. No listing, however many came before it, lowers a
+   * held `updatedAt` or drops a touched thread.
    */
-  applyListing(listed: readonly Feedback[], touched: ReadonlySet<string>, authoritative = false): ListingResult {
+  applyListing(listed: readonly Feedback[], touched: ReadonlySet<string>): ListingResult {
     const known = new Map<string, Known>();
     const shown: Feedback[] = [];
     const shownById = new Map<string, Feedback>();
@@ -113,7 +123,7 @@ export class ThreadsState {
       const listedAt = time(item.updatedAt);
       const heldWins = held !== undefined && (held.updatedAt > listedAt || (touched.has(item.id) && held.updatedAt === listedAt));
       const kept = heldWins ? this.#heldCopy(item.id) : undefined;
-      if (heldWins && !kept && !authoritative) {
+      if (heldWins && !kept) {
         // The listed copy is older than what an event delivered, so it never stands in for it.
         known.set(item.id, { ...held! });
         contentless.push(item.id);
@@ -124,20 +134,16 @@ export class ThreadsState {
       if (kept) keptCopies.push(kept);
     }
     this.#keepOmittedTouched(touched, known, shown, shownById, keptCopies, contentless);
-    let complete = true;
-    for (const id of contentless) {
-      if (this.#position(shown, id, known) >= this.#limit) continue;
-      if (authoritative) known.delete(id);
-      else complete = false;
-    }
+    const unreconciled = new Set(contentless.filter((id) => this.#position(shown, id, known) < this.#limit));
     const changed = known.size !== this.#known.size || shown.length !== this.#shown.length
-      || shown.some((item, index) => !sameFeedback(item, this.#shown[index]!));
+      || unreconciled.size !== this.#unreconciled.size || shown.some((item, index) => !sameFeedback(item, this.#shown[index]!));
     this.#known = known;
     this.#shown = shown;
     this.#shownById = shownById;
+    this.#unreconciled = unreconciled;
     // Held copies that won but stay hidden keep their content for a later listing.
     this.#aside = new Map(keptCopies.filter((item) => !shownById.has(item.id)).slice(-this.#limit).map((item) => [item.id, item]));
-    return { changed, complete };
+    return { changed, complete: unreconciled.size === 0 };
   }
 
   /** Forgets every thread. Returns whether there was any. */
@@ -147,6 +153,7 @@ export class ThreadsState {
     this.#shown = [];
     this.#shownById = new Map();
     this.#aside = new Map();
+    this.#unreconciled = new Set();
     return changed;
   }
 
