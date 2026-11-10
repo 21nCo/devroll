@@ -92,6 +92,11 @@ export interface ConnectionCallbacks {
    * once up to {@link MAX_RECOVERY_LISTINGS} times, then with backoff while the socket stays open.
    */
   onListing(items: readonly Feedback[], touched: ReadonlySet<string>): boolean;
+  /**
+   * Whether every thread in view has its latest content, as after a complete listing. A fresh listing that waits for
+   * its backoff is not requested once events have made it so.
+   */
+  isComplete(): boolean;
 }
 
 class UnauthorizedError extends Error {}
@@ -229,7 +234,7 @@ export class DaemonConnection {
       this.#cancelRelist();
       this.#relistTimer = setTimeout(() => {
         this.#relistTimer = null;
-        if (!this.#stopped && this.#socket === socket) void this.#list(socket, recoveries + 1);
+        if (!this.#stopped && this.#socket === socket && !this.#callbacks.isComplete()) void this.#list(socket, recoveries + 1);
       }, delay);
     } catch (error) {
       if (this.#stopped || this.#socket !== socket) return;

@@ -43,7 +43,10 @@ export class ThreadsState {
   #shownById = new Map<string, Feedback>();
   /** Full copies of hidden threads that events delivered or pushed out of view, oldest first; at most `limit`. */
   #aside = new Map<string, Feedback>();
-  /** Threads in view after the last listing that are counted without content until an event or listing carries it. */
+  /**
+   * Threads in view that are counted without content until an event or listing carries it: at most the newest `limit`
+   * of them, and only while they belong in view, so the work an event does to keep this current is bounded by `limit`.
+   */
   #unreconciled = new Set<string>();
 
   constructor(limit: number) {
@@ -76,13 +79,14 @@ export class ThreadsState {
   /**
    * Applies an item from an event. A listing and an event can arrive in either order, so an older copy
    * (`updatedAt`) than the one held is `stale` and dropped; a copy as recent replaces the held one. Only a copy that is
-   * not stale may take precedence over a listing in flight (see {@link applyListing}).
+   * not stale may take precedence over a listing in flight (see {@link applyListing}). The result is `changed` whenever
+   * anything shown or counted changed, {@link complete} included.
    */
   merge(item: Feedback): MergeResult {
     const known = this.#known.get(item.id);
     const updatedAt = time(item.updatedAt);
     if (known && known.updatedAt > updatedAt) return "stale";
-    this.#unreconciled.delete(item.id);
+    const reconciled = this.#unreconciled.delete(item.id);
     if (known) known.updatedAt = updatedAt;
     else this.#known.set(item.id, { createdAt: time(item.createdAt), updatedAt });
     const held = this.#shownById.get(item.id);
@@ -91,10 +95,11 @@ export class ThreadsState {
       this.#setAside(this.#insert(this.#shown, this.#shownById, item, this.#known));
       if (this.#shownById.has(item.id)) {
         this.#aside.delete(item.id);
+        this.#dropOutOfView();
         return "changed";
       }
       this.#setAside(item);
-      return known ? "unchanged" : "changed";
+      return known && !reconciled ? "unchanged" : "changed";
     }
     if (sameFeedback(held, item)) return "unchanged";
     this.#shown[this.#shown.indexOf(held)] = item;
@@ -134,7 +139,8 @@ export class ThreadsState {
       if (kept) keptCopies.push(kept);
     }
     this.#keepOmittedTouched(touched, known, shown, shownById, keptCopies, contentless);
-    const unreconciled = new Set(contentless.filter((id) => this.#position(shown, id, known) < this.#limit));
+    const inView = contentless.filter((id) => this.#position(shown, id, known) < this.#limit);
+    const unreconciled = new Set(inView.sort((left, right) => this.#order(left, right, known)).slice(0, this.#limit));
     const changed = known.size !== this.#known.size || shown.length !== this.#shown.length
       || unreconciled.size !== this.#unreconciled.size || shown.some((item, index) => !sameFeedback(item, this.#shown[index]!));
     this.#known = known;
@@ -187,15 +193,30 @@ export class ThreadsState {
     if (this.#aside.size > this.#limit) this.#aside.delete(this.#aside.keys().next().value!);
   }
 
+  /**
+   * Forgets the threads without content that a newer row has pushed out of the full window: they no longer belong in
+   * view, so they no longer keep the state incomplete. Bounded by `limit`, the most such threads tracked.
+   */
+  #dropOutOfView(): void {
+    const last = this.#shown[this.#limit - 1];
+    if (!last) return;
+    for (const id of this.#unreconciled) {
+      if (this.#order(last.id, id, this.#known) < 0) this.#unreconciled.delete(id);
+    }
+  }
+
+  /** Negative when thread `left` comes before `right`: newer creation first, ties by id. */
+  #order(left: string, right: string, known: ReadonlyMap<string, Known>): number {
+    return known.get(right)!.createdAt - known.get(left)!.createdAt || compareIds(left, right);
+  }
+
   /** Where the thread `id` belongs in `shown` (newest first) by binary search. `known` holds every creation time. */
   #position(shown: readonly Feedback[], id: string, known: ReadonlyMap<string, Known>): number {
-    const createdAt = known.get(id)!.createdAt;
     let low = 0;
     let high = shown.length;
     while (low < high) {
       const middle = (low + high) >>> 1;
-      const other = shown[middle]!;
-      if ((createdAt - known.get(other.id)!.createdAt || compareIds(other.id, id)) < 0) low = middle + 1;
+      if (this.#order(shown[middle]!.id, id, known) < 0) low = middle + 1;
       else high = middle;
     }
     return low;

@@ -262,6 +262,63 @@ describe("a long feedback history", () => {
       }
     });
 
+    /**
+     * Wraps the state so that every merge or listing that flips {@link ThreadsState.complete} must report a change:
+     * ThreadsPanel renders, and so updates its "not shown; updating" text, only then.
+     */
+    const rendering = (state: ThreadsState) => ({
+      merge(event: Feedback) {
+        const before = state.complete;
+        const result = state.merge(event);
+        if (state.complete !== before) expect(result).toBe("changed");
+        return result;
+      },
+      applyListing(items: Feedback[], touched: ReadonlySet<string>) {
+        const before = state.complete;
+        const result = state.applyListing(items, touched);
+        if (state.complete !== before) expect(result.changed).toBe(true);
+        return result;
+      },
+    });
+
+    it("stops waiting for a thread once newer threads push it out of view, and says so at once", () => {
+      const { state, touched } = overflowing();
+      const panel = rendering(state);
+      expect(panel.applyListing([], touched).complete).toBe(false);
+      // Newer threads fill the window above it; the last of them pushes it out.
+      for (let n = 1; n < LIMIT; n += 1) panel.merge(item(LIMIT + n));
+      expect(state.complete).toBe(false);
+      expect(panel.merge(item(2 * LIMIT))).toBe("changed");
+      expect(state.complete).toBe(true);
+      expect(state.total).toBe(2 * LIMIT + 1);
+      expect(state.get(item(LIMIT).id)).toBeUndefined();
+      // Its later event keeps it hidden and counted; a complete listing changes nothing.
+      expect(panel.merge(item(LIMIT, "done", 2))).toBe("unchanged");
+      expect(state.complete).toBe(true);
+      const current = [...state.shown(), item(LIMIT, "done", 2), ...Array.from({ length: LIMIT }, (_, n) => item(n, "working", 1))];
+      expect(panel.applyListing(current, new Set())).toEqual({ changed: false, complete: true });
+      expect(state.total).toBe(2 * LIMIT + 1);
+    });
+
+    it("waits only for the newest threads without content that fit in view", () => {
+      // Two listed threads above five hidden ones; events for the hidden ones keep copies of only the oldest two.
+      const at = (n: number, minutes = 0) => feedback(`h${n}`, created(n), created(n + minutes), minutes ? "working" : "open");
+      const state = new ThreadsState(2);
+      const panel = rendering(state);
+      panel.applyListing([at(10), at(9), ...[1, 2, 3, 4, 5].map((n) => at(n))], new Set());
+      for (const n of [5, 4, 3, 2, 1]) panel.merge(at(n, 1));
+      // The listed threads are gone; h3 to h5 lost their copies and all belong above h2 and h1.
+      expect(panel.applyListing([], new Set(["h1", "h2", "h3", "h4", "h5"]))).toEqual({ changed: true, complete: false });
+      expect(ids(state)).toEqual(["h2", "h1"]);
+      expect(panel.merge(at(5, 1))).toBe("changed");
+      expect(state.complete).toBe(false);
+      // Once h5 and h4 have content, h3 is below the window and nothing is pending.
+      expect(panel.merge(at(4, 1))).toBe("changed");
+      expect(ids(state)).toEqual(["h5", "h4"]);
+      expect(state.complete).toBe(true);
+      expect(state.total).toBe(5);
+    });
+
     it("drops an omitted thread no event delivered during the listing, as before", () => {
       const { state, touched } = overflowing();
       state.applyListing([], touched);

@@ -38,9 +38,12 @@ attributes. The bar never writes the token to an attribute.
   listing was in flight keeps the event's copy against an equal-time listed
   copy and stays when the listing omits it; a strictly newer listed copy
   wins. When the bar no longer holds the content of such a thread, it counts
-  the thread without showing a row ("not shown; updating") and lists again:
+  the thread without showing a row. If that thread belongs among the newest
+  100 shown, the count reads "not shown; updating" and the bar lists again:
   twice at once, then with the reconnect backoff while the stream stays open,
-  until a listing or an event carries the content. An event replaces an item
+  until a listing or an event carries the content, or newer threads push it
+  out of view. A thread older than the shown ones is counted under "older not
+  shown" and triggers no further listing. An event replaces an item
   unless it is older (`updatedAt`) than the one held.
   Events that are malformed or from another schema version are ignored.
   Switching to another daemon URL or token clears the threads.

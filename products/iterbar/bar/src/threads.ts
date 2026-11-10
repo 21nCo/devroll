@@ -106,6 +106,11 @@ export class ThreadsPanel {
     return complete;
   }
 
+  /** Whether every thread in view has its latest content; see {@link ThreadsState.complete}. */
+  get complete(): boolean {
+    return this.#state.complete;
+  }
+
   /** Forgets every thread, as when the bar switches to another daemon. */
   clear(): void {
     if (this.#state.clear()) this.#render();

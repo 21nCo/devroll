@@ -110,6 +110,7 @@ describe("DaemonConnection", () => {
       onFeedback: (item) => threads.merge(item) !== "stale",
       // As ThreadsPanel.replace does, passing on everything the connection gives.
       onListing: (...listing: Parameters<ThreadsState["applyListing"]>) => threads.applyListing(...listing).complete,
+      isComplete: () => threads.complete,
     });
     connection.start();
     return connection;
@@ -170,6 +171,7 @@ describe("DaemonConnection", () => {
     new DaemonConnection({ url: "http://127.0.0.1:4555", token }, {
       onStatus: () => {},
       onFeedback: () => true,
+      isComplete: () => false,
       onListing: (items, touched) => {
         calls.push({ ids: items.map((item) => item.id), touched: [...touched] });
         return false;
@@ -205,12 +207,13 @@ describe("DaemonConnection", () => {
     expect(pending("/feedback")).toHaveLength(11);
   });
 
+  const at = (n: number, minutes = 0) => new Date(Date.UTC(2026, 0, 1) + n * 60_000 + minutes * 30_000).toISOString();
+  const entry = (n: number, status: Feedback["status"], minutes = 0): Feedback =>
+    ({ ...feedback(`f${String(n).padStart(3, "0")}`, status, at(n, minutes)), createdAt: at(n) });
+  const send = (item: Feedback) => socket().receive({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: item });
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => from + index);
+
   it("never rolls back or drops an event, however many listings in a row come back without its content", async () => {
-    const at = (n: number, minutes = 0) => new Date(Date.UTC(2026, 0, 1) + n * 60_000 + minutes * 30_000).toISOString();
-    const entry = (n: number, status: Feedback["status"], minutes = 0): Feedback =>
-      ({ ...feedback(`f${String(n).padStart(3, "0")}`, status, at(n, minutes)), createdAt: at(n) });
-    const send = (item: Feedback) => socket().receive({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: item });
-    const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => from + index);
     connect();
     socket().open();
     pending("/feedback")[0]!.respond(200, list(range(0, 249).map((n) => entry(n, "open"))));
@@ -246,6 +249,33 @@ describe("DaemonConnection", () => {
     expect(threads.total).toBe(101);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(pending("/feedback")).toHaveLength(5);
+  });
+
+  it("sends no relist that events have made unnecessary, whether they fill the row or push it out of view", async () => {
+    for (const complete of [() => send(entry(100, "working", 2)), () => range(250, 349).forEach((n) => send(entry(n, "open")))]) {
+      const connection = connect();
+      socket().open();
+      const first = pending("/feedback").length;
+      pending("/feedback")[first - 1]!.respond(200, list(range(0, 249).map((n) => entry(n, "open"))));
+      await settle();
+      socket().close();
+      await vi.advanceTimersByTimeAsync(1000);
+      socket().open();
+      // f100's copy is pushed out by the hidden updates that follow it, and the daemon keeps listing it as it was.
+      for (const n of range(0, 100).reverse()) send(entry(n, "working", 2));
+      const lagging = list([entry(100, "open"), ...range(0, 99).map((n) => entry(n, "working", 2))]);
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        pending("/feedback")[first + attempt - 1]!.respond(200, lagging);
+        await settle();
+      }
+      expect(threads.complete).toBe(false);
+      complete();
+      expect(threads.complete).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(pending("/feedback")).toHaveLength(first + 3);
+      connection.stop();
+      threads.clear();
+    }
   });
 
   it("fails a stalled listing, diagnosis or slot report after the deadline, with the socket open", async () => {

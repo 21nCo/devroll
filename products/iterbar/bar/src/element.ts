@@ -329,6 +329,7 @@ export class IterbarBarElement extends ElementBase {
       },
       onFeedback: (item): boolean => this.#connection === connection && this.#threads.merge(item),
       onListing: (items, touched): boolean => this.#connection !== connection || this.#threads.replace(items, touched),
+      isComplete: (): boolean => this.#connection !== connection || this.#threads.complete,
     });
     this.#connection = connection;
     connection.start();
