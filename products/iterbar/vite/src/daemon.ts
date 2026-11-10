@@ -34,6 +34,13 @@ const LOCK_RETRY_DELAY_MS = 100;
 
 const delay = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
+/**
+ * How a daemon answered `POST /origins`: `ok`; `refused` when it answered `400` (it does not take the origins, such
+ * as past its cap on allowed origins, which a new daemon would refuse too); otherwise `gone`: nothing answered in
+ * time, or what answers is not a daemon that accepts this token (it stopped, or another server took the port).
+ */
+type Registration = { readonly result: "ok" | "gone" } | { readonly result: "refused"; readonly status: number };
+
 /** A daemon this process runs, shared by every dev server of its project root in the process. */
 interface OwnedDaemon {
   users: number;
@@ -159,6 +166,11 @@ function isStoreLocked(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === "store_locked";
 }
 
+function refusedError(access: DaemonAccess, status: number | null): Error {
+  const answer = status === null ? "did not answer" : `answered HTTP ${status}`;
+  return new Error(`The Iterbar daemon at ${access.daemonUrl} ${answer} when this dev server registered its origins`);
+}
+
 /**
  * One dev server's connection to its project's daemon. It reuses a running daemon whose `daemon.json` names the
  * same project root, otherwise starts one in this process, and registers the dev server's origins with it. A daemon
@@ -205,7 +217,10 @@ export class DaemonLink {
     if (this.#closed) throw new Error("The Iterbar dev server link is closed");
     if (origins.length === 0) throw new Error("The dev server has no origin to register with the Iterbar daemon");
     if (this.#current) {
-      if (await this.#register(this.#current, origins)) return this.#current;
+      const registration = await this.#register(this.#current, origins);
+      if (registration.result === "ok") return this.#current;
+      // A live daemon that refuses the origins is kept: a new one would refuse them too.
+      if (registration.result === "refused") throw refusedError(this.#current, registration.status);
       this.#current = null;
       // A daemon of this process that no longer answers is let go and replaced.
       const lease = this.#lease;
@@ -225,13 +240,16 @@ export class DaemonLink {
       this.#lease ??= await acquireOwned(projectRoot, false);
       if (this.#lease) {
         const access = this.#access(this.#lease, true);
-        if (await this.#register(access, origins)) return access;
-        throw new Error(`The Iterbar daemon at ${access.daemonUrl} refused this dev server's origins`);
+        const registration = await this.#register(access, origins);
+        if (registration.result === "ok") return access;
+        throw refusedError(access, registration.result === "refused" ? registration.status : null);
       }
       const info = await readMatchingDaemonFile(projectRoot);
       if (info) {
         const access = { daemonUrl: `http://${DAEMON_HOST}:${info.port}`, token: info.token, started: false };
-        if (await this.#register(access, origins)) return access;
+        const registration = await this.#register(access, origins);
+        if (registration.result === "ok") return access;
+        if (registration.result === "refused") throw refusedError(access, registration.status);
       }
       try {
         this.#lease = await acquireOwned(projectRoot, true);
@@ -248,8 +266,8 @@ export class DaemonLink {
     return { daemonUrl: lease.daemon.url, token: lease.daemon.info.token, started };
   }
 
-  /** Registers the origins; false when the daemon is unreachable or refuses the token. */
-  async #register(access: DaemonAccess, origins: readonly string[]): Promise<boolean> {
+  /** Registers the origins; see {@link Registration}. */
+  async #register(access: DaemonAccess, origins: readonly string[]): Promise<Registration> {
     for (let start = 0; start < origins.length; start += ORIGINS_PER_REQUEST) {
       try {
         const response = await fetch(`${access.daemonUrl}${daemonPath("registerOrigins")}`, {
@@ -259,11 +277,14 @@ export class DaemonLink {
           signal: AbortSignal.timeout(this.#requestTimeoutMs),
         });
         await response.body?.cancel();
-        if (!response.ok) return false;
+        // The daemon answers 400 for origins it does not take; any other failure is not a daemon of this store.
+        if (response.status === 400) return { result: "refused", status: 400 };
+        if (!response.ok) return { result: "gone" };
       } catch {
-        return false;
+        // Unreachable, or no answer in time.
+        return { result: "gone" };
       }
     }
-    return true;
+    return { result: "ok" };
   }
 }

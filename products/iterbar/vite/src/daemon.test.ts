@@ -110,6 +110,18 @@ describe("DaemonLink", () => {
     expect(await allowedOrigins(second.url, second.info.token)).toContain("http://localhost:5173");
   });
 
+  it("keeps the daemon in use when it refuses the origins, rather than replacing a live daemon", async () => {
+    const root = await tempRoot();
+    const created = link(root);
+    const first = await created.connect(ORIGINS);
+    expect(first.started).toBe(true);
+    // Past the daemon's cap on allowed origins: it answers 400, which a new daemon would answer too.
+    const tooMany = Array.from({ length: 300 }, (_, index) => `http://host-${index}.test`);
+    await expect(created.connect(tooMany)).rejects.toThrow(/answered HTTP 400/);
+    expect(await created.connect(ORIGINS)).toEqual(first);
+    expect(await readMatchingDaemonFile(root)).toMatchObject({ token: first.token, pid: process.pid });
+  });
+
   it("shares one started daemon between the links of a process until the last one closes", async () => {
     const root = await tempRoot();
     const one = link(root);

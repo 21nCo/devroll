@@ -64,6 +64,11 @@ for (const app of APPS) {
         await expect(page.locator("ul#pricing")).toBeVisible();
         await expect(page.locator("table#pricing")).toHaveCount(0);
 
+        // The dev server does not serve the store, which holds daemon.json with the token, to any page.
+        const store = await page.request.get(`${dev.origin}/.iterbar/daemon.json`, { headers: { origin: "http://localhost:3000" } });
+        expect(store.status()).toBe(404);
+        expect(await store.text()).not.toContain(info?.token);
+
         // The bar reached the daemon with the token it was given.
         await expect.poll(async () => (await daemonSlots(info as DaemonInfo)).flatMap((entry) => entry.slots)
           .map(({ slot, activeVersion }) => `${slot}:${activeVersion}`).sort()).toEqual(["hero:bold", "pricing:cards"]);
@@ -86,6 +91,9 @@ for (const app of APPS) {
             .toBe(daemon.url);
           await switchSlot(page, "hero", "bold");
           await expect(page.locator("#hero")).toHaveText(HERO.bold);
+          // The bar reports slots shortly after a change, to the daemon that was already running.
+          await expect.poll(async () => (await daemonSlots(daemon.info)).flatMap((entry) => entry.slots)
+            .some(({ slot, activeVersion }) => slot === "hero" && activeVersion === "bold")).toBe(true);
         } finally {
           await dev.stop();
         }

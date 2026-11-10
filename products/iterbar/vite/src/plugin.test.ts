@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { request as httpRequest, type OutgoingHttpHeaders } from "node:http";
+import { connect as http2Connect, type OutgoingHttpHeaders as Http2Headers } from "node:http2";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -7,6 +9,7 @@ import { build, createServer, type InlineConfig, type ViteDevServer } from "vite
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
 import { CLIENT_ID, iterbar } from "./index.js";
+import { isStoreRequest } from "./store.js";
 
 let root: string;
 let servers: ViteDevServer[] = [];
@@ -51,6 +54,35 @@ function get(port: number, path: string, headers: OutgoingHttpHeaders = {}, meth
     req.on("error", reject);
     req.end();
   });
+}
+
+/** A GET over HTTP/2 with TLS, as a browser sends it to `vite dev` with `server.https`: no `Host`, only `:authority`. */
+async function getHttp2(port: number, path: string, headers: Http2Headers = {}): Promise<{ status: number; body: string }> {
+  const session = http2Connect(`https://127.0.0.1:${port}`, { rejectUnauthorized: false, servername: "localhost" });
+  try {
+    return await new Promise((resolve, reject) => {
+      session.once("error", reject);
+      const stream = session.request({ ":path": path, ...headers });
+      let status = 0;
+      let body = "";
+      stream.setEncoding("utf8");
+      stream.on("response", (head) => (status = Number(head[":status"])));
+      stream.on("data", (chunk: string) => (body += chunk));
+      stream.on("end", () => resolve({ status, body }));
+      stream.on("error", reject);
+      stream.end();
+    });
+  } finally {
+    session.close();
+  }
+}
+
+/** A throwaway self-signed certificate for an HTTPS dev server. */
+function selfSignedCertificate(directory: string): { key: string; cert: string } {
+  const key = join(directory, "dev-key.pem");
+  const cert = join(directory, "dev-cert.pem");
+  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=localhost"], { stdio: "ignore" });
+  return { key, cert };
 }
 
 beforeEach(async () => {
@@ -124,6 +156,107 @@ describe("iterbar() in vite dev", () => {
     expect(((await registered.json()) as { origins: string[] }).origins).toEqual(expect.arrayContaining([
       "https://tunnel.example", `http://127.0.0.1:${port}`, `http://localhost:${port}`, `http://[::1]:${port}`,
     ]));
+  });
+
+  it("never serves the Iterbar store, by any path, while the config endpoint keeps working", async () => {
+    // The project root is the parent of Vite's root, as in a monorepo; the store is outside Vite's root.
+    const app = join(root, "app");
+    await mkdir(app);
+    await writeFile(join(app, "index.html"), "<!doctype html><html><body></body></html>");
+    const { port } = await devServer({ root: app, base: "/base/", plugins: [iterbar({ projectRoot: ".." })] });
+    expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
+    const info = await readMatchingDaemonFile(root);
+    expect(info?.projectRoot).toBe(root);
+    const feedback = join(root, ".iterbar", "feedback", "fb_test");
+    await mkdir(feedback, { recursive: true });
+    await writeFile(join(feedback, "feedback.json"), '{"secret":"FEEDBACK-SECRET"}');
+    // A store under Vite's own root, where its static middleware would serve it.
+    await mkdir(join(app, ".iterbar"));
+    await writeFile(join(app, ".iterbar", "daemon.json"), '{"token":"APP-STORE-SECRET"}');
+
+    const paths = [
+      "/base/.iterbar/daemon.json",
+      "/base/.iterbar/daemon.json?raw",
+      "/base/.iterbar/daemon.json?import&raw",
+      "/base/%2eiterbar/daemon.json",
+      "/base/%252eiterbar/daemon.json",
+      "/base/.ITERBAR/daemon.json",
+      `/base/@fs${root}/.iterbar/daemon.json`,
+      `/base/@fs${root}/.iterbar/daemon.json?raw`,
+      `/base/@fs${root}/.iterbar/feedback/fb_test/feedback.json`,
+      `/base/@fs${root}/app/../.iterbar/daemon.json`,
+      `/base/@id/${root}/.iterbar/daemon.json?raw`,
+      `/@fs${root}/.iterbar/daemon.json`,
+    ];
+    for (const path of paths) {
+      const answer = await get(port, path, { origin: "http://localhost:3000", "sec-fetch-site": "cross-site" });
+      expect(answer.status, path).toBe(404);
+      for (const secret of [info?.token ?? "", "FEEDBACK-SECRET", "APP-STORE-SECRET"]) expect(answer.body, path).not.toContain(secret);
+    }
+    expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
+  });
+
+  it("recognizes a store path however it is written, and nothing else", () => {
+    for (const url of [
+      "/.iterbar/daemon.json", "/a/.Iterbar/x", "/%2Eiterbar/daemon.json", "/a%2F.iterbar%2Fdaemon.json",
+      "/a\\.iterbar\\daemon.json", "http://host/.iterbar/daemon.json", "/.iterbar", "/%E0%A4%A.iterbar/x",
+    ]) {
+      expect(isStoreRequest(url), url).toBe(true);
+    }
+    for (const url of ["/", "/@id/@iterbar/vite/client", "/__iterbar/config", "/iterbar/.iterbarx/a", "/src/main.ts?iterbar"]) {
+      expect(isStoreRequest(url), url).toBe(false);
+    }
+  });
+
+  it("gives each dev server of a restart its own daemon link, released when that server closes", async () => {
+    const { server, port } = await devServer();
+    expect((await get(port, "/__iterbar/config")).status).toBe(200);
+    await server.restart();
+    const after = await get(port, "/__iterbar/config");
+    expect(after.status).toBe(200);
+    const info = await readMatchingDaemonFile(root);
+    expect(JSON.parse(after.body)).toEqual({ daemonUrl: `http://127.0.0.1:${info?.port}`, token: info?.token });
+    await server.close();
+    // Neither the first server's daemon nor the restarted server's is left running.
+    expect(await readMatchingDaemonFile(root)).toBeNull();
+  });
+
+  it("serves the config over HTTP/2 on an HTTPS dev server, where requests carry :authority instead of Host", async () => {
+    const certificate = selfSignedCertificate(root);
+    const https = { key: await readFile(certificate.key), cert: await readFile(certificate.cert) };
+    const { port } = await devServer({ server: { https } });
+    const own = await getHttp2(port, "/__iterbar/config", { "sec-fetch-site": "same-origin" });
+    expect(own.status).toBe(200);
+    expect(JSON.parse(own.body).token).toBe((await readMatchingDaemonFile(root))?.token);
+    const loopback = { ":authority": `localhost:${port}`, origin: `https://localhost:${port}` };
+    expect((await getHttp2(port, "/__iterbar/config", loopback)).status).toBe(200);
+
+    // Vite does not check the host on an HTTPS server; the endpoint still refuses rebound and foreign requests.
+    const refused = [
+      await getHttp2(port, "/__iterbar/config", { ":authority": `attacker.test:${port}`, "sec-fetch-site": "same-origin" }),
+      await getHttp2(port, "/__iterbar/config", { origin: `http://127.0.0.1:${port}` }),
+      await getHttp2(port, "/__iterbar/config", { "sec-fetch-site": "cross-site" }),
+    ];
+    expect(refused.map(({ status }) => status)).toEqual([403, 403, 403]);
+  });
+
+  it("accepts a configured HTTPS origin whose TLS ends at a proxy in front of the HTTP dev server", async () => {
+    const { port } = await devServer({
+      plugins: [iterbar({ origins: ["https://tunnel.example"] })],
+      server: { allowedHosts: ["tunnel.example", "other.example"] },
+    });
+    const proxied = { host: "tunnel.example", "sec-fetch-site": "same-origin" };
+    expect((await get(port, "/__iterbar/config", { ...proxied, origin: "https://tunnel.example" })).status).toBe(200);
+    expect((await get(port, "/__iterbar/config", proxied)).status).toBe(200);
+
+    const refused = [
+      // Only the configured scheme: http://tunnel.example is not an origin of this dev server.
+      await get(port, "/__iterbar/config", { ...proxied, origin: "http://tunnel.example" }),
+      await get(port, "/__iterbar/config", { ...proxied, origin: "https://other.example" }),
+      await get(port, "/__iterbar/config", { ...proxied, "sec-fetch-site": "cross-site" }),
+      await get(port, "/__iterbar/config", { host: "other.example", origin: "https://other.example" }),
+    ];
+    expect(refused.map(({ status }) => status)).toEqual([403, 403, 403, 403]);
   });
 
   it("stops the daemon it started when the dev server closes", async () => {

@@ -14,29 +14,74 @@ export type ConfigRequestCheck =
   | { readonly allowed: true; readonly origin: string }
   | { readonly allowed: false; readonly status: number; readonly error: string };
 
+/** What the config endpoint needs to know about the dev server. */
+export interface ConfigRequestContext {
+  /** Whether the dev server itself speaks TLS (`server.https`). */
+  readonly https: boolean;
+  /** Every origin the dev server's pages may use, loopback aliases included. */
+  readonly allowedOrigins: readonly string[];
+  /**
+   * The origins set in the config (`server.origin`, the `origins` option). For one of these with `https`, a plain
+   * HTTP request with the same host is accepted too: TLS ends at a proxy or tunnel in front of the dev server.
+   */
+  readonly configuredOrigins: readonly string[];
+}
+
+const FORBIDDEN = "Only the dev server's own pages may read the Iterbar config";
+
+/** The host the request was sent to: `Host` in HTTP/1.1, the `:authority` pseudo-header in HTTP/2. */
+function requestAuthority(request: IncomingMessage): string | undefined {
+  const authority = request.headers[":authority"];
+  if (typeof authority === "string" && authority !== "") return authority;
+  return request.headers.host;
+}
+
+/**
+ * The origins the page that sent the request may have: the dev server's own scheme with the request's host, and on
+ * a plain HTTP server also `https` with that host when the config names that origin. Empty for a missing or invalid
+ * host.
+ */
+function candidateOrigins(request: IncomingMessage, context: ConfigRequestContext): string[] {
+  const authority = requestAuthority(request);
+  if (authority === undefined || authority === "") return [];
+  const own = originOf(`${context.https ? "https" : "http"}://${authority}`);
+  if (own === null) return [];
+  const candidates = [own];
+  if (!context.https) {
+    const behindTls = originOf(`https://${authority}`);
+    if (behindTls !== null && context.configuredOrigins.includes(behindTls)) candidates.push(behindTls);
+  }
+  return candidates;
+}
+
 /**
  * Decides whether a request may read the token. Only a page of the dev server itself may: the request must be a
  * `GET` from the same origin (`Sec-Fetch-Site`, and `Origin` when a browser sends one), and that origin must be one
  * the daemon allows. A page of another site, or one reaching the server under another host name (DNS rebinding),
- * gets nothing, and Vite's own host check has already run.
+ * gets nothing. This check runs whether or not Vite checks the host itself, which it does not on an HTTPS server
+ * or with `allowedHosts: true`.
  */
-export function checkConfigRequest(request: IncomingMessage, https: boolean, allowedOrigins: readonly string[]): ConfigRequestCheck {
+export function checkConfigRequest(request: IncomingMessage, context: ConfigRequestContext): ConfigRequestCheck {
   if (request.method !== "GET") {
     return { allowed: false, status: 405, error: "Only GET is allowed" };
   }
   const site = request.headers["sec-fetch-site"];
   if (site !== undefined && site !== "same-origin") {
-    return { allowed: false, status: 403, error: "Only the dev server's own pages may read the Iterbar config" };
+    return { allowed: false, status: 403, error: FORBIDDEN };
   }
-  const origin = originOf(`${https ? "https" : "http"}://${request.headers.host ?? ""}`);
-  if (origin === null || (request.headers.origin !== undefined && request.headers.origin !== origin)) {
-    return { allowed: false, status: 403, error: "Only the dev server's own pages may read the Iterbar config" };
+  const candidates = candidateOrigins(request, context);
+  const sent = request.headers.origin;
+  // A browser that sends Origin names the page's origin exactly; it must be one the request's host can have.
+  const possible = sent === undefined ? candidates : candidates.filter((origin) => origin === sent);
+  if (possible.length === 0) {
+    return { allowed: false, status: 403, error: FORBIDDEN };
   }
-  if (!allowedOrigins.includes(origin)) {
+  const origin = possible.find((each) => context.allowedOrigins.includes(each));
+  if (origin === undefined) {
     return {
       allowed: false,
       status: 403,
-      error: `${origin} is not an origin of this dev server; add it to iterbar({ origins }) or set server.origin`,
+      error: `${possible[0]} is not an origin of this dev server; add it to iterbar({ origins }) or set server.origin`,
     };
   }
   return { allowed: true, origin };

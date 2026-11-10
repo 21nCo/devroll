@@ -70,7 +70,18 @@ the dev server. Only the dev server's own pages can read it: the request
 must be same-origin (`Sec-Fetch-Site`, and `Origin` when sent), and its
 host must be one of the registered origins, so a page from another site,
 or one that reaches the dev server under a rebound host name, gets a `403`
-and no token. The token never goes into the HTML or a cached module.
+and no token. The token never goes into the HTML or a cached module. The
+host is read from `Host`, or from `:authority` on an HTTPS dev server, which
+browsers reach over HTTP/2.
+
+The dev server never serves a `.iterbar/` store, which holds `daemon.json`
+with the token and the feedback: every request with a `.iterbar` path
+segment (in any case, encoded or not, under `base`, `/@fs/`, `/@id/` or the
+public directory) gets a `404` before Vite's own middleware sees it.
+
+Behind a proxy or tunnel that ends TLS and forwards plain HTTP with the
+original host, add its `https` origin to `origins` (and the host to
+`server.allowedHosts`): a request for that host is accepted as that origin.
 
 ## Options
 

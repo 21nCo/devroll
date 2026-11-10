@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import type { HtmlTagDescriptor, Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import { DaemonLink } from "./daemon.js";
 import { checkConfigRequest, CONFIG_PATH, sendJson, type BarConfigResponse } from "./endpoint.js";
-import { checkExtraOrigins, devServerOrigins } from "./origins.js";
+import { checkExtraOrigins, devServerOrigins, originOf } from "./origins.js";
+import { storeGuard } from "./store.js";
 
 export type { BarConfigResponse } from "./endpoint.js";
 
@@ -56,11 +57,24 @@ if (typeof document !== "undefined") {
 `;
 }
 
+/** Origins set in the config rather than found by Vite: `server.origin` and the `origins` option. */
+function configuredOrigins(server: ViteDevServer, extra: readonly string[]): string[] {
+  const origin = server.config.server.origin ? originOf(server.config.server.origin) : null;
+  return origin === null ? [...extra] : [origin, ...extra];
+}
+
 /** Origins of the dev server's pages as Vite currently knows them. */
 function serverOrigins(server: ViteDevServer, extra: readonly string[]): string[] {
   const urls = [...(server.resolvedUrls?.local ?? []), ...(server.resolvedUrls?.network ?? [])];
-  if (server.config.server.origin) urls.push(server.config.server.origin);
-  return devServerOrigins([...urls, ...extra]);
+  return devServerOrigins([...urls, ...configuredOrigins(server, extra)]);
+}
+
+/** One dev server's use of the daemon. A restart creates a new dev server, which gets its own. */
+interface ServerState {
+  readonly link: DaemonLink;
+  closing: Promise<void> | null;
+  lastProblem: string | null;
+  lastDaemon: string | null;
 }
 
 /**
@@ -68,25 +82,25 @@ function serverOrigins(server: ViteDevServer, extra: readonly string[]): string[
  * each HTML page Vite serves (`transformIndexHtml`), and resolves `@iterbar/vite/client` to that module for apps
  * that render their own HTML, such as SvelteKit. On the first page load it reuses the project's running daemon when
  * its `.iterbar/daemon.json` names the same project root, or starts one in the dev server's process, and registers
- * the dev server's origins with it. `vite build` and `vite preview` do not use it, so a build has no Iterbar
- * runtime.
+ * the dev server's origins with it. It never serves a `.iterbar/` store. `vite build` and `vite preview` do not use
+ * it, so a build has no Iterbar runtime.
  */
 export function iterbar(options: IterbarPluginOptions = {}): Plugin {
   const extraOrigins = checkExtraOrigins(options.origins ?? []);
   let config: ResolvedConfig;
-  let link: DaemonLink | null = null;
-  let lastProblem: string | null = null;
-  let lastDaemon: string | null = null;
+  /**
+   * Keyed by each dev server's resolved config. A plugin instance outlives a server restart with an inline config,
+   * and Vite creates the new server before it closes the old one, so each close must release its own server's link.
+   */
+  const servers = new Map<ResolvedConfig, ServerState>();
 
-  let closing: Promise<void> | null = null;
-  // Every close path waits for the same shutdown: Vite exits the process once the awaited ones resolve.
-  const closeLink = (): Promise<void> => {
-    closing ??= (async () => {
-      const current = link;
-      link = null;
-      await current?.close();
-    })();
-    return closing;
+  // Every close path of a server waits for the same shutdown: Vite exits the process once the awaited ones resolve.
+  // The state stays findable until the shutdown ends, so a close path that comes second still waits for it.
+  const closeServer = (key: ResolvedConfig, state: ServerState): Promise<void> => {
+    state.closing ??= state.link.close().finally(() => {
+      if (servers.get(key) === state) servers.delete(key);
+    });
+    return state.closing;
   };
 
   return {
@@ -124,33 +138,45 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
     },
 
     configureServer(server) {
-      const current = new DaemonLink(resolve(server.config.root, options.projectRoot ?? "."));
-      link = current;
-      closing = null;
-      server.httpServer?.once("close", () => void closeLink());
-      const configPath = withBase(server.config.base, CONFIG_PATH);
-      const logger = server.config.logger;
+      // `server` follows a restart to the next dev server, so this one's config and HTTP server are kept here.
+      const key = server.config;
+      const state: ServerState = {
+        link: new DaemonLink(resolve(key.root, options.projectRoot ?? ".")),
+        closing: null,
+        lastProblem: null,
+        lastDaemon: null,
+      };
+      servers.set(key, state);
+      server.httpServer?.once("close", () => void closeServer(key, state));
+      const configPath = withBase(key.base, CONFIG_PATH);
+      const logger = key.logger;
 
+      // Ahead of every middleware Vite adds to serve files, so none of them can serve the store.
+      server.middlewares.use(storeGuard);
       server.middlewares.use((request, response, next) => {
         if ((request.url ?? "").split("?")[0] !== configPath) return next();
         const origins = serverOrigins(server, extraOrigins);
-        const check = checkConfigRequest(request, Boolean(server.config.server.https), origins);
+        const check = checkConfigRequest(request, {
+          https: Boolean(key.server.https),
+          allowedOrigins: origins,
+          configuredOrigins: configuredOrigins(server, extraOrigins),
+        });
         if (!check.allowed) return sendJson(response, check.status, { error: check.error });
-        if (link !== current) return sendJson(response, 503, { error: "The dev server is closing" });
-        current.connect(origins).then((access) => {
+        if (state.closing) return sendJson(response, 503, { error: "The dev server is closing" });
+        state.link.connect(origins).then((access) => {
           const described = `${access.daemonUrl} (${access.started ? "started in this process" : "already running"})`;
-          if (described !== lastDaemon) {
-            lastDaemon = described;
-            lastProblem = null;
+          if (described !== state.lastDaemon) {
+            state.lastDaemon = described;
+            state.lastProblem = null;
             logger.info(`Iterbar daemon: ${described}`, { timestamp: true });
           }
           const body: BarConfigResponse = { daemonUrl: access.daemonUrl, token: access.token };
           sendJson(response, 200, body);
         }, (error: unknown) => {
           const problem = error instanceof Error ? error.message : String(error);
-          if (problem !== lastProblem) {
-            lastProblem = problem;
-            lastDaemon = null;
+          if (problem !== state.lastProblem) {
+            state.lastProblem = problem;
+            state.lastDaemon = null;
             logger.warn(`Iterbar: no daemon for the bar: ${problem}`, { timestamp: true });
           }
           sendJson(response, 503, { error: problem });
@@ -158,9 +184,11 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
       });
     },
 
-    // Middleware mode has no HTTP server to watch; Vite closes the plugin container when the server closes.
+    // Middleware mode has no HTTP server to watch; Vite closes each environment's plugins when the server closes.
     async closeBundle() {
-      await closeLink();
+      const key = this.environment.getTopLevelConfig();
+      const state = servers.get(key);
+      if (state) await closeServer(key, state);
     },
   };
 }
