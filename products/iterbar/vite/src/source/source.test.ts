@@ -256,6 +256,13 @@ module.exports = { ...real, parse: (...args) => ({ ...real.parse(...args), fragm
     await expect(stamped(join(root, "other"))).resolves.toBeNull();
   });
 
+  it("leaves a component as written when the app's svelte/compiler fails to load", async () => {
+    await write("broken/node_modules/svelte/package.json", JSON.stringify({ name: "svelte", exports: { "./compiler": "./compiler.cjs" } }));
+    await write("broken/node_modules/svelte/compiler.cjs", `throw new Error("a broken install");\n`);
+    const app = join(root, "broken");
+    await expect(stampSvelteModule("<div></div>\n", join(app, "src/App.svelte"), sourceRoot(app), app)).resolves.toBeNull();
+  });
+
   it("leaves markup the compiler cannot parse to the compiler", async () => {
     const filename = join(root, "src/Broken.svelte");
     await expect(stampSvelteModule("<div>{#if}</div>\n", filename, sourceRoot(root), root)).resolves.toBeNull();

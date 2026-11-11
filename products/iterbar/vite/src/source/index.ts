@@ -40,12 +40,12 @@ export function addReactSourcePlugin(babel: ReactBabelOptions, id: string, root:
   babel.plugins.push(plugin);
 }
 
-/** Each `svelte/compiler` loaded, by the file an app resolves it to. */
-const svelteCompilers = new Map<string, SvelteCompiler>();
+/** Each `svelte/compiler` loaded, or null for one that failed to load, by the file an app resolves it to. */
+const svelteCompilers = new Map<string, SvelteCompiler | null>();
 
 /**
- * The `svelte/compiler` the app at `appRoot` resolves, or null without one: a module named `.svelte` is then not a
- * Svelte component there.
+ * The `svelte/compiler` the app at `appRoot` resolves, or null without one that loads: a module named `.svelte` is
+ * then not a Svelte component there, and compiling it is left to `vite-plugin-svelte`.
  */
 function svelteCompilerOf(appRoot: string): SvelteCompiler | null {
   const require = createRequire(join(appRoot, "package.json"));
@@ -55,12 +55,16 @@ function svelteCompilerOf(appRoot: string): SvelteCompiler | null {
   } catch {
     return null;
   }
-  let compiler = svelteCompilers.get(file);
-  if (!compiler) {
-    compiler = require(file) as SvelteCompiler;
+  if (!svelteCompilers.has(file)) {
+    let compiler: SvelteCompiler | null = null;
+    try {
+      compiler = require(file) as SvelteCompiler;
+    } catch {
+      // A broken install: the component gets no stamps rather than a failed transform.
+    }
     svelteCompilers.set(file, compiler);
   }
-  return compiler;
+  return svelteCompilers.get(file) ?? null;
 }
 
 /**
