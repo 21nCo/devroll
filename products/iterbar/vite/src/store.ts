@@ -93,10 +93,9 @@ function isMissing(error: unknown): boolean {
   return ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException | null)?.code ?? "");
 }
 
-/** Whether a file is the directory or in it, ignoring case as Windows and macOS file systems do. */
+/** Whether a file is the directory or in it. */
 function isWithin(file: string, directory: string): boolean {
-  const [path, parent] = [file.toLowerCase(), directory.toLowerCase()];
-  return path === parent || path.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+  return file === directory || file.startsWith(directory.endsWith(sep) ? directory : directory + sep);
 }
 
 /** A project's store directory, `<projectRoot>/.iterbar`, and its real path once known: it may be a link. */
@@ -120,13 +119,18 @@ function isStorePath(file: string, store: Store): boolean {
   return hasStoreSegment(file) || (store.real !== null && isWithin(file, store.real));
 }
 
+/** Whether only a lookup can tell: a `~` (as Windows short names have), or the store's real path in another case. */
+function needsLookup(file: string, store: Store): boolean {
+  return file.includes("~") || (store.real !== null && isWithin(file.toLowerCase(), store.real.toLowerCase()));
+}
+
 /**
- * Whether reading `file` reads a store: {@link isStorePath}, or for a path with a `~` (as Windows short names have),
- * the same for its real path. Only such a path is looked up. A missing file cannot be read; any other failure counts.
+ * Whether reading `file` reads a store: {@link isStorePath}, or when it {@link needsLookup}, the same for its real
+ * path (in the file system's own case). A missing file cannot be read; any other failed lookup counts as the store.
  */
 export async function isStoreFile(file: string, store: Store, resolvePath: ResolvePath = realpath): Promise<boolean> {
   if (isStorePath(file, store)) return true;
-  if (!file.includes("~")) return false;
+  if (!needsLookup(file, store)) return false;
   try {
     const real = await resolvePath(file);
     if (hasStoreSegment(real)) return true;
@@ -176,23 +180,23 @@ export interface StoreLayout {
   readonly store: Store;
 }
 
-/** Vite's static middleware: the path relative to the root, after the first alias that matches rewrites it. */
-function staticFiles(url: string, { root, alias }: StoreLayout): string[] {
+/** `req.url` as Vite's static middleware hands it to sirv (under the root): after the first alias that matches. */
+function staticUrl(url: string, { root, alias }: StoreLayout): string | undefined {
   const target = url.startsWith("//") ? undefined : parsedPath(url);
-  if (target === undefined) return [];
+  if (target === undefined) return undefined;
   const match = alias.find(({ find }) => (typeof find === "string" ? target.pathname.startsWith(find) : find.test(target.pathname)));
   let redirected = match ? target.pathname.replace(match.find, match.replacement) : "";
   if (redirected.startsWith(root.endsWith("/") ? root : `${root}/`)) redirected = redirected.slice(root.length);
-  return sirvFiles(root, redirected ? withPath(target.parsed, redirected) : url);
+  return redirected ? withPath(target.parsed, redirected) : url;
 }
 
-/** Vite's `/@fs/` middleware: the path after the prefix, under the root (on Windows, drive) Vite resolved at start. */
-function rawFsFiles(url: string, fsRoot: string): string[] {
+/** `req.url` as Vite's `/@fs/` middleware hands it to sirv (under the root, on Windows the drive, Vite resolved). */
+function rawFsUrl(url: string): string | undefined {
   const target = url.startsWith(FS_PREFIX) ? parsedPath(url) : undefined;
-  if (target === undefined) return [];
+  if (target === undefined) return undefined;
   let path = target.pathname.slice(FS_PREFIX.length);
   if (process.platform === "win32") path = path.replace(/^[a-z]:/i, "");
-  return sirvFiles(fsRoot, withPath(target.parsed, path));
+  return withPath(target.parsed, path);
 }
 
 /** The absolute path of a `/@fs/` URL, as Vite's `fsPathFromId` reads it. */
@@ -222,14 +226,16 @@ function htmlFiles(url: string, { root }: StoreLayout): string[] {
  */
 export function servedFiles(url: string, layout: StoreLayout, fsRoot = resolve("/")): string[] {
   const directory = layout.base.endsWith("/") ? layout.base : `${layout.base}/`;
-  const urls = [url];
-  if (layout.base !== "/" && url.startsWith(directory)) urls.push(url.slice(directory.length - 1));
-  const files = urls.flatMap((each) => [
-    ...staticFiles(each, layout),
-    ...rawFsFiles(each, fsRoot),
-    ...(layout.publicDir ? sirvFiles(layout.publicDir, each) : []),
-    ...htmlFiles(each, layout),
-  ]);
+  const urls = [url, ...(layout.base !== "/" && url.startsWith(directory) ? [url.slice(directory.length - 1)] : [])];
+  // A middleware that rewrites `req.url` for sirv passes the rewritten URL on when sirv has no such file.
+  const rawUrls = urls.map(rawFsUrl).filter((each) => each !== undefined);
+  const staticUrls = [...urls, ...rawUrls].map((each) => staticUrl(each, layout)).filter((each) => each !== undefined);
+  const files = [
+    ...rawUrls.flatMap((each) => sirvFiles(fsRoot, each)),
+    ...staticUrls.flatMap((each) => sirvFiles(layout.root, each)),
+    ...(layout.publicDir ? urls.flatMap((each) => sirvFiles(layout.publicDir, each)) : []),
+    ...[...urls, ...rawUrls, ...staticUrls].flatMap((each) => htmlFiles(each, layout)),
+  ];
   return [...new Set(files)];
 }
 
@@ -245,7 +251,7 @@ export function isLoadOfStore(id: string, layout: Pick<StoreLayout, "publicDir" 
   if (id.startsWith("\0")) return false;
   const file = id.replace(/[?#].*$/s, "");
   const files = [resolve(file), ...(layout.publicDir && file.startsWith("/") ? [join(layout.publicDir, file)] : [])];
-  if (!files.some((each) => each.includes("~") || isStorePath(each, layout.store))) return false;
+  if (!files.some((each) => isStorePath(each, layout.store) || needsLookup(each, layout.store))) return false;
   return anyStoreFile(files, layout.store);
 }
 
@@ -269,7 +275,7 @@ export function storeGuard(layout: StoreLayout) {
   return (request: IncomingMessage, response: ServerResponse, next: () => void): void => {
     const url = request.url ?? "";
     if (isStoreRequest(url)) return refuse(response);
-    const files = servedFiles(url, layout, fsRoot).filter((file) => file.includes("~") || isStorePath(file, layout.store));
+    const files = servedFiles(url, layout, fsRoot).filter((file) => isStorePath(file, layout.store) || needsLookup(file, layout.store));
     if (files.length === 0) return next();
     anyStoreFile(files, layout.store).then((store) => (store ? refuse(response) : next()), () => refuse(response));
   };
