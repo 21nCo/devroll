@@ -4,6 +4,7 @@ import type { HtmlTagDescriptor, Plugin, ResolvedConfig, ViteDevServer } from "v
 import { DaemonLink } from "./daemon.js";
 import { checkConfigRequest, CONFIG_PATH, sendJson, type BarConfigResponse } from "./endpoint.js";
 import { checkExtraOrigins, devServerOrigins, originOf } from "./origins.js";
+import { addReactSourcePlugin, sourceRoot, stampSvelteModule, type ReactBabelOptions, type SourceRoot } from "./source/index.js";
 import { isLoadOfStore, STORE_DENY_PATTERN, storeGuard, type Store } from "./store.js";
 
 export type { BarConfigResponse } from "./endpoint.js";
@@ -88,8 +89,9 @@ interface ServerState {
  * each HTML page Vite serves (`transformIndexHtml`), and resolves `@iterbar/vite/client` to that module for apps
  * that render their own HTML, such as SvelteKit. On the first page load it reuses the project's running daemon when
  * its `.iterbar/daemon.json` names the same project root, or starts one in the dev server's process, and registers
- * the dev server's origins with it. It never serves a `.iterbar/` store. `vite build` and `vite preview` do not use
- * it, so a build has no Iterbar runtime.
+ * the dev server's origins with it. It never serves a `.iterbar/` store. It stamps each element of a project's React
+ * and Svelte source files with `data-iterbar-src`, its source location. `vite build` and `vite preview` do not use it,
+ * so a build has no Iterbar runtime and no stamps.
  */
 export function iterbar(options: IterbarPluginOptions = {}): Plugin {
   const extraOrigins = checkExtraOrigins(options.origins ?? []);
@@ -102,6 +104,13 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
     const store = stores.get(config) ?? { path: resolve(config.root, options.projectRoot ?? ".", ".iterbar"), real: null };
     stores.set(config, store);
     return store;
+  };
+  /** Each resolved config's project root, which every source location is relative to. */
+  const sourceRoots = new WeakMap<ResolvedConfig, SourceRoot>();
+  const sourceRootOf = (config: ResolvedConfig): SourceRoot => {
+    const root = sourceRoots.get(config) ?? sourceRoot(resolve(config.root, options.projectRoot ?? "."));
+    sourceRoots.set(config, root);
+    return root;
   };
   /**
    * Keyed by each dev server's resolved config. A plugin instance outlives a server restart with an inline config,
@@ -123,6 +132,16 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
     // Before Vite's resolver, which would resolve `@iterbar/vite/client` to the package's empty module.
     enforce: "pre",
     apply: (_config, env) => env.command === "serve" && !env.isPreview,
+
+    api: {
+      /**
+       * `@vitejs/plugin-react` calls this for each module it compiles with Babel, in dev only since the plugin applies
+       * to dev only: it adds the Babel plugin that stamps JSX host elements with their source location.
+       */
+      reactBabel(babel: ReactBabelOptions, context: { id: string }, config: ResolvedConfig) {
+        addReactSourcePlugin(babel, context.id, sourceRootOf(config));
+      },
+    },
 
     // Vite refuses to read the store by its resolved path too; Vite's own denials stay. A config that sets
     // `server.fs.deny` keeps its list, and this pattern is added to it.
@@ -156,6 +175,15 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
           throw new Error(`Iterbar: ${id} is in an Iterbar store, which the dev server does not serve`);
         }
         return null;
+      },
+    },
+
+    // Ahead of `vite-plugin-svelte`'s preprocessors and compiler, so each stamp names the component as written.
+    transform: {
+      order: "pre",
+      filter: { id: /\.svelte$/ },
+      handler(code, id) {
+        return stampSvelteModule(code, id, sourceRootOf(this.environment.getTopLevelConfig()));
       },
     },
 

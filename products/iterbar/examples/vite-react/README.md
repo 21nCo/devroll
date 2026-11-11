@@ -1,8 +1,10 @@
 # Iterbar example: Vite and React
 
 A Vite and React page with two `Variants` slots, `hero` and `pricing`.
-`vite.config.ts` adds `iterbar()`, so `pnpm dev` shows the Iterbar bar on
-the page and the bar switches each slot between its versions. `pnpm build`
+`vite.config.ts` adds `@vitejs/plugin-react` and `iterbar()`, so `pnpm dev`
+shows the Iterbar bar on the page, the bar switches each slot between its
+versions, and each element carries its source location in
+`data-iterbar-src`. `pnpm build`
 produces a bundle with no Iterbar runtime: the slots render their default
 version.
 
