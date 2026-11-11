@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { join, posix, resolve, sep } from "node:path";
+import { dirname, join, posix, resolve, sep } from "node:path";
 import type { Alias } from "vite";
 
 /** The name of a project's Iterbar store directory, which holds `daemon.json` (with the token) and the feedback. */
@@ -104,13 +104,14 @@ export interface Store {
   real: string | null;
 }
 
+/** A path's real path, or `null` when it does not exist. */
+async function realOrNull(path: string, resolvePath: ResolvePath): Promise<string | null> {
+  return resolvePath(path).catch((error: unknown) => (isMissing(error) ? null : Promise.reject(error)));
+}
+
 /** Looks up the store's real path, keeping the last one known while the store does not exist. */
 export async function locateStore(store: Store, resolvePath: ResolvePath = realpath): Promise<string | null> {
-  try {
-    store.real = await resolvePath(store.path);
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-  }
+  store.real = (await realOrNull(store.path, resolvePath)) ?? store.real;
   return store.real;
 }
 
@@ -125,20 +126,22 @@ function needsLookup(file: string, store: Store): boolean {
 }
 
 /**
- * Whether reading `file` reads a store: {@link isStorePath}, or when it {@link needsLookup}, the same for its real
- * path (in the file system's own case). A missing file cannot be read; any other failed lookup counts as the store.
+ * Whether reading `file` reads a store: {@link isStorePath}, or if it {@link needsLookup}, by its real path; and since a
+ * short name names an entry of its own directory, by each `~` segment's against the `.iterbar` beside it, whether the
+ * file exists yet or not. A missing path cannot be read; any other failed lookup counts as the store.
  */
 export async function isStoreFile(file: string, store: Store, resolvePath: ResolvePath = realpath): Promise<boolean> {
   if (isStorePath(file, store)) return true;
   if (!needsLookup(file, store)) return false;
-  try {
-    const real = await resolvePath(file);
-    if (hasStoreSegment(real)) return true;
-    const storeReal = await locateStore(store, resolvePath);
-    return storeReal !== null && isWithin(real, storeReal);
-  } catch (error) {
-    return !isMissing(error);
-  }
+  const parts = file.split(sep);
+  const prefixes = parts.flatMap((part, index) => (part.includes("~") ? [parts.slice(0, index + 1).join(sep)] : []));
+  const reaches = async (path: string): Promise<boolean> => {
+    const real = await realOrNull(path, resolvePath);
+    if (real === null) return false;
+    const stores = [await locateStore(store, resolvePath), path === file ? null : await realOrNull(join(dirname(path), STORE_DIR), resolvePath)];
+    return hasStoreSegment(real) || stores.some((each) => each !== null && isWithin(real, each));
+  };
+  return Promise.all([file, ...prefixes].map(reaches)).then((verdicts) => verdicts.includes(true), () => true);
 }
 
 /** The decoded request path, or `undefined` when Vite's middleware would pass the request on. */
@@ -208,16 +211,13 @@ function fsPathOf(url: string): string {
 /** Vite's HTML middleware, after its fallback adds `.html` or `index.html`: an HTML file by root or `/@fs/` path. */
 function htmlFiles(url: string, { root }: StoreLayout): string[] {
   const clean = url.replace(/[?#].*$/s, "");
-  const files: string[] = [];
-  for (const candidate of [clean, `${clean}.html`, `${clean}index.html`]) {
-    if (!candidate.endsWith(".html")) continue;
+  return [clean, `${clean}.html`, `${clean}index.html`].filter((each) => each.endsWith(".html")).flatMap((each) => {
     try {
-      files.push(resolve(candidate.startsWith(FS_PREFIX) ? decodeURIComponent(fsPathOf(candidate)) : join(root, decodeURIComponent(candidate))));
+      return [resolve(each.startsWith(FS_PREFIX) ? decodeURIComponent(fsPathOf(each)) : join(root, decodeURIComponent(each)))];
     } catch {
-      // Vite does not read it either.
+      return []; // Vite does not read it either.
     }
-  }
-  return files;
+  });
 }
 
 /**

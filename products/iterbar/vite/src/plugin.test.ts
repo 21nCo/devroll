@@ -183,8 +183,9 @@ describe("iterbar() in vite dev", () => {
     const feedback = join(root, ".iterbar", "feedback", "fb_test");
     await mkdir(feedback, { recursive: true });
     await writeFile(join(feedback, "feedback.json"), '{"secret":"FEEDBACK-SECRET"}');
-    // A store under Vite's own root, where its static middleware would serve it.
-    await mkdir(join(app, ".iterbar"));
+    // A store under Vite's own root, where its static middleware would serve it, which is a link to another name.
+    await mkdir(join(app, "vault"));
+    await symlink(join(app, "vault"), join(app, ".iterbar"), "dir");
     await writeFile(join(app, ".iterbar", "daemon.json"), '{"token":"APP-STORE-SECRET"}');
     // Other names of the stores, as a Windows short name or a link gives one: the guard asks the file system.
     for (const alias of ["ITERBA~1", "ITERB~10", "ITER~100", "IT1A2B~1", "it5f2~12"]) await symlink(join(app, ".iterbar"), join(app, alias));
@@ -304,26 +305,24 @@ describe("iterbar() in vite dev", () => {
   it("looks a file up only when its path has a `~`, and counts a failed lookup as the store unless the file is missing", async () => {
     const store: Store = { path: "/srv/app/.iterbar", real: null };
     const looked: string[] = [];
-    const failing = (code: string): ResolvePath => async (path) => {
+    const disk = (real: Record<string, string>, code = "ENOENT"): ResolvePath => async (path) => {
       looked.push(path);
-      throw Object.assign(new Error(code), { code });
+      return real[path] ?? Promise.reject(Object.assign(new Error(code), { code }));
     };
-    const missing = failing("ENOENT");
-    expect(await isStoreFile("/srv/app/src/a.js", store, missing)).toBe(false);
-    expect(await isStoreFile("/srv/app/.ITERBAR./daemon.json", store, missing)).toBe(true);
-    expect(await isStoreFile("/srv/app/ITEMSA~1/a.js", store, missing)).toBe(false);
-    expect(looked).toEqual(["/srv/app/ITEMSA~1/a.js"]);
-    expect(await isStoreFile("/srv/app/X~1/a", store, failing("EACCES"))).toBe(true);
-    // The store may be a link: a file is in it when its real path is under the store's.
-    const linked = (target: string): ResolvePath => async (path) => (path === store.path ? "/srv/vault" : target);
-    expect(await isStoreFile("/srv/app/X~1/a", store, linked("/srv/vaultx/a"))).toBe(false);
-    expect(await isStoreFile("/srv/app/X~1/a", store, linked("/srv/vault/a"))).toBe(true);
+    expect([await isStoreFile("/srv/app/src/a.js", store, disk({})), await isStoreFile("/srv/app/.ITERBAR./x", store, disk({}))]).toEqual([false, true]);
+    expect(await isStoreFile("/srv/app/ITEMSA~1/a.js", store, disk({}))).toBe(false);
+    expect(looked).toEqual(["/srv/app/ITEMSA~1/a.js", "/srv/app/ITEMSA~1"]);
+    expect(await isStoreFile("/srv/app/X~1/a", store, disk({}, "EACCES"))).toBe(true);
+    const linked = { "/srv/app/.iterbar": "/srv/vault", "/srv/app/X~1": "/srv/vaultx" };
+    expect(await isStoreFile("/srv/app/X~1/a", store, disk({ ...linked, "/srv/app/X~1/a": "/srv/vaultx/a" }))).toBe(false);
+    expect(await isStoreFile("/srv/app/X~1/a", store, disk({ ...linked, "/srv/app/X~1/a": "/srv/vault/a" }))).toBe(true);
+    // A short name beside a store names it, whether the file exists yet or the store is another project's link.
+    expect(await isStoreFile("/srv/app/ITERBA~1/daemon.json", store, disk({ ...linked, "/srv/app/ITERBA~1": "/srv/vault" }))).toBe(true);
+    expect(await isStoreFile("/srv/app/sub/ITERBA~1/x", store, disk({ "/srv/app/sub/ITERBA~1": "/d", "/srv/app/sub/.iterbar": "/d" }))).toBe(true);
     // Another case of the store's real path is looked up: the same directory only where the file system says so.
-    expect(await isStoreFile("/srv/VAULT/a", store, linked("/srv/VAULT/a"))).toBe(false);
-    expect(await isStoreFile("/srv/VAULT/a", store, linked("/srv/vault/a"))).toBe(true);
-    // Once known, the store's real path is checked without a lookup.
-    expect(await isStoreFile("/srv/vault/daemon.json", store, failing("EIO"))).toBe(true);
-    // The files Vite's middleware would open, and the ids its transform pipeline loads, are known without a lookup.
+    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/VAULT/a" }))).toBe(false);
+    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/vault/a" }))).toBe(true);
+    expect(await isStoreFile("/srv/vault/daemon.json", store, disk({}, "EIO"))).toBe(true);
     const layout = { root: "/srv/app", base: "/base/", publicDir: "/srv/app/public", alias: [], store };
     expect(servedFiles("/base/src/a.js?raw", layout)).toEqual(expect.arrayContaining(["/srv/app/src/a.js", "/srv/app/public/src/a.js"]));
     expect(servedFiles("/base/@fs/srv/p/x%2541.txt", layout)).toContain("/srv/p/x%41.txt");
