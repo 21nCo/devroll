@@ -311,6 +311,9 @@ test("shows the scrolled position of the element and of scrolled boxes inside it
     <div data-testid="scroller" data-scroller style="width: 100px; height: 100px; overflow: auto; scrollbar-width: none">${panels}</div>
     <div data-testid="card" style="width: 140px; height: 120px; padding: 10px 20px; box-sizing: border-box; background: rgb(255, 255, 255)">
       <div data-scroller style="width: 100px; height: 100px; overflow: auto; scrollbar-width: none">${panels}</div>
+    </div>
+    <div data-testid="list" data-scroller tabindex="0" style="width: 100px; height: 100px; overflow: auto; scrollbar-width: none">
+      <div style="position: sticky; top: 0; height: 20px; background: rgb(0, 255, 0)"></div>${panels}
     </div>`);
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
 
@@ -319,6 +322,16 @@ test("shows the scrolled position of the element and of scrolled boxes inside it
   const card = (await comment(page, daemon, page.getByTestId("card"), "Card", { x: 5, y: 5 })).screenshot!;
   expect(pngSize(card)).toEqual({ width: 140, height: 120 });
   expect((await pngPixels(page, card, [[70, 60], [5, 5]])).at).toEqual([[0, 0, 255, 255], [255, 255, 255, 255]]);
+  // A sticky header stays where the page shows it, over the scrolled content. Its children cover the list, so it is
+  // picked from the keyboard.
+  await enterCommentMode(page);
+  await page.getByTestId("list").focus();
+  await page.keyboard.press("Enter");
+  await inBar(page, "[data-role=composer-text]").fill("List");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(3);
+  expect(daemon.posts[2]!.draft.target?.selector).toBe('[data-testid="list"]');
+  expect((await pngPixels(page, daemon.posts[2]!.screenshot!, [[50, 10], [50, 60]])).at).toEqual([[0, 255, 0, 255], [0, 0, 255, 255]]);
 });
 
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {

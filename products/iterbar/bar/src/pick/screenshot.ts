@@ -85,19 +85,33 @@ function checkWithdrawn(signal: AbortSignal): void {
  * Renders `element` to a PNG at the device scale lowered to the pixel cap. modern-screenshot measures the element
  * again once its images and fonts have loaded and sizes the image from that measurement, so the scale is chosen
  * from it rather than from the size at the pick: an element that grew meanwhile still stays within the cap. Scroll
- * offsets inside the element are kept, so the image shows what the page shows. Once `signal` aborts, the render
- * stops at its next step and its context is destroyed.
+ * offsets inside the element are kept, so the image shows what the page shows: modern-screenshot shifts each child of
+ * a scrolled box by its offset, which is undone for sticky and fixed children (kept above the shifted ones), as those
+ * stay where they are on the page. Once `signal` aborts, the render stops at its next step and its context is destroyed.
  */
 async function render(element: Element, exclude: Node, deviceScale: number, signal: AbortSignal): Promise<{ png: Blob; scale: number }> {
   checkWithdrawn(signal);
   const check = (): void => checkWithdrawn(signal);
+  /** Sticky and fixed copies, with the transform they had before any scroll shift. */
+  const pinned: [HTMLElement | SVGElement, string][] = [];
   const context = await createContext(element, {
     type: "image/png",
     timeout: SCREENSHOT_TIMEOUT_MS,
     filter: (node) => node !== exclude,
     style: ROOT_STYLE,
     features: { restoreScrollPosition: true },
-    onCloneNode: check,
+    onCloneEachNode: (cloned) => {
+      if (!(cloned instanceof HTMLElement || cloned instanceof SVGElement)) return;
+      if (cloned.style.position === "sticky" || cloned.style.position === "fixed") pinned.push([cloned, cloned.style.transform]);
+    },
+    onCloneNode: () => {
+      check();
+      for (const [cloned, transform] of pinned) {
+        cloned.style.transform = transform;
+        // The shifted siblings now paint as layers in document order; keep the pinned copy above them, as on the page.
+        if (!cloned.style.zIndex || cloned.style.zIndex === "auto") cloned.style.zIndex = "1";
+      }
+    },
     onEmbedNode: check,
     onCreateForeignObjectSvg: check,
     autoDestruct: true,

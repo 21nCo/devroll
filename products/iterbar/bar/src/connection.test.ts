@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, type Feedback, type SlotReport, type SlotState } from "iterbar";
+import { SCHEMA_VERSION, type Feedback, type FeedbackDraft, type SlotReport, type SlotState } from "iterbar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonConnection, parseDaemonConfig, REQUEST_TIMEOUT_MS } from "./connection.js";
 import { ThreadsState } from "./threads-state.js";
@@ -121,6 +121,24 @@ describe("DaemonConnection", () => {
   const list = (items: Feedback[]) => ({ schemaVersion: SCHEMA_VERSION, items });
   const settle = () => vi.advanceTimersByTimeAsync(0);
   const versions = () => pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVersion);
+
+  it("says a comment may already be stored when the daemon misses the deadline, and that an unreadable success was stored", async () => {
+    const connection = connect();
+    socket().open();
+    const draft: FeedbackDraft = {
+      schemaVersion: SCHEMA_VERSION, kind: "comment", text: "Hi", pageUrl: "http://localhost:5173/", target: null,
+      activeVariants: [], screenshotUnavailableReason: "The screenshot failed: test", evidenceWindow: null,
+    };
+    const late = connection.sendFeedback(draft, null).catch((error: Error) => error.message);
+    await settle();
+    expect(requests.filter((request) => request.method === "POST" && request.path === "/feedback")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await late).toBe("The daemon did not answer within 10 seconds, so the comment may already be stored. Check the threads before sending it again.");
+
+    vi.stubGlobal("fetch", () => Promise.resolve(new Response("{", { status: 201 })));
+    expect(await connection.sendFeedback(draft, null).catch((error: Error) => error.message))
+      .toBe("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+  });
 
   it("never lets a listing in flight undo an event with the same updatedAt, and still applies later events", async () => {
     connect();

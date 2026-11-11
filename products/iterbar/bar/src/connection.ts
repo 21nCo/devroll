@@ -106,6 +106,9 @@ export interface ConnectionCallbacks {
 
 class UnauthorizedError extends Error {}
 
+/** A request that got no answer within {@link REQUEST_TIMEOUT_MS}. */
+class DeadlineError extends Error {}
+
 /** A request the daemon answered with an error, carrying its message for the user. */
 export class DaemonRequestError extends Error {}
 
@@ -209,7 +212,11 @@ export class DaemonConnection {
       if (error instanceof DaemonRequestError) throw error;
       // No answer (a lost connection or the deadline): the daemon stores a comment before it answers, so the outcome
       // is unknown and sending again could file it twice.
-      const why = this.#stopped ? "The bar was disconnected from the daemon before it answered" : `The daemon did not answer (${(error as Error).message})`;
+      // A success whose body cannot be read was stored.
+      if (error instanceof SyntaxError) throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+      let why = `The daemon did not answer (${(error as Error).message})`;
+      if (error instanceof DeadlineError) why = `The daemon did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds`;
+      if (this.#stopped) why = "The bar was disconnected from the daemon before it answered";
       throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`);
     }
     const feedback = feedbackSchema.safeParse(response);
@@ -369,7 +376,7 @@ export class DaemonConnection {
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         deadline.abort();
-        reject(new Error("The daemon did not answer in time."));
+        reject(new DeadlineError("The daemon did not answer in time."));
       }, REQUEST_TIMEOUT_MS);
     });
     const exchange = async (): Promise<unknown> => {
