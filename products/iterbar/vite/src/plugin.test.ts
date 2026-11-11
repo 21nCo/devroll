@@ -369,7 +369,12 @@ describe("iterbar() in vite dev", () => {
     // A module that imports the store through a link, as `import config from "./docs/daemon.json?raw"` would. With
     // fs.strict, Vite denies the real path it resolved first; without it, only the plugin stands in the way.
     await expect(server.environments.client.transformRequest("/docs/daemon.json?raw")).rejects.toThrow(strict ? /Denied ID/ : /Iterbar store/);
-    expect((await get(port, "/index.html")).body).toContain("<p>App</p>");
+    expect(isAppPage(await get(port, "/index.html"))).toBe(true);
+    // Routes no file can have, by a segment or a whole path too long or a NUL byte, reach Vite past the guard.
+    for (const path of [`/${"t".repeat(300)}`, `/${"r/".repeat(2100)}x`, "/a%00b"]) {
+      const answer = await get(port, path);
+      expect(answer.status === 404 && answer.body === "Not found", path.slice(0, 40)).toBe(false);
+    }
   });
 
   it.each([true, false])("refuses a linked store's real name before its first lookup has answered (fs.strict %s)", async (strict) => {
@@ -441,9 +446,14 @@ describe("iterbar() in vite dev", () => {
     expect(await isStoreFile("/srv/app/X~1/a", store, disk({ ...linked, "/srv/app/X~1/a": "/srv/vaultx/a" }))).toBe(false);
     // A short name beside a store names it, whether the file exists yet or the store is another project's link.
     expect(await isStoreFile("/srv/app/ITERBA~1/daemon.json", store, disk({ ...linked, "/srv/app/ITERBA~1": "/srv/vault" }))).toBe(true);
-    expect(await isStoreFile("/srv/app/sub/ITERBA~1/x", store, disk({ "/srv/app/sub/ITERBA~1": "/d", "/srv/app/sub/.iterbar": "/d" }))).toBe(true);
-    // The store's real path in another case is the store on the file systems that ignore case.
-    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/VAULT/a" }))).toBe(true);
+    const nested = { "/srv/app/sub/ITERBA~1": "/d", "/srv/app/sub/.iterbar": "/d" };
+    expect(await isStoreFile("/srv/app/sub/ITERBA~1/x", store, disk(nested))).toBe(true);
+    expect(await isStoreFile("/srv/app/sub/ITERBA~1/x", store, disk({ ...nested, "/srv/app/sub/ITERBA~1/x": "/d/x" }))).toBe(true);
+    // A real path has each name's case as stored: another case is another directory, which stays served.
+    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/VAULT/a" }))).toBe(false);
+    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/vault/a" }))).toBe(true);
+    // A path no file can have, by a name too long or a NUL byte, cannot be read.
+    expect(await isStoreFile("/srv/app/x", store, disk(linked, "ENAMETOOLONG"))).toBe(false);
     expect(await isLoadOfStore("/srv/vault/daemon.json", { publicDir: "", store }, disk({}, "EIO"))).toBe(true);
     // A missing path with a hundred `~` directories costs a lookup of the file and of its first missing directory.
     looked.length = 0;

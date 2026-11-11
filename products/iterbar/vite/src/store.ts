@@ -88,9 +88,12 @@ function hasStoreSegment(file: string): boolean {
 /** Resolves a path to its real path, short names and links included, as `realpath` does. */
 export type ResolvePath = (path: string) => Promise<string>;
 
-/** Whether a lookup failed because the file does not exist, so that nothing can read it. */
+/**
+ * Whether a lookup failed because no file can be at that path, so that nothing can read it: it does not exist, its
+ * name or the whole path is too long, or it has a NUL byte (as an SPA route can, which Vite answers with its page).
+ */
 function isMissing(error: unknown): boolean {
-  return ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException | null)?.code ?? "");
+  return ["ENOENT", "ENOTDIR", "ENAMETOOLONG", "ERR_INVALID_ARG_VALUE"].includes((error as NodeJS.ErrnoException | null)?.code ?? "");
 }
 
 /** Whether a file is the directory or in it. */
@@ -121,27 +124,31 @@ function lookupOnce(resolvePath: ResolvePath): Lookup {
   };
 }
 
-/** Whether a real path is in a store: it has a `.iterbar` segment, or it is within the store's real path. */
+/**
+ * Whether a real path is in a store: it has a `.iterbar` segment, or it is within the store's real path. Real paths
+ * have each name's case as stored, on file systems that ignore case too, so another case is another directory.
+ */
 function isInStore(real: string, storeReal: string | null): boolean {
-  return hasStoreSegment(real) || (storeReal !== null && isWithin(real.toLowerCase(), storeReal.toLowerCase()));
+  return hasStoreSegment(real) || (storeReal !== null && isWithin(real, storeReal));
 }
 
 /**
  * Whether reading `file` reads a store, by its real path: links and Windows short names lead wherever they lead.
  * The store's own real path is looked up in the same decision, so a store that is a link counts from the first
- * request on. A missing file cannot be read, but a short name in its path names an entry of its own directory, so
- * each `~` directory is compared with the `.iterbar` beside it, up to the first one that does not exist. Any failed
- * lookup but a missing file rejects, which counts as the store.
+ * request on. A short name names an entry of its own directory, which may be a `.iterbar` that links elsewhere, so
+ * each `~` segment is also compared with the `.iterbar` beside it, whether the file exists yet or not, up to the
+ * first one that does not exist. A missing file cannot be read; any other failed lookup rejects, which counts as
+ * the store.
  */
 export async function isStoreFile(file: string, store: Store, resolvePath: ResolvePath = realpath, lookup = lookupOnce(resolvePath)): Promise<boolean> {
   if (hasStoreSegment(file)) return true;
   store.real = (await lookup(store.path)) ?? store.real;
   const storeReal = store.real;
   const real = await lookup(file);
-  if (real !== null) return isInStore(real, storeReal);
+  if (real !== null && isInStore(real, storeReal)) return true;
   const parts = file.split(sep);
   let prefix = parts[0] ?? "";
-  for (const part of parts.slice(1, -1)) {
+  for (const part of parts.slice(1)) {
     prefix += sep + part;
     if (!part.includes("~")) continue;
     const prefixReal = await lookup(prefix);
