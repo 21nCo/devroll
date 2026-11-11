@@ -11,7 +11,7 @@ export interface PickerOptions {
   readonly host: Element;
   /** The highlight layer is appended here, inside the bar's shadow root. */
   readonly container: ParentNode;
-  /** A page element was clicked, or Enter pressed on it. Returns whether it is now the picked element (`false` keeps the previous one). */
+  /** A page element was clicked, or Enter or Space pressed on it. Returns whether it is now the picked element (`false` keeps the previous one). */
   readonly onPick: (element: Element) => boolean;
   /** Escape was pressed: the caller leaves comment mode. */
   readonly onEscape: () => void;
@@ -19,7 +19,7 @@ export interface PickerOptions {
 
 /**
  * Comment mode's element picker. While active it outlines the element under the pointer, picks the clicked element,
- * or the focused one on Enter (outlining it until the pick is cleared), and swallows that input; Escape asks to leave.
+ * or the focused one on Enter or Space (outlining it until the pick is cleared), and swallows that input; Escape asks to leave.
  * While inactive it has no listeners and its layer is hidden, so the page gets every event.
  *
  * The layer is a manual popover in the top layer, like the bar, so page stacking and transforms cannot hide or shift
@@ -131,9 +131,12 @@ export class ElementPicker {
     if (element) this.#pick(element);
   };
 
-  /** The focused page element Enter is for: not the bar, nor the body when nothing is focused. */
-  #enterTarget(event: KeyboardEvent): Element | null {
-    if (event.key !== "Enter" || event.isComposing || !this.#isPageInput(event)) return null;
+  /**
+   * The focused page element an activation key (Enter or Space) is for: not the bar, nor the body when nothing is
+   * focused, where Space scrolls the page.
+   */
+  #activationTarget(event: KeyboardEvent): Element | null {
+    if ((event.key !== "Enter" && event.key !== " ") || event.isComposing || !this.#isPageInput(event)) return null;
     const element = this.#pageElement(event);
     return element === document.body ? null : element;
   }
@@ -153,7 +156,7 @@ export class ElementPicker {
   };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
-    const element = this.#enterTarget(event);
+    const element = this.#activationTarget(event);
     if (element) {
       // Picks at once, before the page's handlers could submit, act on or cancel the key.
       event.preventDefault();
@@ -168,7 +171,7 @@ export class ElementPicker {
   };
 
   readonly #onKeyup = (event: KeyboardEvent): void => {
-    if (!this.#enterTarget(event)) return;
+    if (!this.#activationTarget(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   };

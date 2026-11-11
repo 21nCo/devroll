@@ -55,12 +55,25 @@ const ROOT_STYLE = {
   transform: "none", translate: "none", rotate: "none", scale: "none", margin: "0", inset: "auto",
 } as Partial<CSSStyleDeclaration>;
 
-/** The untransformed border-box size of a transformed HTML element, which its copy is drawn at; else `null`. */
-function untransformedSize(element: Element): { width: number; height: number } | null {
-  if (!(element instanceof HTMLElement)) return null;
+function isTransformed(element: Element): boolean {
   const style = getComputedStyle(element);
-  if ([style.transform, style.translate, style.rotate, style.scale].every((value) => !value || value === "none")) return null;
-  return { width: element.offsetWidth, height: element.offsetHeight };
+  return [style.transform, style.translate, style.rotate, style.scale].some((value) => value && value !== "none");
+}
+
+/**
+ * The untransformed size the copy is drawn at, when the element or an ancestor is transformed (its on-screen box then
+ * differs from its own layout box); else `null`, keeping the measured box.
+ */
+function untransformedSize(element: Element): { width: number; height: number } | null {
+  let transformed = false;
+  for (let node: Element | null = element; node && !transformed; node = node.parentElement) transformed = isTransformed(node);
+  if (!transformed) return null;
+  if (element instanceof HTMLElement) return { width: element.offsetWidth, height: element.offsetHeight };
+  if (element instanceof SVGSVGElement) {
+    const style = getComputedStyle(element);
+    return { width: Number.parseFloat(style.width) || 0, height: Number.parseFloat(style.height) || 0 };
+  }
+  return null;
 }
 
 /** Ends a render that was withdrawn (Cancel, Escape) or timed out, at the next step it reaches. */
@@ -107,14 +120,11 @@ async function render(element: Element, exclude: Node, deviceScale: number, sign
   }
 }
 
-/** The last render started: renders run one at a time, so withdrawn or timed-out ones never pile up. */
-let lastRender: Promise<unknown> = Promise.resolve();
-
 /**
  * Captures `element` as a PNG in the page with modern-screenshot, leaving out `exclude` (the bar), within
  * {@link MAX_SCREENSHOT_PIXELS} and the daemon's attachment size limit. Never rejects: a failure resolves with the
- * reason, so the comment can still be sent without a screenshot. Aborting `signal` withdraws the capture: its render
- * stops at its next step. A capture waits for the previous render to end, within its own time limit.
+ * reason, so the comment can still be sent without a screenshot. Aborting `signal` (or the time limit) withdraws the
+ * capture: its render stops at its next step and its context is destroyed, without holding up any other capture.
  */
 export async function captureScreenshot(element: Element, exclude: Node, signal?: AbortSignal): Promise<ScreenshotResult> {
   if (!element.isConnected) return { ok: false, reason: unavailableReason("the element is no longer on the page") };
@@ -132,10 +142,8 @@ export async function captureScreenshot(element: Element, exclude: Node, signal?
       reject(new Error(`it took longer than ${SCREENSHOT_TIMEOUT_MS / 1000} seconds`));
     }, SCREENSHOT_TIMEOUT_MS);
   });
-  const rendering = lastRender.then(() => render(element, exclude, deviceScale, withdraw.signal));
-  lastRender = rendering.catch(() => undefined);
   try {
-    const { png, scale } = await Promise.race([rendering, timeout]);
+    const { png, scale } = await Promise.race([render(element, exclude, deviceScale, withdraw.signal), timeout]);
     if (png.type !== "image/png") return { ok: false, reason: unavailableReason(`the browser produced ${png.type || "no image type"}`) };
     if (png.size === 0) return { ok: false, reason: unavailableReason("the image is empty") };
     if (png.size > MAX_ATTACHMENT_BYTES) {

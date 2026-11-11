@@ -253,7 +253,10 @@ test("frames a transformed element at the image origin, keeping the transforms i
         <div style="width: 30px; height: 50px; background: rgb(0, 0, 255); transform: translateX(70px)"></div>
       </div>
     </div>
-    <div data-testid="scaled" style="width: 100px; height: 50px; margin: 30px; background: rgb(0, 255, 0); transform: scale(1.5) rotate(10deg)"></div>`));
+    <div data-testid="scaled" style="width: 100px; height: 50px; margin: 30px; background: rgb(0, 255, 0); transform: scale(1.5) rotate(10deg)"></div>
+    <div style="transform: scale(0.5) rotate(5deg); transform-origin: 0 0">
+      <div data-testid="inner" style="width: 200px; height: 100px; background: rgb(0, 255, 0)"></div>
+    </div>`));
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
 
   // Moved off its layout box (and offset relatively): the whole image is the element, not empty.
@@ -270,6 +273,31 @@ test("frames a transformed element at the image origin, keeping the transforms i
   const scaled = (await comment(page, daemon, page.getByTestId("scaled"), "Scaled")).screenshot!;
   expect(pngSize(scaled)).toEqual({ width: 100, height: 50 });
   expect((await pngPixels(page, scaled, [[50, 25]])).opaque).toBe(1);
+
+  // Inside a scaled and rotated ancestor: drawn upright at its own size too, not clipped to its on-screen box.
+  const inner = (await comment(page, daemon, page.getByTestId("inner"), "Inner")).screenshot!;
+  expect(pngSize(inner)).toEqual({ width: 200, height: 100 });
+  expect((await pngPixels(page, inner, [[195, 95]])).opaque).toBe(1);
+});
+
+test("the screenshot shows the element as it was when picked", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+    '<div data-testid="tile" style="width: 60px; height: 40px; background: rgb(255, 0, 0)"></div>'));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await countCanvasBlobs(page);
+  await enterCommentMode(page);
+  await page.getByTestId("tile").click();
+  // Captured at the pick: a change while the comment is typed (a hover ending, a re-render) does not reach it.
+  await expect.poll(() => page.evaluate(() => window.canvasBlobs)).toBe(1);
+  await page.getByTestId("tile").evaluate((tile) => {
+    (tile as HTMLElement).style.background = "rgb(0, 0, 255)";
+  });
+  await inBar(page, "[data-role=composer-text]").fill("Was red");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  expect((await pngPixels(page, daemon.posts[0]!.screenshot!, [[30, 20]])).at).toEqual([[255, 0, 0, 255]]);
 });
 
 test("shows the scrolled position of the element and of scrolled boxes inside it", async ({ page, openFixture, fixtureServer }) => {
@@ -411,12 +439,13 @@ test("the page receives every event while comment mode is off, and none of a pic
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();
 });
 
-test("Enter on a focused page control, the context menu and the document root reach no page handler while picking", async ({ page, openFixture, fixtureServer }) => {
+test("Enter or Space on a focused page control, the context menu and the document root reach no page handler while picking", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openFixture();
   await page.evaluate(() => {
     document.querySelector("main")!.insertAdjacentHTML("beforeend",
-      '<form data-testid="form"><input data-testid="field" name="q"><button data-testid="go">Go</button></form>');
+      '<form data-testid="form"><input data-testid="field" name="q"><button data-testid="go">Go</button></form>'
+      + '<div role="button" tabindex="0" data-testid="custom">Custom</div>');
     window.pageEvents = [];
     for (const type of ["pointerdown", "click", "keydown", "keyup", "contextmenu", "auxclick", "focusin", "submit"]) {
       document.addEventListener(type, (event) => {
@@ -439,9 +468,12 @@ test("Enter on a focused page control, the context menu and the document root re
   // Comment mode off: the page gets all of it.
   await field.focus();
   await field.press("Enter");
+  await page.getByTestId("custom").press(" ");
   await page.getByTestId("go").click({ button: "right" });
   await page.mouse.click(root!.x, root!.y);
-  expect(await events()).toEqual(expect.arrayContaining(["keydown:input", "submit:form", "keyup:input", "contextmenu:button", "click:html"]));
+  expect(await events()).toEqual(expect.arrayContaining([
+    "keydown:input", "submit:form", "keyup:input", "keydown:div", "keyup:div", "contextmenu:button", "click:html",
+  ]));
 
   await enterCommentMode(page);
   await field.focus();
@@ -454,6 +486,13 @@ test("Enter on a focused page control, the context menu and the document root re
   // Neither a key, a submit, a menu, a focus change nor a press on the root reached the page; the composer kept focus.
   expect(await events()).toEqual([]);
   await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On input");
+
+  // Space, the other activation key, picks a focused control the same way.
+  await page.getByTestId("custom").focus();
+  await events();
+  await page.keyboard.press(" ");
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On div");
+  expect(await events()).toEqual([]);
 
   // Keys inside the bar are its own: Enter in the composer types a line break.
   await inBar(page, "[data-role=composer-text]").press("Enter");
@@ -479,7 +518,6 @@ test("outlines the hovered and picked elements in place under an inherited page 
 test("picking another element keeps the text, Cancel keeps comment mode, and a refused send can be retried", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openCases(page, openFixture, daemon);
-  await countCanvasBlobs(page);
   await enterCommentMode(page);
   await page.locator('[data-case="testid"]').click();
   await inBar(page, "[data-role=composer-text]").fill("Draft text");
@@ -507,9 +545,6 @@ test("picking another element keeps the text, Cancel keeps comment mode, and a r
   await expect.poll(() => daemon.posts.length).toBe(1);
   expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-iterbar-src="src/Card.tsx:4:3"] > p.lead:nth-of-type(2)');
   await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("Retry me");
-  // Only the sent pick was captured, once for both of its sends; the picks replaced or cancelled took no screenshot.
-  expect(await page.evaluate(() => window.canvasBlobs)).toBe(1);
-  expect(pngSize(daemon.posts[0]!.screenshot!).width).toBeGreaterThan(0);
 });
 
 test("a send that gets no answer says the comment may already be stored", async ({ page, openFixture, fixtureServer }) => {
@@ -538,9 +573,10 @@ test("Cancel or Escape while the screenshot is being taken withdraws the comment
   const cancel = inBar(page, "[data-role=composer-cancel]");
 
   await enterCommentMode(page);
-  // Picking takes no screenshot; the capture starts at Send.
+  // Picking another element withdraws the capture of the one it replaces.
   await slow.click();
   await page.locator('[data-case="id"]').click();
+  await expect.poll(() => page.evaluate(() => window.canvasBlobs)).toBe(1);
   await slow.click();
   await text.fill("Withdrawn by Cancel");
   await send.click();
@@ -559,20 +595,17 @@ test("Cancel or Escape while the screenshot is being taken withdraws the comment
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
 
-  // Captures run one at a time: the next waits until both withdrawn ones have stopped, which they do once the image
-  // they wait for loads, before rendering anything.
-  await enterCommentMode(page);
-  await page.locator('[data-case="testid"]').click();
-  await text.fill("Kept");
-  await send.click();
-  await expect(send).toHaveText("Sending…");
-  await page.waitForTimeout(300);
-  expect(feedbackPosts(daemon)).toBe(0);
+  // The withdrawn captures, still waiting for their image, hold nothing up: another comment gets its screenshot now.
+  const kept = await comment(page, daemon, page.locator('[data-case="testid"]'), "Kept");
+  expect(kept.draft.text).toBe("Kept");
+  expect(kept.screenshot).not.toBeNull();
+  expect(await page.evaluate(() => window.canvasBlobs)).toBe(2);
+
+  // Once their image loads they stop without rendering, and nothing withdrawn is posted.
   release();
-  await expect.poll(() => daemon.posts.length).toBe(1);
-  expect(daemon.posts[0]!.draft.text).toBe("Kept");
-  expect(daemon.posts[0]!.screenshot).not.toBeNull();
-  expect(await page.evaluate(() => window.canvasBlobs)).toBe(1);
+  await page.waitForFunction(() => document.querySelector<HTMLImageElement>("[data-testid=slow] img")!.complete);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.canvasBlobs)).toBe(2);
   expect(feedbackPosts(daemon)).toBe(1);
   await expect(inBar(page, "[data-section=threads] [data-feedback-id]")).toHaveCount(1);
 });

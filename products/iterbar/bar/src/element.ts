@@ -75,10 +75,8 @@ interface Pick {
   /** The page URL as slot reports file it, or `null` for a page the contract cannot name (such as `file:`). */
   readonly pageUrl: string | null;
   readonly activeVariants: readonly ActiveVariant[];
-  /** Captured when Send is first pressed, so picks that are never sent take no screenshot. */
-  readonly element: Element;
-  /** The capture for this pick, kept for a send retried after a refusal; it never rejects. */
-  screenshot: Promise<ScreenshotResult> | null;
+  /** Started at the pick, so it shows what was picked; it never rejects. */
+  readonly screenshot: Promise<ScreenshotResult>;
   /** Aborted when the pick is replaced, cancelled or left: a screenshot still being taken for it stops. */
   readonly withdraw: AbortController;
 }
@@ -297,13 +295,13 @@ export class IterbarBarElement extends ElementBase {
   #onPick(element: Element): boolean {
     if (this.#sendingPick !== null && this.#sendingPick === this.#pick) return false;
     this.#pick?.withdraw.abort();
+    const withdraw = new AbortController();
     this.#pick = {
       target: describeTarget(element),
       pageUrl: /^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null,
       activeVariants: readActiveVariants(),
-      element,
-      screenshot: null,
-      withdraw: new AbortController(),
+      screenshot: captureScreenshot(element, this, withdraw.signal),
+      withdraw,
     };
     this.#setCollapsed(false);
     this.#composer.show(describeElement(element));
@@ -354,8 +352,8 @@ export class IterbarBarElement extends ElementBase {
 
   /**
    * Sends a comment on the current pick, with its screenshot or the reason there is none. On success the thread is
-   * shown and comment mode ends; on failure the composer keeps the text and shows why. The screenshot is taken at the
-   * first Send; Cancel or Escape while it is being taken stops it and withdraws the comment before anything is posted.
+   * shown and comment mode ends; on failure the composer keeps the text and shows why. Cancel or Escape while the
+   * screenshot is being taken stops it and withdraws the comment before anything is posted.
    */
   async #send(text: string): Promise<void> {
     const pick = this.#pick;
@@ -372,7 +370,6 @@ export class IterbarBarElement extends ElementBase {
     this.#sendingPick = pick;
     this.#composer.setBusy(true);
     try {
-      pick.screenshot ??= captureScreenshot(pick.element, this, pick.withdraw.signal);
       const screenshot = await pick.screenshot;
       // Cancelled, Escaped or replaced while the screenshot was being taken: the comment was withdrawn.
       if (this.#pick !== pick) return;

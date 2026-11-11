@@ -50,9 +50,9 @@ attributes. The bar never writes the token to an attribute.
 ## Comment mode
 
 While comment mode is on, hovering outlines the page element under the
-pointer, and clicking one (or pressing Enter on a focused page control)
-picks it instead of reaching the page: the press, the click, the focus
-change, a context menu and the Enter key are all swallowed, including
+pointer, and clicking one (or pressing Enter or Space on a focused page
+control) picks it instead of reaching the page: the press, the click, the
+focus change, a context menu and the key are all swallowed, including
 presses on the document root, which is never picked itself. Keys and clicks
 inside the bar are left alone. The composer then opens in the bar, which
 expands if collapsed. Picking another element keeps the typed text, Cancel
@@ -81,16 +81,16 @@ element is described when it is picked:
 - **Source location**: the nearest well-formed `data-iterbar-src`, or `null`.
 - **Active variants**: the version each slot on the page shows.
 - **Screenshot**: a PNG of the element rendered in the page with
-  `modern-screenshot` when Send is first pressed (a retry reuses it), at the
-  device pixel ratio, scaled down to stay within 4 MP. Picks that are never
-  sent take none. The element is drawn alone at the image origin, upright at
-  its untransformed size: its own transform, margins and offsets are left
-  out, while transforms and scroll positions inside it are kept. The scale
+  `modern-screenshot` from the pick, at the device pixel ratio, scaled down
+  to stay within 4 MP. The element is drawn alone at the image origin,
+  upright at its untransformed size: its own transform, margins and offsets
+  and its ancestors' transforms are left out, while transforms and scroll
+  positions inside it are kept. The scale
   is chosen from the element's size once its images and fonts have loaded,
   so an element that grows meanwhile stays within the cap, and the image
-  produced is checked again: one over 4 MP is not sent. Captures run one at
-  a time, and one withdrawn by Cancel or Escape stops before rendering
-  further.
+  produced is checked again: one over 4 MP is not sent. A capture withdrawn
+  by another pick, Cancel, Escape or its time limit stops at its next step
+  and holds up no other capture.
   When the capture fails (for example a canvas tainted by a cross-origin
   image, an element with no area, or a capture over 10 seconds) the comment is
   still sent, without a screenshot and with the reason in
