@@ -157,18 +157,6 @@ describe("React source locations", () => {
     expect(stamps(code)).toEqual(["elsewhere.jsx:1:1"]);
   });
 
-  it("stamps relative to the project root, and not files outside it or in node_modules", async () => {
-    await write("app/src/Inside.tsx", "export const Inside = () => <div />;\n");
-    await write("shared/Outside.tsx", "export const Outside = () => <div />;\n");
-    await write("app/node_modules/widgets/Widget.jsx", "export const Widget = () => <div />;\n");
-    const server = await devServer([iterbar({ projectRoot: "app" })]);
-
-    expect(stamps((await transform(server, "/app/src/Inside.tsx")).code)).toEqual(["src/Inside.tsx:1:29"]);
-    expect(stamps((await transform(server, "/shared/Outside.tsx")).code)).toEqual([]);
-    const vendored = await transform(server, "/app/node_modules/widgets/Widget.jsx");
-    expect(vendored.code).toContain('jsxDEV("div"');
-    expect(stamps(vendored.code)).toEqual([]);
-  });
 });
 
 const SVELTE_APP = `<script lang="ts">
@@ -229,31 +217,48 @@ describe("Svelte source locations", () => {
     for (const [stamp, tag] of Object.entries(expected)) expect(svelteMapNames(map, code, stamp, tag), stamp).toBe(true);
   });
 
-  it("stamps relative to the project root, and not files outside it or in node_modules", async () => {
-    await write("app/src/Inside.svelte", "<div>inside</div>\n");
-    await write("shared/Outside.svelte", "<div>outside</div>\n");
-    await write("app/node_modules/widgets/Widget.svelte", "<div>widget</div>\n");
-    const server = await devServer([iterbar({ projectRoot: "app" })]);
-
-    expect(stamps((await transform(server, "/app/src/Inside.svelte")).code)).toEqual(["src/Inside.svelte:1:1"]);
-    expect(stamps((await transform(server, "/shared/Outside.svelte")).code)).toEqual([]);
-    const vendored = await transform(server, "/app/node_modules/widgets/Widget.svelte");
-    expect(vendored.code).toContain("<div>widget</div>");
-    expect(stamps(vendored.code)).toEqual([]);
-  });
-
   it("finds elements past a style that only its preprocessor can read", async () => {
     const component = `<style lang="scss">\n  // a comment Svelte's CSS parser rejects\n  $color: red;\n  div { color: $color; }\n</style>\n<div>scss</div>\n`;
     const filename = join(root, "src/Scss.svelte");
-    const result = await stampSvelteModule(component, filename, sourceRoot(root));
+    const result = await stampSvelteModule(component, filename, sourceRoot(root), root);
     expect(result?.code).toContain('<div data-iterbar-src="src/Scss.svelte:6:1">scss</div>');
     // The style is untouched, for its own preprocessor.
     expect(result?.code).toContain("// a comment Svelte's CSS parser rejects");
   });
 
+  it("finds every element around a script whose closing tag the parser reads with a space", async () => {
+    const filename = join(root, "src/App.svelte");
+    const stampsIn = async (component: string) => stamps((await stampSvelteModule(component, filename, sourceRoot(root), root))?.code ?? "");
+    const scripts = `<script module>const a = 1;</script >\n<div>first</div>\n<script>let b = 2;</script>\n<p>second</p>\n`;
+    expect(await stampsIn(scripts)).toEqual(["src/App.svelte:2:1", "src/App.svelte:4:1"]);
+    const head = `<script>let a = 1;</script >\n<svelte:head><script>window.b = 2;</script></svelte:head>\n<div>after</div>\n`;
+    expect(await stampsIn(head)).toEqual(["src/App.svelte:2:14", "src/App.svelte:3:1"]);
+    // With a style that only its preprocessor can read, too.
+    const scss = `${scripts}<style lang="scss">\n  $color: red;\n  div { color: $color; }\n</style>\n<span>third</span>\n`;
+    expect(await stampsIn(scss)).toEqual(["src/App.svelte:2:1", "src/App.svelte:4:1", "src/App.svelte:9:1"]);
+  });
+
+  it("leaves a component in node_modules as written when the project root is there too", async () => {
+    // Vite requests such a module with a `?v=` query, which no stamp takes; another caller may name it without one.
+    const project = join(root, "node_modules/widget");
+    await expect(stampSvelteModule("<div></div>\n", join(project, "src/App.svelte"), sourceRoot(project), root)).resolves.toBeNull();
+  });
+
+  it("parses with the svelte/compiler each app resolves", async () => {
+    // An app whose own Svelte finds no element: its components get no stamp, while the plugin's Svelte would stamp them.
+    const real = require.resolve("svelte/compiler");
+    await write("other/node_modules/svelte/package.json", JSON.stringify({ name: "svelte", exports: { "./compiler": "./compiler.cjs" } }));
+    await write("other/node_modules/svelte/compiler.cjs", `const real = require(${JSON.stringify(real)});
+module.exports = { ...real, parse: (...args) => ({ ...real.parse(...args), fragment: { type: "Fragment", nodes: [] } }) };
+`);
+    const stamped = (app: string) => stampSvelteModule("<div></div>\n", join(app, "src/App.svelte"), sourceRoot(app), app);
+    expect((await stamped(root))?.code).toBe('<div data-iterbar-src="src/App.svelte:1:1"></div>\n');
+    await expect(stamped(join(root, "other"))).resolves.toBeNull();
+  });
+
   it("leaves markup the compiler cannot parse to the compiler", async () => {
     const filename = join(root, "src/Broken.svelte");
-    await expect(stampSvelteModule("<div>{#if}</div>\n", filename, sourceRoot(root))).resolves.toBeNull();
+    await expect(stampSvelteModule("<div>{#if}</div>\n", filename, sourceRoot(root), root)).resolves.toBeNull();
   });
 
   it("writes a path the Svelte parser reads back unchanged, whatever characters it holds", async () => {
@@ -264,6 +269,34 @@ describe("Svelte source locations", () => {
     const attribute = element.attributes[0] as svelteCompiler.AST.Attribute;
     const [text] = attribute.value as svelteCompiler.AST.Text[];
     expect(text!.data).toBe('we"ird {dir} & co/App.svelte:1:1');
+  });
+});
+
+describe.each([
+  { framework: "React", extension: "tsx", component: "export const C = () => <div />;\n", stamp: "1:24", compiled: 'jsxDEV("div"' },
+  { framework: "Svelte", extension: "svelte", component: "<div>c</div>\n", stamp: "1:1", compiled: "c</div>" },
+])("$framework project files", ({ extension, component, stamp, compiled }) => {
+  /** The stamps of a module, after checking that its framework compiled it. */
+  async function stampsOf(server: ViteDevServer, path: string): Promise<string[]> {
+    const { code } = await transform(server, `/${path}`);
+    expect(code).toContain(compiled);
+    return stamps(code);
+  }
+
+  it("are stamped relative to the project root; files outside it or in node_modules are not", async () => {
+    const [inside, outside, vendored] = [`app/src/Inside.${extension}`, `shared/Outside.${extension}`, `app/node_modules/widgets/Widget.${extension}`];
+    for (const path of [inside, outside, vendored]) await write(path, component);
+    const server = await devServer([iterbar({ projectRoot: "app" })]);
+
+    expect(await stampsOf(server, inside)).toEqual([`src/Inside.${extension}:${stamp}`]);
+    expect(await stampsOf(server, outside)).toEqual([]);
+    expect(await stampsOf(server, vendored)).toEqual([]);
+  });
+
+  it("are not stamped when the project root itself is in node_modules", async () => {
+    const file = `node_modules/widget/src/App.${extension}`;
+    await write(file, component);
+    expect(await stampsOf(await devServer([iterbar({ projectRoot: "node_modules/widget" })]), file)).toEqual([]);
   });
 });
 

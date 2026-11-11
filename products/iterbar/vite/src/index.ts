@@ -186,7 +186,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
       handler(code, id) {
         const config = this.environment.getTopLevelConfig();
         if (!stampsSources(config)) return null;
-        return stampSvelteModule(code, id, sourceRootOf(config));
+        return stampSvelteModule(code, id, sourceRootOf(config), config.root);
       },
     },
 

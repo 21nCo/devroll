@@ -28,14 +28,14 @@ function regularElements(root: AST.Fragment): AST.RegularElement[] {
   return found;
 }
 
-function isStamped(element: AST.RegularElement): boolean {
+function isStampable(element: AST.RegularElement): boolean {
   if (element.attributes.length > 0 && element.attributes.every((attribute) => attribute.type === "SpreadAttribute")) return false;
   return !element.attributes.some((attribute) => attribute.type === "Attribute" && attribute.name === SOURCE_ATTRIBUTE);
 }
 
 /** An attribute value Svelte reads back as `value`: entities for the characters a quoted value gives meaning to. */
 function attributeText(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\{/g, "&#123;").replace(/\}/g, "&#125;");
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("{", "&#123;").replaceAll("}", "&#125;");
 }
 
 /** 1-based line and 0-based column of each offset, counted as the Svelte compiler does (UTF-16 code units). */
@@ -55,6 +55,29 @@ function locator(source: string): (offset: number) => { line: number; column: nu
 }
 
 /**
+ * The component's AST, read by the Svelte parser where it ends each script and style. Only a component the parser
+ * cannot read as written, such as one with a `lang="scss"` style, is read again with its styles, then also its
+ * scripts, blanked where Svelte's `preprocess` finds them: the preprocessors that make such a component compile find
+ * them there too. Blanking keeps every element at its offset. Null when no reading parses.
+ */
+async function parseElements(compiler: SvelteCompiler, content: string, filename: string): Promise<AST.Root | null> {
+  const blanked = ({ content: code }: { content: string }) => ({ code: blank(code) });
+  const readings = [
+    async () => content,
+    async () => (await compiler.preprocess(content, { style: blanked }, { filename })).code,
+    async () => (await compiler.preprocess(content, { script: blanked, style: blanked }, { filename })).code,
+  ];
+  for (const reading of readings) {
+    try {
+      return compiler.parse(await reading(), { filename, modern: true });
+    } catch {
+      // The next reading blanks more.
+    }
+  }
+  return null;
+}
+
+/**
  * A Svelte preprocessor that stamps each regular element of a project component with `data-iterbar-src`, at the
  * location the Svelte compiler's own parser gives its opening tag. Components, `svelte:` and `<slot>` elements,
  * elements whose only attributes are spreads, and files outside the project root or in `node_modules` keep their
@@ -65,25 +88,15 @@ export function svelteSourcePreprocessor(root: SourceRoot, compiler: SvelteCompi
     name: "iterbar-source",
     async markup({ content, filename }) {
       const file = filename === undefined ? null : sourcePath(root, filename);
-      if (file === null) return undefined;
-      // Svelte's own preprocess finds the scripts and styles; blanked, a `lang="scss"` style does not stop the parser,
-      // and every element keeps its offset.
-      const markup = await compiler.preprocess(content, {
-        script: ({ content: code }) => ({ code: blank(code) }),
-        style: ({ content: code }) => ({ code: blank(code) }),
-      }, { filename });
-      let ast: AST.Root;
-      try {
-        ast = compiler.parse(markup.code, { filename, modern: true });
-      } catch {
-        // Markup the compiler cannot read gets no stamps; compiling it reports the error.
-        return undefined;
-      }
+      if (filename === undefined || file === null) return undefined;
+      const ast = await parseElements(compiler, content, filename);
+      // Markup the compiler cannot read gets no stamps; compiling it reports the error.
+      if (ast === null) return undefined;
       const locate = locator(content);
       const output = new MagicString(content);
       for (const element of regularElements(ast.fragment)) {
         const nameEnd = element.start + 1 + element.name.length;
-        if (content.slice(element.start, nameEnd) !== `<${element.name}` || !isStamped(element)) continue;
+        if (content.slice(element.start, nameEnd) !== `<${element.name}` || !isStampable(element)) continue;
         const { line, column } = locate(element.start);
         output.appendLeft(nameEnd, ` ${SOURCE_ATTRIBUTE}="${attributeText(stampValue(file, line, column))}"`);
       }

@@ -42,8 +42,9 @@ and a SvelteKit app.
 In `vite dev`, each element written in a project source file carries
 `data-iterbar-src="<path>:<line>:<column>"`, so a picked element reports
 where it was written. The path is relative to the project root
-(`projectRoot`, Vite's root by default) with `/` separators; the line and
-column are 1-based and point at the element's `<`. The stamps come from the
+(`projectRoot`, Vite's root by default), the directory the agent works in
+and the root of the `sourceLocation` the daemon reports, with `/`
+separators; the line and column are 1-based and point at the element's `<`. The stamps come from the
 frameworks' own compilers:
 
 - React: the plugin adds a Babel plugin to `@vitejs/plugin-react`'s
@@ -53,17 +54,19 @@ frameworks' own compilers:
   its stamp.
 - Svelte: before `vite-plugin-svelte` preprocesses or compiles a
   component, the plugin runs a Svelte preprocessor that reads the
-  component with the Svelte compiler's parser and stamps each regular
-  element at the location the parser gives it. The `<script>` and `<style>`
-  contents are hidden from that parse, so a `lang="scss"` style does not
-  stop it. A component the parser cannot read gets no stamps; compiling it
-  reports the error.
+  component with the app's own Svelte compiler parser (`svelte/compiler`
+  as resolved from Vite's root) and stamps each regular element at the
+  location the parser gives it. A component the parser cannot read as
+  written, such as one with a `lang="scss"` style, is read again with its
+  style, then also its script, contents hidden. A component the parser
+  cannot read even then gets no stamps; compiling it reports the error.
 
 Components, fragments (`<>`, `<Fragment>`), elements whose only attributes
 are spreads (`<div {...props} />`), elements that already set
 `data-iterbar-src`, and files outside the project root or in a
 `node_modules` directory are not stamped. A stamp is the element's first
-attribute, so one written after it, or a spread, still wins.
+attribute, so a later spread that carries `data-iterbar-src` still
+overrides it.
 
 The plugin applies to `vite dev` only, so `vite build` adds no stamps. A
 server render in dev gets the same stamps as the browser, so hydration

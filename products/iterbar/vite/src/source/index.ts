@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import { join } from "node:path";
 import type { SourceMap } from "magic-string";
 import type { ResolvedConfig } from "vite";
 import { sourcePath, type SourceRoot } from "./location.js";
@@ -38,21 +40,42 @@ export function addReactSourcePlugin(babel: ReactBabelOptions, id: string, root:
   babel.plugins.push(plugin);
 }
 
-let svelteCompiler: Promise<SvelteCompiler | null> | null = null;
+/** Each `svelte/compiler` loaded, by the file an app resolves it to. */
+const svelteCompilers = new Map<string, SvelteCompiler>();
 
-/** The app's `svelte/compiler`, or null without one: a module named `.svelte` is then not a Svelte component here. */
-function loadSvelteCompiler(): Promise<SvelteCompiler | null> {
-  svelteCompiler ??= import("svelte/compiler").then((compiler) => compiler as SvelteCompiler, () => null);
-  return svelteCompiler;
+/**
+ * The `svelte/compiler` the app at `appRoot` resolves, or null without one: a module named `.svelte` is then not a
+ * Svelte component there.
+ */
+function svelteCompilerOf(appRoot: string): SvelteCompiler | null {
+  const require = createRequire(join(appRoot, "package.json"));
+  let file: string;
+  try {
+    file = require.resolve("svelte/compiler");
+  } catch {
+    return null;
+  }
+  let compiler = svelteCompilers.get(file);
+  if (!compiler) {
+    compiler = require(file) as SvelteCompiler;
+    svelteCompilers.set(file, compiler);
+  }
+  return compiler;
 }
 
 /**
- * A Svelte component module with its regular elements stamped, or null to leave it as it is. Run before any other
- * transform of the module, `vite-plugin-svelte`'s preprocessors included, so the stamps name the file as written.
+ * A Svelte component module with its regular elements stamped, or null to leave it as it is. `appRoot` is Vite's
+ * root, whose `svelte/compiler` parses the module. Run before any other transform of the module,
+ * `vite-plugin-svelte`'s preprocessors included, so the stamps name the file as written.
  */
-export async function stampSvelteModule(code: string, id: string, root: SourceRoot): Promise<{ code: string; map: SourceMap } | null> {
+export async function stampSvelteModule(
+  code: string,
+  id: string,
+  root: SourceRoot,
+  appRoot: string,
+): Promise<{ code: string; map: SourceMap } | null> {
   if (sourcePath(root, id) === null) return null;
-  const compiler = await loadSvelteCompiler();
+  const compiler = svelteCompilerOf(appRoot);
   if (compiler === null) return null;
   const result = await svelteSourcePreprocessor(root, compiler).markup?.({ content: code, filename: id });
   if (!result) return null;

@@ -1,8 +1,8 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
-/** The attribute each stamped element carries: `<repo-relative path>:<line>:<column>`, both 1-based. */
-export const SOURCE_ATTRIBUTE = "data-iterbar-src";
+/** The attribute each stamped element carries: `<project-relative path>:<line>:<column>`, both 1-based. */
+export { SOURCE_ATTRIBUTE } from "iterbar";
 
 /** Where a project's source files are, so a file's stamp names it relative to the project root. */
 export interface SourceRoot {
@@ -32,15 +32,14 @@ function below(root: string, path: string): string | null {
 
 /**
  * The project-relative path (with `/` separators) of the source file a module id names, or null when its elements
- * get no stamp: a virtual or query module, a file outside the project root, or one in a `node_modules` directory.
+ * get no stamp: a virtual or query module, a file outside the project root, or one in a `node_modules` directory,
+ * the project root's own ancestors included.
  */
 export function sourcePath(root: SourceRoot, id: string): string | null {
   if (id.includes("?") || id.includes("\0") || !isAbsolute(id)) return null;
+  if (id.split(/[\\/]/).includes("node_modules")) return null;
   const rel = below(root.real, id) ?? below(root.path, id);
-  if (rel === null) return null;
-  const segments = rel.split(sep);
-  if (segments.includes("node_modules")) return null;
-  return segments.join("/");
+  return rel === null ? null : rel.split(sep).join("/");
 }
 
 /** The stamp of an element written at a 1-based line and a 0-based column (as compilers count) of `path`. */
