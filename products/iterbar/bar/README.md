@@ -84,8 +84,9 @@ element is described when it is picked:
   `modern-screenshot` from the pick, at the device pixel ratio, scaled down
   to stay within 4 MP. The element is drawn alone at the image origin,
   upright at its untransformed size: its own transform, margins and offsets
-  and its ancestors' transforms are left out, while transforms and scroll
-  positions inside it are kept. The scale
+  and its ancestors' transforms are left out, while transforms inside it are
+  kept. Boxes scrolled inside it are drawn at their unscrolled position for
+  now. The scale
   is chosen from the element's size once its images and fonts have loaded,
   so an element that grows meanwhile stays within the cap, and the image
   produced is checked again: one over 4 MP is not sent. A capture withdrawn

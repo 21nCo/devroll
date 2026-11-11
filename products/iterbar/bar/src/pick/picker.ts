@@ -34,6 +34,8 @@ export class ElementPicker {
   #hovered: Element | null = null;
   #picked: Element | null = null;
   #frame: number | null = null;
+  /** The `code` of the activation key that made the last pick, until it is released; see {@link #ownsKey}. */
+  #heldKey: string | null = null;
 
   constructor(options: PickerOptions) {
     this.#options = options;
@@ -83,6 +85,7 @@ export class ElementPicker {
     window.removeEventListener("resize", this.#queueLayout);
     if (this.#frame !== null) cancelAnimationFrame(this.#frame);
     this.#frame = null;
+    this.#heldKey = null;
     this.#hovered = null;
     this.#picked = null;
     this.#layer.removeAttribute("data-active");
@@ -155,13 +158,28 @@ export class ElementPicker {
     this.#layout();
   };
 
+  /**
+   * Swallows the repeats and release of the key that made a pick. The pick moves focus into the composer, so they would
+   * otherwise type into it and reach the page's handlers.
+   */
+  #ownsKey(event: KeyboardEvent): boolean {
+    if (this.#heldKey === null || event.code !== this.#heldKey) return false;
+    if (event.type === "keyup") this.#heldKey = null;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+
   readonly #onKeydown = (event: KeyboardEvent): void => {
+    if (event.repeat && this.#ownsKey(event)) return;
     const element = this.#activationTarget(event);
     if (element) {
       // Picks at once, before the page's handlers could submit, act on or cancel the key.
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (!event.repeat) this.#pick(element);
+      if (event.repeat) return;
+      this.#heldKey = event.code;
+      this.#pick(element);
       return;
     }
     if (event.key !== "Escape" || event.isComposing) return;
@@ -171,7 +189,7 @@ export class ElementPicker {
   };
 
   readonly #onKeyup = (event: KeyboardEvent): void => {
-    if (!this.#activationTarget(event)) return;
+    if (this.#ownsKey(event) || !this.#activationTarget(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   };
