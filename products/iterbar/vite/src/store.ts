@@ -1,6 +1,6 @@
 import { readlink, realpath } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, join, parse, posix, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, posix, resolve, sep } from "node:path";
 import type { Alias } from "vite";
 
 /** The name of a project's Iterbar store directory, which holds `daemon.json` (with the token) and the feedback. */
@@ -169,7 +169,8 @@ function isInStore(real: string, storeReal: string | null): boolean {
  * each `~` segment is also compared with the `.iterbar` beside it. A file that does not exist yet is decided by
  * where it would be created ({@link wouldBeInStore}), from its directories looked up from the root down to the first
  * missing one. When that one is a dangling link, which can lead to the store by the time Vite reads the file, the
- * file is decided by the link's target in the same way. Any other failed lookup rejects, which counts as the store.
+ * file is decided by the link's target in the same way, resolved from the link's real directory as the file system
+ * resolves it. Any other failed lookup rejects, which counts as the store.
  */
 export async function isStoreFile(file: string, store: Store, files: PathLookups = FILE_SYSTEM, lookup = lookupOnce(files), links = 0): Promise<boolean> {
   if (hasStoreSegment(file)) return true;
@@ -178,7 +179,8 @@ export async function isStoreFile(file: string, store: Store, files: PathLookups
   const real = await lookup(file);
   if (real !== null && isInStore(real, storeReal)) return true;
   const { root } = parse(file);
-  const parts = file.slice(root.length).split(sep);
+  // Unnormalized, so each prefix resolves as the file system does: a link first, then a `..` after it.
+  const parts = file.slice(root.length).split(process.platform === "win32" ? /[\\/]/ : sep);
   let prefix = root;
   let prefixReal: string | null = root;
   for (const [index, part] of parts.entries()) {
@@ -188,10 +190,13 @@ export async function isStoreFile(file: string, store: Store, files: PathLookups
     prefixReal = await lookup(prefix);
     if (prefixReal === null) {
       if (real !== null) return false;
-      if (wouldBeInStore(parentReal, parts.slice(index), storeReal)) return true;
+      // Below a missing directory, `..` cannot be resolved yet: it counts as the store.
+      const missing = parts.slice(index).filter((name) => name !== "" && name !== ".");
+      if (missing.includes("..") || wouldBeInStore(parentReal, missing, storeReal)) return true;
       const target = await danglingTarget(prefix, files);
       if (target === null) return false;
-      return links >= MAX_LINKS || isStoreFile(join(resolve(parentReal, target), ...parts.slice(index + 1)), store, files, lookup, links + 1);
+      const next = [isAbsolute(target) ? target : parentReal + sep + target, ...parts.slice(index + 1)].join(sep);
+      return links >= MAX_LINKS || isStoreFile(next, store, files, lookup, links + 1);
     }
     if (isInStore(prefixReal, storeReal) || (part.includes("~") && prefixReal === (await lookup(join(dirname(prefix), STORE_DIR))))) return true;
   }

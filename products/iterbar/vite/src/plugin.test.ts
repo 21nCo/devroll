@@ -4,7 +4,7 @@ import { connect as http2Connect, type OutgoingHttpHeaders as Http2Headers } fro
 import { mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix, sep } from "node:path";
 import { build, createServer, resolveConfig, type InlineConfig, type Plugin, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
@@ -427,15 +427,19 @@ describe("iterbar() in vite dev", () => {
     await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
     await symlink(join(root, ".iterbar"), join(root, "docs"), "dir");
     await symlink(join(root, ".iterbar"), join(publicDir, "store"), "dir");
+    // A link whose target passes through another link before its `..`: the file system reads vault/daemon.json.
+    await mkdir(join(root, "vault", "inner"));
+    await symlink(join(root, "vault", "inner"), join(root, "anchor"), "dir");
+    await symlink(["anchor", "..", "daemon.json"].join(sep), join(root, "compound.json"));
     const { port } = await devServer({ publicDir, server: { fs: { strict } } });
     const daemonFile = join(root, "vault", "daemon.json");
     const away = join(root, "daemon.json.away");
     let token: string | null = null;
     for (const path of [
       "/vault/daemon.json", "/vault/daemon.json?raw", `/@fs${root}/vault/daemon.json`, "/docs/daemon.json", "/docs/daemon.json?raw",
-      `/@fs${root}/docs/daemon.json`, "/store/daemon.json",
+      `/@fs${root}/docs/daemon.json`, "/store/daemon.json", "/compound.json", `/@fs${root}/compound.json`,
     ]) {
-      const { entered, release } = holdLookups((each) => each.endsWith("daemon.json"));
+      const { entered, release } = holdLookups((each) => each.endsWith("daemon.json") || each.endsWith("compound.json"));
       const answer = get(port, path);
       // The decision has found no daemon.json; it appears before Vite opens the file, the first time by a daemon start.
       await vi.waitFor(() => expect(entered.length).toBeGreaterThan(0));
@@ -501,7 +505,9 @@ describe("iterbar() in vite dev", () => {
     const disk = (real: Record<string, string>, code = "ENOENT", links: Record<string, string> = {}): PathLookups => ({
       realpath: async (path) => {
         looked.push(path);
-        return { ...tree, ...real }[path] ?? failure(code);
+        // A `..` resolves as written: these directories hold no link it could follow first.
+        const known: Record<string, string> = { ...tree, ...real };
+        return known[path] ?? known[posix.normalize(path)] ?? failure(code);
       },
       readlink: async (path) => links[path] ?? failure("ENOENT"),
     });
@@ -548,9 +554,16 @@ describe("iterbar() in vite dev", () => {
     await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
     await symlink(join(root, "gone"), join(root, "docs"), "dir");
     await symlink(join(root, "vault", "later"), join(root, "later"), "dir");
+    // `anchor/..` is the store, where the link leads, not the project root, as the target reads.
+    await mkdir(join(root, "vault", "inner"));
+    await symlink(join(root, "vault", "inner"), join(root, "anchor"), "dir");
+    await symlink(["anchor", "..", "daemon.json"].join(sep), join(root, "compound.json"));
+    await symlink(["gone", "..", "daemon.json"].join(sep), join(root, "beyond.json"));
     const onDisk: Store = { path: join(root, ".iterbar"), real: null };
     expect(await isStoreFile(join(root, "vault", "daemon.json"), onDisk)).toBe(true);
     expect(await isStoreFile(join(root, "later", "daemon.json"), onDisk)).toBe(true);
+    expect(await isStoreFile(join(root, "compound.json"), onDisk)).toBe(true);
+    expect(await isStoreFile(join(root, "beyond.json"), onDisk)).toBe(true);
     expect(await isStoreFile(join(root, "docs", "daemon.json"), onDisk)).toBe(false);
     expect(await isStoreFile(join(root, "about", "team"), onDisk)).toBe(false);
     expect(await isLoadOfStore("/srv/vault/daemon.json", { publicDir: "", store }, disk({}, "EIO"))).toBe(true);
