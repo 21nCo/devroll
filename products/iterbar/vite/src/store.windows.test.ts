@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { createServer, type ViteDevServer } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
 import { iterbar } from "./index.js";
+import { isStoreFile } from "./store.js";
 
 /** The Windows short name `dir /x` lists for an entry of a directory, or `null` when it has none. */
 function shortNameOf(directory: string, name: string): string | null {
@@ -126,5 +127,59 @@ describe.runIf(process.platform === "win32")("the store guard on Windows", () =>
       expect(answer.status === 200 ? answer.body : "<html", path).toContain("<html");
       expect(answer.body, path).not.toContain(token);
     }
+  });
+  it.each([true, false])("refuses a link to the store rooted without a drive, on the link's drive (fs.strict %s)", async (strict) => {
+    const dir = (root = await realpath(await mkdtemp(join(tmpdir(), "iterbar-vite-win-"))));
+    const drive = parse(dir).root;
+    // Vite runs from the checkout's drive, and the project is on the temp volume: a link's `\\x` is on the latter.
+    console.log(`working directory drive ${parse(cwd).root}, project drive ${drive}`);
+    expect(parse(cwd).root.toLowerCase(), "the project must be on another drive than the working directory").not.toBe(drive.toLowerCase());
+    await writeFile(join(dir, "index.html"), "<!doctype html><html><body><p>App</p></body></html>");
+    await mkdir(join(dir, "vault"));
+    await symlink(join(dir, "vault"), join(dir, ".iterbar"), "junction");
+    // Node would give the target the working directory's drive, so `mklink` makes the links; each fails, never skips.
+    const rooted = (path: string): string => path.slice(drive.length - 1);
+    const links = { L: rooted(join(dir, "vault", "daemon.json")), U: rooted(join(dir, "elsewhere", "x.js")) };
+    for (const [name, target] of Object.entries(links)) {
+      execFileSync("cmd.exe", ["/d", "/c", "mklink", join(dir, name), target], { stdio: "ignore" });
+      expect(await readlink(join(dir, name))).toBe(target);
+    }
+    console.log(`L -> ${links.L}, U -> ${links.U}`);
+    expect(await isStoreFile(join(dir, "L"), { path: join(dir, ".iterbar"), real: null })).toBe(true);
+    server = await createServer({
+      root: dir,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [iterbar()],
+      optimizeDeps: { noDiscovery: true },
+      server: { host: "127.0.0.1", port: 0, fs: { strict } },
+    });
+    await server.listen();
+    const address = server.httpServer?.address();
+    const base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+    const get = async (path: string) => {
+      const answer = await fetch(base + path, { headers: { "sec-fetch-site": "same-origin" } });
+      return { status: answer.status, body: await answer.text() };
+    };
+    const fsPath = `/@fs/${dir.replaceAll("\\", "/")}/L`;
+    // The guard's 404, the plugin's load error or Vite's own fs refusal, before the daemon writes daemon.json and after.
+    const refusesL = async (token: string) => {
+      for (const path of ["/L", "/L?raw", fsPath, `${fsPath}?raw`]) {
+        const answer = await get(path);
+        const refused = (answer.status === 404 && answer.body === "Not found") || (answer.status === 500 && answer.body.includes("which the dev server does not serve"))
+          || (answer.status === 403 && answer.body.includes("403 Restricted"));
+        expect(refused, `${path}: ${answer.status} ${answer.body.slice(0, 200)}`).toBe(true);
+        if (token) expect(answer.body, path).not.toContain(token);
+      }
+    };
+    await refusesL("");
+    expect((await get("/__iterbar/config")).status).toBe(200);
+    const token = (await readMatchingDaemonFile(dir))?.token ?? "";
+    expect(token).not.toBe("");
+    expect(await readFile(join(dir, "L"), "utf8")).toContain(token);
+    await refusesL(token);
+    // A link rooted the same way that leads elsewhere stays Vite's to answer, with the app's page.
+    const other = await get("/U");
+    expect(other.status === 200 && other.body.includes("<p>App</p>"), `${other.status} ${other.body.slice(0, 200)}`).toBe(true);
   });
 });

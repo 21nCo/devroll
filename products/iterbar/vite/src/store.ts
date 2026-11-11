@@ -1,6 +1,6 @@
 import { readlink, realpath } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, isAbsolute, join, parse, posix, resolve, sep } from "node:path";
+import { dirname, join, parse, posix, resolve, sep, win32 } from "node:path";
 import type { Alias } from "vite";
 
 /** The name of a project's Iterbar store directory, which holds `daemon.json` (with the token) and the feedback. */
@@ -162,22 +162,65 @@ function isInStore(real: string, storeReal: string | null): boolean {
   return hasStoreSegment(real) || (storeReal !== null && isWithin(real, storeReal));
 }
 
+/** A Windows link target with a device prefix (`\\?\`, `\??\`, `\\.\`), which names a drive or UNC path after it. */
+const WIN32_DEVICE = /^[\\/][\\/?][?.][\\/]/;
+/** A Windows path on a drive (`C:\x`) or a UNC share (`\\server\share\x`), which a link names as it is. */
+const WIN32_ABSOLUTE = /^(?:[a-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)/i;
+
+/**
+ * The path the file system opens for a link's target, from the real path of the directory the link is in, or `null`
+ * when this cannot tell (an empty target, a NUL byte, a Windows drive-relative `D:x` or another device path). It is
+ * not normalized, so a `..` after a link applies to where that link leads. On Windows a target rooted without a drive
+ * (`\x`) is on the link's own volume, a drive or a UNC share, and not on the working directory's.
+ */
+export function linkTarget(parentReal: string, target: string, platform: NodeJS.Platform = process.platform): string | null {
+  if (target === "" || target.includes("\0")) return null;
+  if (platform !== "win32") return target.startsWith("/") ? target : `${parentReal}/${target}`;
+  if (WIN32_DEVICE.test(target)) {
+    const path = target.slice(4);
+    const unc = /^unc[\\/]/i.test(path) ? `\\\\${path.slice(4)}` : path;
+    return WIN32_ABSOLUTE.test(unc) ? unc : null;
+  }
+  if (WIN32_ABSOLUTE.test(target)) return target;
+  if (/^(?:[a-z]:|[\\/]{2})/i.test(target)) return null;
+  if (/^[\\/]/.test(target)) return win32.parse(parentReal).root.replace(/[\\/]$/, "") + target;
+  return `${parentReal}\\${target}`;
+}
+
+/**
+ * Whether a file whose directory `prefix` is missing, as are the `rest` of its names, would be created in the store
+ * ({@link wouldBeInStore}). When `prefix` is a dangling link, which can lead to the store by the time Vite reads the
+ * file, the file is decided by the link's target ({@link linkTarget}) in the same way. A target that cannot be told,
+ * a `..` below a missing directory, or too many links count as the store.
+ */
+async function wouldCreateInStore(prefix: string, parentReal: string, rest: readonly string[], store: Store, files: PathLookups, lookup: Lookup, links: number): Promise<boolean> {
+  const missing = rest.filter((name) => name !== "" && name !== ".");
+  if (missing.includes("..") || wouldBeInStore(parentReal, missing, store.real)) return true;
+  const target = await danglingTarget(prefix, files);
+  if (target === null) return false;
+  const opened = linkTarget(parentReal, target);
+  if (opened === null || links >= MAX_LINKS) return true;
+  return isStoreFile([opened, ...rest.slice(1)].join(sep), store, files, lookup, links + 1);
+}
+
+/** Whether `part`, the last name of `prefix`, is a short name of the `.iterbar` beside it: both name one entry. */
+async function isShortNameOfStore(part: string, prefix: string, prefixReal: string, lookup: Lookup): Promise<boolean> {
+  return part.includes("~") && prefixReal === (await lookup(join(dirname(prefix), STORE_DIR)));
+}
+
 /**
  * Whether reading `file` reads a store, by its real path: links and Windows short names lead wherever they lead.
  * The store's own real path is looked up in the same decision, so a store that is a link counts from the first
  * request on. A short name names an entry of its own directory, which may be a `.iterbar` that links elsewhere, so
  * each `~` segment is also compared with the `.iterbar` beside it. A file that does not exist yet is decided by
- * where it would be created ({@link wouldBeInStore}), from its directories looked up from the root down to the first
- * missing one. When that one is a dangling link, which can lead to the store by the time Vite reads the file, the
- * file is decided by the link's target in the same way, resolved from the link's real directory as the file system
- * resolves it. Any other failed lookup rejects, which counts as the store.
+ * where it would be created ({@link wouldCreateInStore}), from its directories looked up from the root down to the
+ * first missing one. Any other failed lookup rejects, which counts as the store.
  */
 export async function isStoreFile(file: string, store: Store, files: PathLookups = FILE_SYSTEM, lookup = lookupOnce(files), links = 0): Promise<boolean> {
   if (hasStoreSegment(file)) return true;
   store.real = (await lookup(store.path)) ?? store.real;
-  const storeReal = store.real;
   const real = await lookup(file);
-  if (real !== null && isInStore(real, storeReal)) return true;
+  if (real !== null && isInStore(real, store.real)) return true;
   const { root } = parse(file);
   // Unnormalized, so each prefix resolves as the file system does: a link first, then a `..` after it.
   const parts = file.slice(root.length).split(process.platform === "win32" ? /[\\/]/ : sep);
@@ -188,17 +231,8 @@ export async function isStoreFile(file: string, store: Store, files: PathLookups
     if (part === "" || (real !== null && !part.includes("~"))) continue;
     const parentReal = prefixReal;
     prefixReal = await lookup(prefix);
-    if (prefixReal === null) {
-      if (real !== null) return false;
-      // Below a missing directory, `..` cannot be resolved yet: it counts as the store.
-      const missing = parts.slice(index).filter((name) => name !== "" && name !== ".");
-      if (missing.includes("..") || wouldBeInStore(parentReal, missing, storeReal)) return true;
-      const target = await danglingTarget(prefix, files);
-      if (target === null) return false;
-      const next = [isAbsolute(target) ? target : parentReal + sep + target, ...parts.slice(index + 1)].join(sep);
-      return links >= MAX_LINKS || isStoreFile(next, store, files, lookup, links + 1);
-    }
-    if (isInStore(prefixReal, storeReal) || (part.includes("~") && prefixReal === (await lookup(join(dirname(prefix), STORE_DIR))))) return true;
+    if (prefixReal === null) return real === null && wouldCreateInStore(prefix, parentReal, parts.slice(index), store, files, lookup, links);
+    if (isInStore(prefixReal, store.real) || (await isShortNameOfStore(part, prefix, prefixReal, lookup))) return true;
   }
   return false;
 }
