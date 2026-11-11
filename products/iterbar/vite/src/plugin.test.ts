@@ -5,12 +5,12 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } f
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { build, createServer, resolveConfig, type InlineConfig, type ViteDevServer } from "vite";
+import { build, createServer, resolveConfig, type InlineConfig, type Plugin, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
 import { checkConfigRequest } from "./endpoint.js";
 import { CLIENT_ID, iterbar } from "./index.js";
-import { isStoreRequest } from "./store.js";
+import { isLoadOfStore, isStoreFile, isStoreRequest, servedFiles, type ResolvePath, type Store } from "./store.js";
 
 let root: string;
 let servers: ViteDevServer[] = [];
@@ -171,12 +171,12 @@ describe("iterbar() in vite dev", () => {
     ]));
   });
 
-  it("never serves the Iterbar store, by any path, while the config endpoint keeps working", async () => {
+  it.each([true, false])("never serves the Iterbar store, by any path, while the config endpoint keeps working (fs.strict %s)", async (strict) => {
     // The project root is the parent of Vite's root, as in a monorepo; the store is outside Vite's root.
     const app = join(root, "app");
     await mkdir(app);
     await writeFile(join(app, "index.html"), "<!doctype html><html><body></body></html>");
-    const { port } = await devServer({ root: app, base: "/base/", plugins: [iterbar({ projectRoot: ".." })] });
+    const { port } = await devServer({ root: app, base: "/base/", plugins: [iterbar({ projectRoot: ".." })], server: { fs: { strict } } });
     expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
     const info = await readMatchingDaemonFile(root);
     expect(info?.projectRoot).toBe(root);
@@ -186,6 +186,9 @@ describe("iterbar() in vite dev", () => {
     // A store under Vite's own root, where its static middleware would serve it.
     await mkdir(join(app, ".iterbar"));
     await writeFile(join(app, ".iterbar", "daemon.json"), '{"token":"APP-STORE-SECRET"}');
+    // Other names of the stores, as a Windows short name or a link gives one: the guard asks the file system.
+    for (const alias of ["ITERBA~1", "ITERB~10", "ITER~100", "IT1A2B~1", "it5f2~12"]) await symlink(join(app, ".iterbar"), join(app, alias));
+    await symlink(join(root, ".iterbar"), join(root, "ITERB~10"));
 
     const paths = [
       "/base/.iterbar/daemon.json",
@@ -215,9 +218,9 @@ describe("iterbar() in vite dev", () => {
       "/base/ITERB~10/daemon.json",
       "/base/ITER~100/daemon.json",
       "/base/IT1A2B~1/daemon.json",
-      "/base/it5f2~12./daemon.json",
+      "/base/it5f2~12/daemon.json",
       "/base/%49TER~100/daemon.json",
-      `/base/@fs${root}/ITERB~10%20/daemon.json`,
+      `/base/@fs${root}/ITERB~10/daemon.json`,
     ];
     for (const path of paths) {
       const answer = await get(port, path, { origin: "http://localhost:3000", "sec-fetch-site": "cross-site" });
@@ -227,14 +230,30 @@ describe("iterbar() in vite dev", () => {
     expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
   });
 
-  it("serves a project under a directory whose name looks like a short name but is not the store's", async () => {
-    // As under a Windows profile such as C:\Users\ITADMI~1, which every /@fs path of the project passes through.
+  it("serves directories and virtual modules whose names have a `~` but do not lead to the store", async () => {
+    // As under a Windows profile such as C:\Users\ITADMI~1, which every path of the project passes through. Vite's
+    // fs.strict refuses every Windows path with a `~`, so this runs without it, where the plugin alone decides.
     const project = join(root, "itadmi~1");
-    await mkdir(join(project, "src"), { recursive: true });
+    for (const directory of ["src", "it3f2a~1", "itface~1"]) await mkdir(join(project, directory), { recursive: true });
     await writeFile(join(project, "index.html"), "<!doctype html><html><body></body></html>");
-    await writeFile(join(project, "src", "a.js"), 'export const marker = "MODULE-UNDER-ITADMI";');
-    const { port } = await devServer({ root: project });
-    for (const path of ["/src/a.js", `/@fs${project}/src/a.js`]) {
+    for (const file of ["src/a.js", "it3f2a~1/a.js", "itface~1/a.js"]) await writeFile(join(project, file), 'export const marker = "MODULE-UNDER-ITADMI";');
+    await writeFile(join(project, "itface~1", "a.txt"), "MODULE-UNDER-ITADMI");
+    // Virtual modules with a `~`, as unplugin-icons (`~icons/...`) and others name theirs.
+    const virtual: Plugin = {
+      name: "virtual-tilde",
+      resolveId: (id) => (id === "~icons/x" || id === "\0~demo" ? id : null),
+      load: (id) => (id === "~icons/x" || id === "\0~demo" ? 'export const marker = "MODULE-UNDER-ITADMI";' : null),
+    };
+    const { port } = await devServer({
+      root: project,
+      plugins: [iterbar(), virtual],
+      resolve: { alias: [{ find: "/lib", replacement: join(project, "itface~1") }] },
+      server: { fs: { strict: false } },
+    });
+    for (const path of [
+      "/src/a.js", `/@fs${project}/src/a.js`, "/it3f2a~1/a.js", `/@fs${project}/it3f2a~1/a.js`, "/itface~1/a.js",
+      `/@fs${project}/itface~1/a.js?raw`, "/itface~1/a.txt", "/lib/a.js", "/lib/a.txt", "/@id/~icons/x", "/@id/__x00__~demo",
+    ]) {
       const answer = await get(port, path);
       expect(answer.status, path).toBe(200);
       expect(answer.body, path).toContain("MODULE-UNDER-ITADMI");
@@ -245,6 +264,80 @@ describe("iterbar() in vite dev", () => {
     const store = await get(port, `/@fs${project}/.iterbar/daemon.json?raw`);
     expect(store.status).toBe(404);
     expect(store.body).not.toContain(String(info?.token));
+  });
+
+  it.each([true, false])("refuses every other name of the store by the file it leads to, on each way Vite reads one (fs.strict %s)", async (strict) => {
+    // POSIX links stand in for Windows short names. The store itself is a link too, to a directory with another name.
+    const publicDir = join(root, "public");
+    for (const directory of ["vault", "public"]) await mkdir(join(root, directory));
+    await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
+    await symlink(join(root, ".iterbar"), join(publicDir, "PUBLIC~1"), "dir");
+    for (const alias of ["ITERBA~1", "IT3F2A~1", "LINK~1.", "LINK~2 ", "LINK~3:x"]) await symlink(join(root, ".iterbar"), join(root, alias), "dir");
+    const { port } = await devServer({
+      base: "/base/",
+      publicDir,
+      // An alias whose replacement consumes the short name, and one that leads to a directory holding one.
+      resolve: { alias: [{ find: "/ALIAS~1", replacement: join(root, ".iterbar") }, { find: "/up", replacement: root }] },
+      server: { fs: { strict } },
+    });
+    expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
+    const info = await readMatchingDaemonFile(root);
+    expect(await readFile(join(root, "ITERBA~1", "daemon.json"), "utf8")).toContain(String(info?.token ?? "no daemon"));
+    const secrets = [String(info?.token), (JSON.parse(await readFile(join(root, "vault", "store.lock"), "utf8")) as { startedAt: string }).startedAt];
+    const cwd = process.cwd();
+    // Vite reads an id it cannot resolve relative to the working directory.
+    process.chdir(root);
+    try {
+      for (const path of [
+        "/base/ITERBA~1/daemon.json", "/base/ITERBA~1/daemon.json?raw", "/base/ITERBA~1/daemon.json?url",
+        "/base/ITERBA~1/daemon.json?inline", "/base/ITERBA~1/daemon.json?import", "/base/IT3F2A~1/store.lock?raw",
+        `/base/@fs${root}/ITERBA~1/daemon.json`, `/base/@fs/${root}/ITERBA~1/daemon.json?raw`, `/@fs${root}/IT3F2A~1/daemon.json`,
+        `/base/@id/${root}/IT3F2A~1/daemon.json?raw`, `/base/@id//@fs${root}/ITERBA~1/daemon.json?import&raw`,
+        "/base/@id/./ITERBA~1/daemon.json?import&raw", "/base/@id/ITERBA~1/daemon.json?raw",
+        "/base/ALIAS~1/daemon.json", "/base/ALIAS~1/daemon.json?import&raw", "/base/up/ITERBA~1/daemon.json", "/base/up/ITERBA~1/daemon.json?raw",
+        "/base/PUBLIC~1/daemon.json", "/base/@id//PUBLIC~1/daemon.json?raw", "/base/@id/PUBLIC~1/daemon.json?raw",
+        "/base/LINK~1./daemon.json", "/base/LINK~2%20/daemon.json?raw", "/base/LINK~3:x/daemon.json?raw",
+        "/base/ITERBA%7E1/%25E0/../daemon.json", "/base/ITERBA%7E1/daemon.json?raw",
+        // The directory the store links to, by its own name.
+        "/base/vault/daemon.json", "/base/vault/daemon.json?raw", `/base/@fs${root}/vault/daemon.json`,
+      ]) {
+        const answer = await get(port, path);
+        // Vite answers a path it has no file for with the app's page (its SPA fallback): what counts is no store bytes.
+        expect(answer.status === 200 ? answer.body : "", path).toMatch(/^(<!doctype html>.*<p>App<\/p>.*)?$/s);
+        for (const secret of secrets) expect(answer.body, path).not.toContain(secret);
+      }
+    } finally {
+      process.chdir(cwd);
+    }
+    expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
+  });
+
+  it("looks a file up only when its path has a `~`, and counts a failed lookup as the store unless the file is missing", async () => {
+    const store: Store = { path: "/srv/app/.iterbar", real: null };
+    const looked: string[] = [];
+    const failing = (code: string): ResolvePath => async (path) => {
+      looked.push(path);
+      throw Object.assign(new Error(code), { code });
+    };
+    const missing = failing("ENOENT");
+    expect(await isStoreFile("/srv/app/src/a.js", store, missing)).toBe(false);
+    expect(await isStoreFile("/srv/app/.ITERBAR./daemon.json", store, missing)).toBe(true);
+    expect(await isStoreFile("/srv/app/ITEMSA~1/a.js", store, missing)).toBe(false);
+    expect(looked).toEqual(["/srv/app/ITEMSA~1/a.js"]);
+    expect(await isStoreFile("/srv/app/X~1/a", store, failing("EACCES"))).toBe(true);
+    // The store may be a link: a file is in it when its real path is under the store's.
+    const linked = (target: string): ResolvePath => async (path) => (path === store.path ? "/srv/vault" : target);
+    expect(await isStoreFile("/srv/app/X~1/a", store, linked("/srv/vaultx/a"))).toBe(false);
+    expect(await isStoreFile("/srv/app/X~1/a", store, linked("/srv/vault/a"))).toBe(true);
+    // Once known, the store's real path is checked without a lookup.
+    expect(await isStoreFile("/srv/vault/daemon.json", store, failing("EIO"))).toBe(true);
+    // The files Vite's middleware would open, and the ids its transform pipeline loads, are known without a lookup.
+    const layout = { root: "/srv/app", base: "/base/", publicDir: "/srv/app/public", alias: [], store };
+    expect(servedFiles("/base/src/a.js?raw", layout)).toEqual(expect.arrayContaining(["/srv/app/src/a.js", "/srv/app/public/src/a.js"]));
+    expect(servedFiles("/base/@fs/srv/p/x%2541.txt", layout)).toContain("/srv/p/x%41.txt");
+    expect(servedFiles("/base/a%2F..%2F/x.html", layout)).toContain("/srv/app/x.html");
+    expect(isLoadOfStore("/srv/app/src/a.js?import", layout)).toBe(false);
+    expect(await isLoadOfStore("/srv/app/.iterbar/daemon.json?raw", layout)).toBe(true);
   });
 
   it("adds the store to Vite's server.fs.deny, next to Vite's own denials or the configured ones", async () => {
@@ -286,15 +379,12 @@ describe("iterbar() in vite dev", () => {
     expect(large / small).toBeLessThan(10);
   });
 
-  it("recognizes a store path however it is written, and nothing else", () => {
+  it("recognizes a store path by its own name however it is written, and leaves other names to the file system", () => {
     for (const url of [
       "/.iterbar/daemon.json", "/a/.Iterbar/x", "/%2Eiterbar/daemon.json", "/a%2F.iterbar%2Fdaemon.json",
       "/a\\.iterbar\\daemon.json", "http://host/.iterbar/daemon.json", "/.iterbar", "/%E0%A4%A.iterbar/x",
       "//.iterbar/daemon.json", "//.iterbar", "/.iterbar./x", "/.iterbar%20/x", "/.ITERBAR.. ./x", "/.iterbar:x/y",
-      "/ITERBA~1/daemon.json", "/IT3F2A~2/x", "/@fs/C:/p/.iterbar./daemon.json", "/@fs/C:/p/iterba~1/daemon.json",
-      "/ITERB~10/x", "/ITER~100/x", "/IT~1234/x", "/IT1A2B~1/x", "/it5f2~12/x", "/ITERB~10./x", "/ITER~100%20/x",
-      "/@fs/C:/p/IT1A2B~1/daemon.json", "/a/it~1.d/x", "/iterba~1/x", "/IT3F2A~1/x", "/it3f2a~1./x", "/%49TERBA~1/x",
-      "/@fs/C:/Users/ITADMI~1/p/ITERBA~1/daemon.json",
+      "/@fs/C:/p/.iterbar./daemon.json", "/@fs/C:/Users/ITADMI~1/p/.iterbar/daemon.json",
     ]) {
       expect(isStoreRequest(url), url).toBe(true);
     }
@@ -302,7 +392,8 @@ describe("iterbar() in vite dev", () => {
       "/", "/@id/@iterbar/vite/client", "/__iterbar/config", "/iterbar/.iterbarx/a", "/src/main.ts?iterbar",
       "/x.iterbar/a", "/iterba~x/a", "/@fs/C:/p/src/main.ts", "//host.example/app.js", "/PROGRA~1/x", "/it~/x",
       "/itemlist~12345/x", "/iterba~1.json5/x", "/item~1x/a",
-      // Short names of other directories that start with `it`, in a project path or anywhere else, are not the store.
+      // A short name, the store's or another directory's, cannot be told from the URL: the guard looks it up.
+      "/ITERBA~1/daemon.json", "/IT3F2A~1/x", "/%49TERBA~1/x", "/@fs/C:/p/iterba~1/daemon.json",
       "/@fs/C:/Users/ITADMI~1/proj/node_modules/.vite/deps/react.js", "/@fs/C:/Users/ITEMS~2/app/src/main.tsx",
       "/@fs/home/u/it~1x/src/a.ts", "/itadmi~1/a.js", "/items~2/a.js", "/it3g2a~1/a.js", "/ITEMSA~1/a.js",
       "/iterbarx~1/a.js", "/it5f2a~12/a.js", "/itez~1/a.js", "/i~1/a.js",
