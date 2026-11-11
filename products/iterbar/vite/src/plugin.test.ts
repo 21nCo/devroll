@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { request as httpRequest, type IncomingMessage, type OutgoingHttpHeaders } from "node:http";
 import { connect as http2Connect, type OutgoingHttpHeaders as Http2Headers } from "node:http2";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,16 +10,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
 import { checkConfigRequest } from "./endpoint.js";
 import { CLIENT_ID, iterbar } from "./index.js";
-import { isLoadOfStore, isStoreFile, isStoreRequest, servedFiles, type ResolvePath, type Store } from "./store.js";
+import { isLoadOfStore, isStoreFile, isStoreRequest, servedFiles, type PathLookups, type Store } from "./store.js";
 
 // Every realpath the plugin makes, which a test can hold back to stand in for a slow file system.
-const lookups = vi.hoisted(() => ({ paths: [] as string[], held: null as Promise<void> | null }));
+const lookups = vi.hoisted(() => ({
+  paths: [] as string[],
+  hold: null as { match: (path: string) => boolean; held: Promise<void>; entered: string[] } | null,
+}));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   const realpath = (async (path: string, options?: never) => {
     lookups.paths.push(String(path));
-    await lookups.held;
-    return actual.realpath(path, options);
+    // A held lookup answers with what the file system had when it was made, as a slow one answers late.
+    const answer = actual.realpath(path, options).then((real) => ({ real }), (error: unknown) => ({ error }));
+    const hold = lookups.hold;
+    if (hold?.match(String(path))) {
+      await answer;
+      hold.entered.push(String(path));
+      await hold.held;
+    }
+    const settled = await answer;
+    if ("error" in settled) throw settled.error;
+    return settled.real;
   }) as typeof actual.realpath;
   return { ...actual, realpath, default: { ...actual, realpath } };
 });
@@ -41,14 +53,23 @@ function isAppPage({ status, body }: { status: number; body: string }): boolean 
   return status === 200 && body.startsWith("<!doctype html>") && body.includes("<p>App</p>");
 }
 
-/** Holds every realpath until the returned function is called. */
-function holdLookups(): () => void {
-  let release = (): void => undefined;
-  lookups.held = new Promise((resolve) => (release = resolve));
-  return () => {
-    lookups.held = null;
-    release();
+/** Released by each test's end at the latest, so a failed test leaves no lookup held. */
+let releaseHeld = (): void => undefined;
+
+/**
+ * Holds each realpath of a path that `match` accepts until `release` is called, and lists those that started, so a
+ * test can wait until a decision is observed waiting on the file system.
+ */
+function holdLookups(match: (path: string) => boolean): { entered: string[]; release: () => void } {
+  releaseHeld();
+  let open = (): void => undefined;
+  const hold = { match, held: new Promise<void>((resolve) => (open = resolve)), entered: [] as string[] };
+  lookups.hold = hold;
+  releaseHeld = () => {
+    if (lookups.hold === hold) lookups.hold = null;
+    open();
   };
+  return { entered: hold.entered, release: () => releaseHeld() };
 }
 
 function freePort(): Promise<number> {
@@ -129,7 +150,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  lookups.held = null;
+  releaseHeld();
   await Promise.all(servers.map((server) => server.close()));
   await rm(root, { recursive: true, force: true });
 });
@@ -381,12 +402,14 @@ describe("iterbar() in vite dev", () => {
     await mkdir(join(root, "vault"));
     await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
     await writeFile(join(root, "vault", "secret.json"), '"LINKED-STORE-SECRET"');
-    // Held from the start, so no lookup the plugin could make while Vite starts has answered.
-    const release = holdLookups();
+    // Held from the start, so no lookup of the store the plugin could make while Vite starts has answered.
+    const store = join(root, ".iterbar");
+    const { entered, release } = holdLookups((path) => path === store);
     const { server, port } = await devServer({ server: { fs: { strict } } });
     const answers = Promise.all([get(port, "/vault/secret.json"), get(port, "/vault/secret.json?raw")]);
     const loaded = server.environments.client.transformRequest(join(root, "vault", "secret.json?raw")).then(String, String);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Both requests and the transform are each waiting on their own lookup of the store.
+    await vi.waitFor(() => expect(entered.length).toBeGreaterThanOrEqual(3));
     release();
     for (const answer of await answers) {
       expect(isRefusal(answer), `${answer.status} ${answer.body.slice(0, 200)}`).toBe(true);
@@ -395,6 +418,38 @@ describe("iterbar() in vite dev", () => {
     expect(await loaded).toMatch(/Iterbar store/);
     const config = await get(port, "/__iterbar/config");
     expect(JSON.parse(config.body).token).toBe((await readMatchingDaemonFile(root))?.token);
+  });
+
+  it.each([true, false])("refuses a store file the daemon writes while the request waits on its lookup (fs.strict %s)", async (strict) => {
+    // The store is a link to `vault`, which has no daemon.json yet; a plain link and a public link lead to it too.
+    const publicDir = join(root, "public");
+    for (const directory of ["vault", "public"]) await mkdir(join(root, directory));
+    await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
+    await symlink(join(root, ".iterbar"), join(root, "docs"), "dir");
+    await symlink(join(root, ".iterbar"), join(publicDir, "store"), "dir");
+    const { port } = await devServer({ publicDir, server: { fs: { strict } } });
+    const daemonFile = join(root, "vault", "daemon.json");
+    const away = join(root, "daemon.json.away");
+    let token: string | null = null;
+    for (const path of [
+      "/vault/daemon.json", "/vault/daemon.json?raw", `/@fs${root}/vault/daemon.json`, "/docs/daemon.json", "/docs/daemon.json?raw",
+      `/@fs${root}/docs/daemon.json`, "/store/daemon.json",
+    ]) {
+      const { entered, release } = holdLookups((each) => each.endsWith("daemon.json"));
+      const answer = get(port, path);
+      // The decision has found no daemon.json; it appears before Vite opens the file, the first time by a daemon start.
+      await vi.waitFor(() => expect(entered.length).toBeGreaterThan(0));
+      if (token === null) {
+        expect((await get(port, "/__iterbar/config")).status).toBe(200);
+        token = String((await readMatchingDaemonFile(root))?.token);
+      } else await rename(away, daemonFile);
+      release();
+      const result = await answer;
+      expect(isRefusal(result), `${path}: ${result.status} ${result.body.slice(0, 200)}`).toBe(true);
+      expect(result.body, path).not.toContain(token);
+      await rename(daemonFile, away);
+    }
+    await rename(away, daemonFile);
   });
 
   it("keeps each dev server to its own store when one plugin serves two projects at once", async () => {
@@ -426,18 +481,24 @@ describe("iterbar() in vite dev", () => {
     expect(await readMatchingDaemonFile(projects[0] ?? "")).toBeNull();
   });
 
-  it("looks each path up once per decision, stops at the first missing directory, and counts a failed lookup as the store", async () => {
+  it("looks each path up once per decision, decides a missing file by where it would be created, and counts a failed lookup as the store", async () => {
     const store: Store = { path: "/srv/app/.iterbar", real: null };
     const looked: string[] = [];
-    const disk = (real: Record<string, string>, code = "ENOENT"): ResolvePath => async (path) => {
-      looked.push(path);
-      return real[path] ?? Promise.reject(Object.assign(new Error(code), { code }));
-    };
+    const failure = (code: string): Promise<never> => Promise.reject(Object.assign(new Error(code), { code }));
+    // The project's directories exist; `real` adds files and links, and `links` lists dangling links.
+    const tree = { "/srv": "/srv", "/srv/app": "/srv/app", "/srv/app/sub": "/srv/app/sub" };
+    const disk = (real: Record<string, string>, code = "ENOENT", links: readonly string[] = []): PathLookups => ({
+      realpath: async (path) => {
+        looked.push(path);
+        return { ...tree, ...real }[path] ?? failure(code);
+      },
+      lstat: async (path) => (links.includes(path) ? {} : failure("ENOENT")),
+    });
     expect(await isStoreFile("/srv/app/.ITERBAR./x", store, disk({}))).toBe(true);
     expect(looked).toEqual([]);
     expect(await isStoreFile("/srv/app/src/a.js", store, disk({ "/srv/app/src/a.js": "/srv/app/src/a.js" }))).toBe(false);
     expect(await isStoreFile("/srv/app/ITEMSA~1/a.js", store, disk({}))).toBe(false);
-    expect(looked).toEqual(["/srv/app/.iterbar", "/srv/app/src/a.js", "/srv/app/.iterbar", "/srv/app/ITEMSA~1/a.js", "/srv/app/ITEMSA~1"]);
+    expect(looked).toEqual(["/srv/app/.iterbar", "/srv/app/src/a.js", "/srv/app/.iterbar", "/srv/app/ITEMSA~1/a.js", "/srv", "/srv/app", "/srv/app/ITEMSA~1"]);
     // A link with a plain name leads to the store, its own or another project's.
     expect(await isStoreFile("/srv/app/docs/x", store, disk({ "/srv/app/docs/x": "/srv/other/.iterbar/x" }))).toBe(true);
     await expect(isStoreFile("/srv/app/X~1/a", store, disk({}, "EACCES"))).rejects.toThrow("EACCES");
@@ -454,17 +515,40 @@ describe("iterbar() in vite dev", () => {
     expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/vault/a" }))).toBe(true);
     // A path no file can have, by a name too long or a NUL byte, cannot be read.
     expect(await isStoreFile("/srv/app/x", store, disk(linked, "ENAMETOOLONG"))).toBe(false);
+    // A file that does not exist yet counts where it would be created: in the store by its own name or a link, in
+    // any case where the file system ignores case, or behind a dangling link, which may lead to the store by then.
+    const kept: Store = { path: "/srv/app/.iterbar", real: "/srv/vault" };
+    expect(await isStoreFile("/srv/vault/daemon.json", kept, disk({ ...linked, "/srv/vault": "/srv/vault" }))).toBe(true);
+    expect(await isStoreFile("/srv/app/docs/daemon.json", kept, disk({ ...linked, "/srv/app/docs": "/srv/vault" }))).toBe(true);
+    expect(await isStoreFile("/srv/VAULT/daemon.json", kept, disk({ ...linked, "/srv/VAULT": "/srv/vault" }))).toBe(true);
+    expect(await isStoreFile("/srv/vault/sub/daemon.json", kept, disk({}))).toBe(true);
+    expect(await isStoreFile("/srv/VAULT/daemon.json", kept, disk({}))).toBe(["darwin", "win32"].includes(process.platform));
+    expect(await isStoreFile("/srv/app/docs/daemon.json", kept, disk({}, "ENOENT", ["/srv/app/docs"]))).toBe(true);
+    // Other missing files, SPA routes among them, stay Vite's to answer.
+    for (const file of ["/srv/app/about/team", "/srv/vaultx/a.js", "/srv/app/vault/daemon.json", "/srv/app/docs/a"]) {
+      expect(await isStoreFile(file, kept, disk({ ...linked, "/srv/vault": "/srv/vault" })), file).toBe(false);
+    }
+    await expect(isStoreFile("/srv/app/docs/a", kept, { ...disk({}), lstat: () => failure("EACCES") })).rejects.toThrow("EACCES");
+    await mkdir(join(root, "vault"));
+    await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
+    await symlink(join(root, "gone"), join(root, "docs"), "dir");
+    const onDisk: Store = { path: join(root, ".iterbar"), real: null };
+    expect(await isStoreFile(join(root, "vault", "daemon.json"), onDisk)).toBe(true);
+    expect(await isStoreFile(join(root, "docs", "daemon.json"), onDisk)).toBe(true);
+    expect(await isStoreFile(join(root, "about", "team"), onDisk)).toBe(false);
     expect(await isLoadOfStore("/srv/vault/daemon.json", { publicDir: "", store }, disk({}, "EIO"))).toBe(true);
-    // A missing path with a hundred `~` directories costs a lookup of the file and of its first missing directory.
+    // A missing path with a hundred directories costs a lookup of the file and of each directory down to the first
+    // missing one.
     looked.length = 0;
     const deep = `/srv/app/${Array.from({ length: 100 }, (_, index) => `D~${index}`).join("/")}/a.js`;
     expect(await isStoreFile(deep, store, disk(linked))).toBe(false);
-    expect(looked).toEqual(["/srv/app/.iterbar", deep, "/srv/app/D~0"]);
+    expect(looked).toEqual(["/srv/app/.iterbar", deep, "/srv", "/srv/app", "/srv/app/D~0"]);
     // One decision over several files looks each path up once.
     looked.length = 0;
     const layout = { root: "/srv/app", base: "/base/", publicDir: "/srv/app/public", alias: [], store };
     expect(await isLoadOfStore("/X~1/a.js?raw", layout, disk({ ...linked, "/X~1": "/X~1" }))).toBe(false);
-    expect([...looked].sort((a, b) => a.localeCompare(b))).toEqual(["/srv/app/.iterbar", "/X~1/a.js", "/srv/app/public/X~1/a.js", "/X~1", "/.iterbar", "/srv/app/public/X~1"].sort((a, b) => a.localeCompare(b)));
+    const expected = ["/srv/app/.iterbar", "/X~1/a.js", "/srv/app/public/X~1/a.js", "/X~1", "/.iterbar", "/srv", "/srv/app", "/srv/app/public"];
+    expect([...looked].sort((a, b) => a.localeCompare(b))).toEqual(expected.sort((a, b) => a.localeCompare(b)));
     expect(servedFiles("/base/src/a.js?raw", layout)).toEqual(expect.arrayContaining(["/srv/app/src/a.js", "/srv/app/public/src/a.js"]));
     expect(servedFiles("/base/@fs/srv/p/x%2541.txt", layout)).toContain("/srv/p/x%41.txt");
     expect(servedFiles("/base/a%2F..%2F/x.html", layout)).toContain("/srv/app/x.html");

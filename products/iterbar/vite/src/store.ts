@@ -1,6 +1,6 @@
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, join, posix, resolve, sep } from "node:path";
+import { dirname, join, parse, posix, resolve, sep } from "node:path";
 import type { Alias } from "vite";
 
 /** The name of a project's Iterbar store directory, which holds `daemon.json` (with the token) and the feedback. */
@@ -88,6 +88,14 @@ function hasStoreSegment(file: string): boolean {
 /** Resolves a path to its real path, short names and links included, as `realpath` does. */
 export type ResolvePath = (path: string) => Promise<string>;
 
+/** The file system calls a decision makes: real paths, and `lstat` to tell a dangling link from a missing file. */
+export interface PathLookups {
+  readonly realpath: ResolvePath;
+  readonly lstat: (path: string) => Promise<unknown>;
+}
+
+const FILE_SYSTEM: PathLookups = { realpath: (path) => realpath(path), lstat: (path) => lstat(path) };
+
 /**
  * Whether a lookup failed because no file can be at that path, so that nothing can read it: it does not exist, its
  * name or the whole path is too long, or it has a NUL byte (as an SPA route can, which Vite answers with its page).
@@ -113,15 +121,35 @@ async function realOrNull(path: string, resolvePath: ResolvePath): Promise<strin
 }
 
 /** Real paths for one decision: each path is looked up at most once, and nothing is kept for the next request. */
-type Lookup = (path: string) => Promise<string | null>;
+interface Lookup {
+  (path: string): Promise<string | null>;
+  readonly files: PathLookups;
+}
 
-function lookupOnce(resolvePath: ResolvePath): Lookup {
+function lookupOnce(files: PathLookups): Lookup {
   const seen = new Map<string, Promise<string | null>>();
-  return (path) => {
-    const known = seen.get(path) ?? realOrNull(path, resolvePath);
+  return Object.assign((path: string) => {
+    const known = seen.get(path) ?? realOrNull(path, files.realpath);
     seen.set(path, known);
     return known;
-  };
+  }, { files });
+}
+
+/** Whether a path that does not resolve is a link, whose target can appear (or be the store) once Vite reads it. */
+async function isDanglingLink(path: string, files: PathLookups): Promise<boolean> {
+  return files.lstat(path).then(() => true, (error: unknown) => (isMissing(error) ? false : Promise.reject(error)));
+}
+
+/**
+ * Whether a file that does not exist yet would be created in the store: its deepest existing directory's real path,
+ * joined with the names below it, lies within the store's real path. Those names have no stored case yet, so on
+ * file systems that ignore case (macOS, Windows) they match the store's names in any case.
+ */
+function wouldBeInStore(ancestorReal: string, missing: readonly string[], storeReal: string | null): boolean {
+  if (storeReal === null || !isWithin(storeReal, ancestorReal)) return false;
+  const fold = (name: string | undefined): string | undefined => (process.platform === "darwin" || process.platform === "win32" ? name?.toLowerCase() : name);
+  const below = storeReal.slice(ancestorReal.length).split(sep).filter(Boolean);
+  return below.length <= missing.length && below.every((name, index) => fold(name) === fold(missing[index]));
 }
 
 /**
@@ -136,32 +164,38 @@ function isInStore(real: string, storeReal: string | null): boolean {
  * Whether reading `file` reads a store, by its real path: links and Windows short names lead wherever they lead.
  * The store's own real path is looked up in the same decision, so a store that is a link counts from the first
  * request on. A short name names an entry of its own directory, which may be a `.iterbar` that links elsewhere, so
- * each `~` segment is also compared with the `.iterbar` beside it, whether the file exists yet or not, up to the
- * first one that does not exist. A missing file cannot be read; any other failed lookup rejects, which counts as
- * the store.
+ * each `~` segment is also compared with the `.iterbar` beside it. A file that does not exist yet is decided by
+ * where it would be created ({@link wouldBeInStore}), from its directories looked up from the root down to the first
+ * missing one; that one must not be a dangling link, which could lead to the store by the time Vite reads it. Any
+ * other failed lookup rejects, which counts as the store.
  */
-export async function isStoreFile(file: string, store: Store, resolvePath: ResolvePath = realpath, lookup = lookupOnce(resolvePath)): Promise<boolean> {
+export async function isStoreFile(file: string, store: Store, files: PathLookups = FILE_SYSTEM, lookup = lookupOnce(files)): Promise<boolean> {
   if (hasStoreSegment(file)) return true;
   store.real = (await lookup(store.path)) ?? store.real;
   const storeReal = store.real;
   const real = await lookup(file);
   if (real !== null && isInStore(real, storeReal)) return true;
-  const parts = file.split(sep);
-  let prefix = parts[0] ?? "";
-  for (const part of parts.slice(1)) {
-    prefix += sep + part;
-    if (!part.includes("~")) continue;
-    const prefixReal = await lookup(prefix);
-    if (prefixReal === null) return false;
-    if (isInStore(prefixReal, storeReal) || prefixReal === (await lookup(join(dirname(prefix), STORE_DIR)))) return true;
+  const { root } = parse(file);
+  const parts = file.slice(root.length).split(sep);
+  let prefix = root;
+  let prefixReal: string | null = root;
+  for (const [index, part] of parts.entries()) {
+    prefix = index === 0 ? root + part : prefix + sep + part;
+    if (part === "" || (real !== null && !part.includes("~"))) continue;
+    const parentReal = prefixReal;
+    prefixReal = await lookup(prefix);
+    if (prefixReal === null) {
+      return real === null && (wouldBeInStore(parentReal, parts.slice(index), storeReal) || (await isDanglingLink(prefix, lookup.files)));
+    }
+    if (isInStore(prefixReal, storeReal) || (part.includes("~") && prefixReal === (await lookup(join(dirname(prefix), STORE_DIR))))) return true;
   }
   return false;
 }
 
 /** Whether any of the files reads a store ({@link isStoreFile}), in one decision; a failed lookup counts as one. */
-async function readsStore(files: readonly string[], store: Store, resolvePath: ResolvePath = realpath): Promise<boolean> {
-  const lookup = lookupOnce(resolvePath);
-  return Promise.all(files.map((file) => isStoreFile(file, store, resolvePath, lookup))).then((verdicts) => verdicts.includes(true), () => true);
+async function readsStore(paths: readonly string[], store: Store, files: PathLookups = FILE_SYSTEM): Promise<boolean> {
+  const lookup = lookupOnce(files);
+  return Promise.all(paths.map((file) => isStoreFile(file, store, files, lookup))).then((verdicts) => verdicts.includes(true), () => true);
 }
 
 /** The decoded request path, or `undefined` when Vite's middleware would pass the request on. */
@@ -263,10 +297,10 @@ export function servedFiles(url: string, layout: StoreLayout, fsRoot = resolve("
  * Whether a module id Vite's transform pipeline loads reads a store: as Vite's loader reads it (without the query,
  * from the working directory) or, for `/x`, as its asset loader reads a public file. A virtual `\0` id is no file.
  */
-export async function isLoadOfStore(id: string, layout: Pick<StoreLayout, "publicDir" | "store">, resolvePath: ResolvePath = realpath): Promise<boolean> {
+export async function isLoadOfStore(id: string, layout: Pick<StoreLayout, "publicDir" | "store">, files: PathLookups = FILE_SYSTEM): Promise<boolean> {
   if (id.startsWith("\0")) return false;
   const file = id.replace(/[?#].*$/s, "");
-  return readsStore([resolve(file), ...(layout.publicDir && file.startsWith("/") ? [join(layout.publicDir, file)] : [])], layout.store, resolvePath);
+  return readsStore([resolve(file), ...(layout.publicDir && file.startsWith("/") ? [join(layout.publicDir, file)] : [])], layout.store, files);
 }
 
 function refuse(response: ServerResponse): void {
