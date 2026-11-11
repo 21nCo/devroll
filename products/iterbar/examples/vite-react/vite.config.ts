@@ -1,7 +1,8 @@
 import { iterbar } from "@iterbar/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// esbuild compiles the JSX (see tsconfig.json); a real app would add @vitejs/plugin-react for Fast Refresh.
+// In vite dev, iterbar() adds a Babel plugin to @vitejs/plugin-react that stamps each element with its source location.
 export default defineConfig({
-  plugins: [iterbar()],
+  plugins: [react(), iterbar()],
 });

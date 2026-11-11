@@ -12,6 +12,13 @@ const BAR_MARKERS = ["iterbar-bar", "iterbar-comment-mode", "Move Iterbar", "Tok
 const CLIENT_MARKERS = ["__iterbar/config"];
 
 const HERO = { calm: "Ship small changes, see them at once", bold: "SHIP IT. SEE IT. NOW." };
+/** The attribute that names, in vite dev, the source location each element was written at. */
+const SOURCE_ATTRIBUTE = "data-iterbar-src";
+/** Where each app writes its default hero and its pricing table: `<project-relative path>:<line>:<column>`. */
+const SOURCES: Record<string, { hero: string; pricing: string }> = {
+  "vite-react": { hero: "src/App.tsx:4:10", pricing: "src/App.tsx:13:5" },
+  sveltekit: { hero: "src/lib/CalmHero.svelte:1:1", pricing: "src/routes/+page.svelte:9:3" },
+};
 
 async function readDaemonFile(app: ExampleApp): Promise<DaemonInfo | null> {
   try {
@@ -58,6 +65,9 @@ for (const app of APPS) {
 
         await expect(page.locator("#hero")).toHaveText(HERO.calm);
         await expect(page.locator("table#pricing")).toBeVisible();
+        // Each element names where it was written; a component (the Variants slot) adds no element of its own.
+        await expect(page.locator("#hero")).toHaveAttribute(SOURCE_ATTRIBUTE, SOURCES[app.name]!.hero);
+        await expect(page.locator("table#pricing")).toHaveAttribute(SOURCE_ATTRIBUTE, SOURCES[app.name]!.pricing);
         await switchSlot(page, "hero", "bold");
         await expect(page.locator("#hero")).toHaveText(HERO.bold);
         await switchSlot(page, "pricing", "cards");
@@ -116,7 +126,7 @@ for (const app of APPS) {
       const output = await readTree(app.outputDirectory);
       expect(output.size).toBeGreaterThan(0);
       for (const [file, text] of output) {
-        for (const marker of [...BAR_MARKERS, ...CLIENT_MARKERS]) {
+        for (const marker of [...BAR_MARKERS, ...CLIENT_MARKERS, SOURCE_ATTRIBUTE]) {
           expect(text.includes(marker), `${file} contains ${JSON.stringify(marker)}`).toBe(false);
         }
       }
@@ -130,6 +140,7 @@ for (const app of APPS) {
         await expect(page.locator("#hero")).toHaveText(HERO.calm);
         await expect(page.locator("table#pricing")).toBeVisible();
         expect(await page.locator("iterbar-bar").count()).toBe(0);
+        expect(await page.locator(`[${SOURCE_ATTRIBUTE}]`).count()).toBe(0);
         expect(await page.evaluate(() => customElements.get("iterbar-bar") === undefined && !("__ITERBAR__" in window))).toBe(true);
         expect(requests.filter((url) => url.includes("iterbar"))).toEqual([]);
       } finally {

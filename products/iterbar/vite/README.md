@@ -37,6 +37,43 @@ Slots come from the `Variants` components of `@iterbar/react` and
 `@iterbar/svelte`. See `products/iterbar/examples` for a Vite and React app
 and a SvelteKit app.
 
+## Source locations
+
+In `vite dev`, each element written in a project source file carries
+`data-iterbar-src="<path>:<line>:<column>"`, so a picked element reports
+where it was written. The path is relative to the project root
+(`projectRoot`, Vite's root by default), the directory the agent works in
+and the root of the `sourceLocation` the daemon reports, with `/`
+separators; the line and column are 1-based and point at the element's `<`. The stamps come from the
+frameworks' own compilers:
+
+- React: the plugin adds a Babel plugin to `@vitejs/plugin-react`'s
+  `babel.plugins` (through its `api.reactBabel` hook), so the app needs
+  `@vitejs/plugin-react`; JSX that esbuild alone compiles gets no stamps.
+  Babel's location of each JSX host element (`<div>`, `<my-element>`) is
+  its stamp.
+- Svelte: before `vite-plugin-svelte` preprocesses or compiles a
+  component, the plugin runs a Svelte preprocessor that reads the
+  component with the app's own Svelte compiler parser (`svelte/compiler`
+  as resolved from Vite's root) and stamps each regular element at the
+  location the parser gives it. A component the parser cannot read as
+  written, such as one with a `lang="scss"` style, is read again with its
+  style, then also its script, contents hidden. A component the parser
+  cannot read even then gets no stamps; compiling it reports the error.
+
+Components, fragments (`<>`, `<Fragment>`), elements whose only attributes
+are spreads (`<div {...props} />`), elements that already set
+`data-iterbar-src`, and files outside the project root or in a
+`node_modules` directory are not stamped. A stamp is the element's first
+attribute, so a later spread that carries `data-iterbar-src` still
+overrides it.
+
+The plugin applies to `vite dev` only, so `vite build` adds no stamps. A
+server render in dev gets the same stamps as the browser, so hydration
+matches. Vitest runs tests on a Vite dev server, so the plugin adds no stamps
+there either (in the `test` mode, or wherever Vitest's own plugins are
+present), and component tests see the DOM as the components render it.
+
 ## The daemon
 
 On the first page load, the plugin finds the project's daemon:
@@ -92,7 +129,8 @@ original host, add its `https` origin to `origins` (and the host to
 
 - `projectRoot`: the project whose `.iterbar/` store the daemon serves,
   relative to Vite's root (default: Vite's root). Use the directory your
-  coding agent runs `iterbar mcp` in, so both reach the same daemon.
+  coding agent runs `iterbar mcp` in, so both reach the same daemon. Source
+  locations are relative to it too.
 - `origins`: more origins the pages are opened from, such as a tunnel or a
   forwarded port (`["https://my-tunnel.example"]`). Each must be an origin,
   with no path.
@@ -100,5 +138,6 @@ original host, add its `https` origin to `origins` (and the host to
 ## Tests
 
 - `pnpm test`: the plugin against real Vite dev servers, builds and daemons
-  on temporary projects.
+  on temporary projects; `src/source/source.test.ts` checks each stamp
+  against the TypeScript and Svelte source maps.
 - The example apps' Playwright tests live in `products/iterbar/examples/e2e`.
