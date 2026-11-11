@@ -1,4 +1,5 @@
-import type { SlotState } from "iterbar";
+import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackTarget, type SlotState } from "iterbar";
+import { Composer } from "./composer.js";
 import { DaemonConnection, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
 import { h } from "./dom.js";
 import {
@@ -11,6 +12,9 @@ import {
 } from "./position.js";
 import { reportPageUrl, SlotsPanel } from "./slots.js";
 import { applyBarStyles } from "./theme.js";
+import { ElementPicker } from "./pick/picker.js";
+import { captureScreenshot, type ScreenshotResult } from "./pick/screenshot.js";
+import { describeElement, describeTarget, readActiveVariants } from "./pick/target.js";
 import { ThreadsPanel } from "./threads.js";
 
 /** The bar's tag name. */
@@ -65,6 +69,16 @@ function readStoredState(): BarState {
 const ElementBase: typeof HTMLElement = (globalThis as { HTMLElement?: typeof HTMLElement }).HTMLElement
   ?? (class {} as unknown as typeof HTMLElement);
 
+/** A picked element, described when it was picked so the comment matches what the user saw. */
+interface Pick {
+  readonly target: FeedbackTarget | null;
+  /** The page URL as slot reports file it, or `null` for a page the contract cannot name (such as `file:`). */
+  readonly pageUrl: string | null;
+  readonly activeVariants: readonly ActiveVariant[];
+  /** Started at the pick; it never rejects. */
+  readonly screenshot: Promise<ScreenshotResult>;
+}
+
 interface DragState {
   readonly pointerId: number;
   readonly startX: number;
@@ -95,13 +109,21 @@ export class IterbarBarElement extends ElementBase {
   }, "⠿");
   readonly #toggle = h("button", { type: "button", class: "icon", "data-role": "toggle", "aria-controls": "iterbar-body" });
   readonly #comment = h("button", {
-    type: "button", "data-role": "comment", "aria-pressed": "false", title: "Comment mode",
+    type: "button", "data-role": "comment", "aria-pressed": "false", title: "Comment mode: click an element to comment on it (Esc leaves)",
   }, "Comment");
   /** Inherits the page's effective `zoom`, which the bar cancels; see {@link #fitZoom}. */
   readonly #zoomProbe = h("span", { class: "zoom-probe", "aria-hidden": "true" });
   #zoomObserver: ResizeObserver | null = null;
   readonly #slots: SlotsPanel;
   readonly #threads = new ThreadsPanel();
+  readonly #composer = new Composer({
+    onSend: (text) => void this.#send(text),
+    onCancel: () => this.#cancelPick(),
+  });
+  readonly #picker: ElementPicker;
+  #pick: Pick | null = null;
+  /** The pick whose comment is being sent; another element cannot be picked meanwhile. */
+  #sendingPick: Pick | null = null;
   #daemonUrl: string | null = null;
   #token: string | null = null;
   #connection: DaemonConnection | null = null;
@@ -125,12 +147,20 @@ export class IterbarBarElement extends ElementBase {
     applyBarStyles(this.#root);
     this.#slots = new SlotsPanel({ onSlots: (slots) => this.#queueReport(slots) });
     this.#body = h("div", { class: "body", id: "iterbar-body" },
-      this.#detail, this.#slots.element, this.#threads.element);
+      this.#detail, this.#composer.element, this.#slots.element, this.#threads.element);
     this.#bar = h("div", { class: "bar", role: "region", "aria-label": "Iterbar", popover: "manual" },
       h("div", { class: "header" },
         this.#handle, h("span", { class: "title" }, "Iterbar"), this.#status, this.#comment, this.#toggle),
       this.#body);
     this.#root.append(this.#zoomProbe, this.#bar);
+    this.#picker = new ElementPicker({
+      host: this,
+      container: this.#root,
+      onPick: (element) => this.#onPick(element),
+      onEscape: () => {
+        this.commentMode = false;
+      },
+    });
 
     this.#toggle.addEventListener("click", () => this.#setCollapsed(!this.#state.collapsed));
     this.#comment.addEventListener("click", () => {
@@ -165,7 +195,10 @@ export class IterbarBarElement extends ElementBase {
     this.#queueReconnect();
   }
 
-  /** Whether comment mode is on. Changing it dispatches {@link COMMENT_MODE_EVENT}. */
+  /**
+   * Whether comment mode is on: hovering outlines page elements and clicking one opens the composer instead of
+   * reaching the page. Escape turns it off, as does sending a comment. Changing it dispatches {@link COMMENT_MODE_EVENT}.
+   */
   get commentMode(): boolean {
     return this.#commentMode;
   }
@@ -175,6 +208,8 @@ export class IterbarBarElement extends ElementBase {
     if (active === this.#commentMode) return;
     this.#commentMode = active;
     this.#comment.setAttribute("aria-pressed", String(active));
+    if (active && this.isConnected) this.#picker.start();
+    if (!active) this.#leavePicking();
     this.dispatchEvent(new CustomEvent<CommentModeEventDetail>(COMMENT_MODE_EVENT, {
       bubbles: true, composed: true, detail: { active },
     }));
@@ -218,6 +253,7 @@ export class IterbarBarElement extends ElementBase {
       (this as Record<string, unknown>)[property] = value;
     }
     this.#raise();
+    if (this.#commentMode) this.#picker.start();
     this.#watchZoom();
     window.addEventListener("keydown", this.#onKeydown, true);
     this.#watchUrl(true);
@@ -226,6 +262,7 @@ export class IterbarBarElement extends ElementBase {
   }
 
   disconnectedCallback(): void {
+    this.commentMode = false;
     window.removeEventListener("keydown", this.#onKeydown, true);
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
@@ -246,6 +283,81 @@ export class IterbarBarElement extends ElementBase {
     // Expanding moves focus into the bar so keyboard users can carry on; collapsing keeps focus off hidden controls.
     if (!this.#state.collapsed || focusInside) this.#toggle.focus();
   };
+
+  /** Takes a click in comment mode; refused while the current pick's comment is being sent. */
+  #onPick(element: Element): boolean {
+    if (this.#sendingPick !== null && this.#sendingPick === this.#pick) return false;
+    this.#pick = {
+      target: describeTarget(element),
+      pageUrl: reportPageUrl(location.href),
+      activeVariants: readActiveVariants(),
+      screenshot: captureScreenshot(element, this),
+    };
+    this.#setCollapsed(false);
+    this.#composer.show(describeElement(element));
+    return true;
+  }
+
+  /** Drops the pick and closes the composer; comment mode stays on. */
+  #cancelPick(): void {
+    this.#pick = null;
+    this.#closeComposer();
+    this.#picker.clearPick();
+  }
+
+  #leavePicking(): void {
+    this.#picker.stop();
+    this.#pick = null;
+    this.#closeComposer();
+  }
+
+  /** Closes the composer; focus inside it moves to the comment button rather than being lost with it. */
+  #closeComposer(): void {
+    const focused = this.#root.activeElement;
+    this.#composer.close();
+    if (focused && this.#composer.element.contains(focused)) this.#comment.focus();
+  }
+
+  /**
+   * Sends a comment on the current pick, with its screenshot or the reason there is none. On success the thread is
+   * shown and comment mode ends; on failure the composer keeps the text and shows why.
+   */
+  async #send(text: string): Promise<void> {
+    const pick = this.#pick;
+    if (!pick || this.#sendingPick === pick) return;
+    const connection = this.#connection;
+    if (!connection) {
+      this.#composer.showError("Comments need the Iterbar daemon, and the bar has none. Start the dev server with the Iterbar plugin.");
+      return;
+    }
+    if (pick.pageUrl === null) {
+      this.#composer.showError("This page's URL is not http or https, so the daemon cannot file a comment for it.");
+      return;
+    }
+    this.#sendingPick = pick;
+    this.#composer.setBusy(true);
+    try {
+      const screenshot = await pick.screenshot;
+      const draft: FeedbackDraft = {
+        schemaVersion: SCHEMA_VERSION,
+        kind: "comment",
+        text,
+        pageUrl: pick.pageUrl,
+        target: pick.target,
+        activeVariants: [...pick.activeVariants],
+        screenshotUnavailableReason: screenshot.ok ? null : screenshot.reason,
+        evidenceWindow: null,
+      };
+      const feedback = await connection.sendFeedback(draft, screenshot.ok ? screenshot.png : null);
+      if (this.#connection === connection) this.#threads.merge(feedback);
+      if (this.#pick === pick) this.commentMode = false;
+    } catch (error) {
+      if (this.#pick === pick) this.#composer.showError((error as Error).message);
+    } finally {
+      if (this.#sendingPick === pick) this.#sendingPick = null;
+      if (this.#pick === pick) this.#composer.setBusy(false);
+    }
+  }
 
   readonly #onUrlChange = (): void => {
     if (this.#slotsForReport && reportPageUrl(location.href) !== this.#reportedUrl) this.#queueReport(this.#slotsForReport);

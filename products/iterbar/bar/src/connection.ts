@@ -1,15 +1,20 @@
 import {
   bearerAuthorization,
   DAEMON_HOST,
+  daemonErrorResponseSchema,
   daemonEventSchema,
   daemonPath,
+  FEEDBACK_MULTIPART_PARTS,
+  feedbackDraftSchema,
   feedbackListResponseSchema,
+  feedbackSchema,
   safeParseMessage,
   SCHEMA_VERSION,
   slotReportSchema,
   tokenSchema,
   webSocketProtocols,
   type Feedback,
+  type FeedbackDraft,
   type SlotState,
 } from "iterbar";
 
@@ -101,6 +106,20 @@ export interface ConnectionCallbacks {
 
 class UnauthorizedError extends Error {}
 
+/** A request the daemon answered with an error, carrying its message for the user. */
+export class DaemonRequestError extends Error {}
+
+/** The message of a daemon error body, or a generic one naming the status. */
+async function errorMessage(response: Response): Promise<string> {
+  try {
+    const body = daemonErrorResponseSchema.safeParse(await response.json());
+    if (body.success) return `The daemon refused it (${response.status}): ${body.data.error.message}`;
+  } catch {
+    // Not a daemon error body.
+  }
+  return `The daemon answered ${response.status}.`;
+}
+
 /**
  * The bar's link to the daemon: the `/events` WebSocket, a `GET /feedback` listing every time the socket opens (so
  * nothing published while it was closed is missed), and `POST /slots` reports. A socket that closes is reopened
@@ -164,6 +183,34 @@ export class DaemonConnection {
     this.#pendingReport = { pageUrl, slots, generation: this.#reportGeneration };
     this.#reportAttempt = 0;
     if (this.#connected) this.#flushReport();
+  }
+
+  /**
+   * Creates a feedback item with `POST /feedback`: the draft, plus the screenshot as a PNG part. Resolves with the
+   * stored item. Never retried, since a request that timed out may still have been stored; a `401` stops the
+   * connection as everywhere else.
+   */
+  async sendFeedback(draft: FeedbackDraft, screenshot: Blob | null): Promise<Feedback> {
+    if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
+    const valid = feedbackDraftSchema.safeParse(draft);
+    if (!valid.success) throw new DaemonRequestError("The comment does not match the feedback contract.");
+    const form = new FormData();
+    form.append(FEEDBACK_MULTIPART_PARTS.feedback, JSON.stringify(valid.data));
+    if (screenshot) form.append(FEEDBACK_MULTIPART_PARTS.screenshot, screenshot, "screenshot.png");
+    let response: unknown;
+    try {
+      response = await this.#request("createFeedback", form);
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        this.#reject();
+        throw new DaemonRequestError("The daemon rejected the token. Restart the dev server to get a new one.");
+      }
+      if (error instanceof DaemonRequestError) throw error;
+      throw new DaemonRequestError(this.#stopped ? "The bar was disconnected from the daemon." : `Cannot reach the daemon: ${(error as Error).message}`);
+    }
+    const feedback = feedbackSchema.safeParse(response);
+    if (!feedback.success) throw new DaemonRequestError("The daemon's answer was not a feedback item.");
+    return feedback.data;
   }
 
   #open(): void {
@@ -305,10 +352,11 @@ export class DaemonConnection {
   }
 
   /**
-   * Sends a request and resolves with the parsed JSON body of a `GET`. The whole exchange, body included, must finish
-   * within {@link REQUEST_TIMEOUT_MS}, so a daemon that stops answering leads to the usual retry instead of a hang.
+   * Sends a request and resolves with the parsed JSON body, if any. A `GET` and `createFeedback` answer with JSON.
+   * The whole exchange, body included, must finish within {@link REQUEST_TIMEOUT_MS}, so a daemon that stops
+   * answering leads to the usual retry instead of a hang. A `FormData` body sets its own multipart content type.
    */
-  async #request(endpoint: "listFeedback" | "reportSlots", body?: string): Promise<unknown> {
+  async #request(endpoint: "listFeedback" | "reportSlots" | "createFeedback", body?: string | FormData): Promise<unknown> {
     const deadline = new AbortController();
     const cancel = (): void => deadline.abort();
     if (this.#abort.signal.aborted) cancel();
@@ -322,7 +370,7 @@ export class DaemonConnection {
     });
     const exchange = async (): Promise<unknown> => {
       const headers: Record<string, string> = { authorization: bearerAuthorization(this.#config.token) };
-      if (body !== undefined) headers["content-type"] = "application/json";
+      if (typeof body === "string") headers["content-type"] = "application/json";
       const response = await fetch(`${this.#config.url}${daemonPath(endpoint)}`, {
         method: body === undefined ? "GET" : "POST",
         headers,
@@ -332,8 +380,8 @@ export class DaemonConnection {
         signal: deadline.signal,
       });
       if (response.status === 401) throw new UnauthorizedError("unauthorized");
-      if (!response.ok) throw new Error(`The daemon answered ${response.status}`);
-      return body === undefined ? await response.json() : undefined;
+      if (!response.ok) throw new DaemonRequestError(await errorMessage(response));
+      return body === undefined || endpoint === "createFeedback" ? await response.json() : undefined;
     };
     try {
       return await Promise.race([exchange(), timeout]);

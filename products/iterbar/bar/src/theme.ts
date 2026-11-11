@@ -211,6 +211,54 @@ button[aria-pressed="true"] .muted { color: inherit; }
 .badge[data-status="working"] { background: #d69a1d; color: #1b1300; }
 .badge[data-status="needs-info"] { background: #d24b4b; color: #ffffff; }
 .badge[data-status="done"], .badge[data-status="resolved"] { background: #2e9e5b; color: #ffffff; }
+
+.composer { display: grid; gap: 6px; }
+.composer .section-title { margin: 0; }
+.composer-target { margin: 0; color: var(--ib-muted); overflow-wrap: anywhere; }
+.composer-text {
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  min-height: 4.5em;
+  margin: 0;
+  padding: 4px 6px;
+  resize: vertical;
+  background: var(--ib-bg);
+  border: 1px solid var(--ib-border);
+  border-radius: 6px;
+}
+.composer-error { margin: 0; color: var(--ib-warn); overflow-wrap: anywhere; }
+.composer-actions { display: flex; justify-content: flex-end; gap: 6px; }
+button.primary { background: var(--ib-accent); border-color: var(--ib-accent); color: var(--ib-accent-fg); }
+button:disabled { cursor: default; opacity: 0.6; }
+
+/* Comment mode's outlines: a full-viewport top-layer layer that never takes pointer events. */
+.pick-layer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+  pointer-events: none;
+}
+.pick-layer:not([data-active]) { display: none; }
+.pick-box {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 2px dashed #2f4fd0;
+  border-radius: 2px;
+  background: rgba(47, 79, 208, 0.08);
+  pointer-events: none;
+}
+.pick-box.picked { border-style: solid; background: rgba(47, 79, 208, 0.14); }
 `;
 
 let shared: CSSStyleSheet | null = null;

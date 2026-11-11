@@ -27,9 +27,8 @@ attributes. The bar never writes the token to an attribute.
   `history.replaceState`, keeping every other parameter and the fragment. The
   bar also reports the page's slots to the daemon (`POST /slots`) under the
   page URL without its fragment or `iterbar` parameter.
-- **Comment mode**: a toggle button. It sets `commentMode` and dispatches the
-  `iterbar-comment-mode` event (bubbling and composed). It does not yet pick
-  elements or send comments.
+- **Comment mode**: the Comment button sets `commentMode` and dispatches the
+  `iterbar-comment-mode` event (bubbling and composed). See below.
 - **Feedback threads**, newest first, with status and replies. The bar lists
   them with `GET /feedback` each time the `/events` WebSocket opens, then
   applies `feedback.created` and `feedback.updated` events as they arrive.
@@ -47,6 +46,51 @@ attributes. The bar never writes the token to an attribute.
   unless it is older (`updatedAt`) than the one held.
   Events that are malformed or from another schema version are ignored.
   Switching to another daemon URL or token clears the threads.
+
+## Comment mode
+
+While comment mode is on, hovering outlines the page element under the
+pointer, and clicking one (or pressing Enter on a focused page control)
+picks it instead of reaching the page: the press, the click and the focus
+change are all swallowed. The composer then opens in the bar, which expands
+if collapsed. Picking another element keeps the typed text, Cancel drops the
+pick, and Escape leaves comment mode from anywhere, discarding the draft.
+While comment mode is off the bar has no page listeners at all and its
+outline layer is hidden, so the page gets every event. A page script's own
+`element.click()` is never taken for a pick.
+
+Send (or Ctrl/Cmd+Enter) creates a `comment` with `POST /feedback`. The
+element is described when it is picked:
+
+- **Selector**: from a closed set, tried in order: `[data-testid="…"]` when
+  that test id is unique, `#id` when unique, then a tag/class/`:nth-of-type`
+  child path from the nearest element (the picked one included) whose
+  `data-iterbar-src` stamp or `data-iterbar-slot` name is unique, or from
+  `:root` when there is none. Every selector is checked to resolve back to
+  the picked element alone. Elements inside a page's shadow roots and iframes
+  cannot be picked yet.
+- **Text excerpt**: the rendered text with whitespace collapsed, at most 200
+  characters.
+- **Bounding box**: the border box in CSS pixels from the top-left corner of
+  the document.
+- **Source location**: the nearest well-formed `data-iterbar-src`, or `null`.
+- **Active variants**: the version each slot on the page shows.
+- **Screenshot**: a PNG of the element rendered in the page with
+  `modern-screenshot`, at the device pixel ratio, scaled down to stay within
+  4 MP. When the capture fails (for example a canvas tainted by a cross-origin
+  image, an element with no area, or a capture over 10 seconds) the comment is
+  still sent, without a screenshot and with the reason in
+  `screenshotUnavailableReason`.
+
+  `modern-screenshot` is bundled into `dist/` (its licence is in
+  `THIRD-PARTY-NOTICES.md`) rather than imported, so a Vite dev server has no
+  extra dependency to discover, and reload the page for, on first load.
+
+The page URL is filed as for slot reports. On success the thread appears in
+the bar and comment mode ends. A refused or failed send keeps the composer
+open with the text and the daemon's reason, so it can be sent again; sends
+are never retried automatically, since a request that timed out may already
+have been stored.
 
 ## Connection
 
@@ -79,12 +123,14 @@ Removing the element closes the stream and cancels every timer.
   `html`, `body` or any other ancestor cannot move, cover or hide it, and it
   cancels any `zoom` it inherits.
 - Light and dark themes follow `prefers-color-scheme`.
-- The bar never loads a remote resource. It uses system fonts and text
-  icons, and its only network traffic goes to the daemon.
+- The bar never loads a remote resource of its own. It uses system fonts and
+  text icons, and its network traffic goes to the daemon, except that a
+  screenshot re-reads the images and fonts the picked element already uses.
 
 ## Tests
 
-- `pnpm test`: unit tests for placement, merging and URL handling.
+- `pnpm test`: unit tests for placement, merging, URL handling, text
+  excerpts and screenshot scaling.
 - `pnpm test:browser`: Playwright tests in Chromium, against a fake daemon
   built from Playwright routes and against the real daemon from
   `@iterbar/cli`. Install the browser once with
