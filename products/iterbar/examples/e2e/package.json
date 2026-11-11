@@ -1,0 +1,20 @@
+{
+  "name": "@iterbar/examples-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright tests of the Iterbar example apps: the bar in vite dev, and no Iterbar runtime in a production build.",
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf test-results playwright-report",
+    "lint": "eslint test playwright.config.ts",
+    "test:browser": "pnpm --filter \"@iterbar/example-vite-react^...\" --filter \"@iterbar/example-sveltekit^...\" --filter \"@iterbar/cli...\" build && playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@iterbar/cli": "workspace:*",
+    "@playwright/test": "1.64.1",
+    "@types/node": "^22.15.30",
+    "iterbar": "workspace:*",
+    "typescript": "^5.8.3"
+  }
+}
