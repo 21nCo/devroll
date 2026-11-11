@@ -109,39 +109,52 @@ async function realOrNull(path: string, resolvePath: ResolvePath): Promise<strin
   return resolvePath(path).catch((error: unknown) => (isMissing(error) ? null : Promise.reject(error)));
 }
 
-/** Looks up the store's real path, keeping the last one known while the store does not exist. */
-export async function locateStore(store: Store, resolvePath: ResolvePath = realpath): Promise<string | null> {
-  store.real = (await realOrNull(store.path, resolvePath)) ?? store.real;
-  return store.real;
+/** Real paths for one decision: each path is looked up at most once, and nothing is kept for the next request. */
+type Lookup = (path: string) => Promise<string | null>;
+
+function lookupOnce(resolvePath: ResolvePath): Lookup {
+  const seen = new Map<string, Promise<string | null>>();
+  return (path) => {
+    const known = seen.get(path) ?? realOrNull(path, resolvePath);
+    seen.set(path, known);
+    return known;
+  };
 }
 
-/** Whether a path is in a store without a lookup: by a `.iterbar` segment, or under the store's real path. */
-function isStorePath(file: string, store: Store): boolean {
-  return hasStoreSegment(file) || (store.real !== null && isWithin(file, store.real));
-}
-
-/** Whether only a lookup can tell: a `~` (as Windows short names have), or the store's real path in another case. */
-function needsLookup(file: string, store: Store): boolean {
-  return file.includes("~") || (store.real !== null && isWithin(file.toLowerCase(), store.real.toLowerCase()));
+/** Whether a real path is in a store: it has a `.iterbar` segment, or it is within the store's real path. */
+function isInStore(real: string, storeReal: string | null): boolean {
+  return hasStoreSegment(real) || (storeReal !== null && isWithin(real.toLowerCase(), storeReal.toLowerCase()));
 }
 
 /**
- * Whether reading `file` reads a store: {@link isStorePath}, or if it {@link needsLookup}, by its real path; and since a
- * short name names an entry of its own directory, by each `~` segment's against the `.iterbar` beside it, whether the
- * file exists yet or not. A missing path cannot be read; any other failed lookup counts as the store.
+ * Whether reading `file` reads a store, by its real path: links and Windows short names lead wherever they lead.
+ * The store's own real path is looked up in the same decision, so a store that is a link counts from the first
+ * request on. A missing file cannot be read, but a short name in its path names an entry of its own directory, so
+ * each `~` directory is compared with the `.iterbar` beside it, up to the first one that does not exist. Any failed
+ * lookup but a missing file rejects, which counts as the store.
  */
-export async function isStoreFile(file: string, store: Store, resolvePath: ResolvePath = realpath): Promise<boolean> {
-  if (isStorePath(file, store)) return true;
-  if (!needsLookup(file, store)) return false;
+export async function isStoreFile(file: string, store: Store, resolvePath: ResolvePath = realpath, lookup = lookupOnce(resolvePath)): Promise<boolean> {
+  if (hasStoreSegment(file)) return true;
+  store.real = (await lookup(store.path)) ?? store.real;
+  const storeReal = store.real;
+  const real = await lookup(file);
+  if (real !== null) return isInStore(real, storeReal);
   const parts = file.split(sep);
-  const prefixes = parts.flatMap((part, index) => (part.includes("~") ? [parts.slice(0, index + 1).join(sep)] : []));
-  const reaches = async (path: string): Promise<boolean> => {
-    const real = await realOrNull(path, resolvePath);
-    if (real === null) return false;
-    const stores = [await locateStore(store, resolvePath), path === file ? null : await realOrNull(join(dirname(path), STORE_DIR), resolvePath)];
-    return hasStoreSegment(real) || stores.some((each) => each !== null && isWithin(real, each));
-  };
-  return Promise.all([file, ...prefixes].map(reaches)).then((verdicts) => verdicts.includes(true), () => true);
+  let prefix = parts[0] ?? "";
+  for (const part of parts.slice(1, -1)) {
+    prefix += sep + part;
+    if (!part.includes("~")) continue;
+    const prefixReal = await lookup(prefix);
+    if (prefixReal === null) return false;
+    if (isInStore(prefixReal, storeReal) || prefixReal === (await lookup(join(dirname(prefix), STORE_DIR)))) return true;
+  }
+  return false;
+}
+
+/** Whether any of the files reads a store ({@link isStoreFile}), in one decision; a failed lookup counts as one. */
+async function readsStore(files: readonly string[], store: Store, resolvePath: ResolvePath = realpath): Promise<boolean> {
+  const lookup = lookupOnce(resolvePath);
+  return Promise.all(files.map((file) => isStoreFile(file, store, resolvePath, lookup))).then((verdicts) => verdicts.includes(true), () => true);
 }
 
 /** The decoded request path, or `undefined` when Vite's middleware would pass the request on. */
@@ -239,20 +252,14 @@ export function servedFiles(url: string, layout: StoreLayout, fsRoot = resolve("
   return [...new Set(files)];
 }
 
-async function anyStoreFile(files: readonly string[], store: Store): Promise<boolean> {
-  return (await Promise.all(files.map((file) => isStoreFile(file, store)))).includes(true);
-}
-
 /**
  * Whether a module id Vite's transform pipeline loads reads a store: as Vite's loader reads it (without the query,
  * from the working directory) or, for `/x`, as its asset loader reads a public file. A virtual `\0` id is no file.
  */
-export function isLoadOfStore(id: string, layout: Pick<StoreLayout, "publicDir" | "store">): Promise<boolean> | false {
+export async function isLoadOfStore(id: string, layout: Pick<StoreLayout, "publicDir" | "store">, resolvePath: ResolvePath = realpath): Promise<boolean> {
   if (id.startsWith("\0")) return false;
   const file = id.replace(/[?#].*$/s, "");
-  const files = [resolve(file), ...(layout.publicDir && file.startsWith("/") ? [join(layout.publicDir, file)] : [])];
-  if (!files.some((each) => isStorePath(each, layout.store) || needsLookup(each, layout.store))) return false;
-  return anyStoreFile(files, layout.store);
+  return readsStore([resolve(file), ...(layout.publicDir && file.startsWith("/") ? [join(layout.publicDir, file)] : [])], layout.store, resolvePath);
 }
 
 function refuse(response: ServerResponse): void {
@@ -275,8 +282,6 @@ export function storeGuard(layout: StoreLayout) {
   return (request: IncomingMessage, response: ServerResponse, next: () => void): void => {
     const url = request.url ?? "";
     if (isStoreRequest(url)) return refuse(response);
-    const files = servedFiles(url, layout, fsRoot).filter((file) => isStorePath(file, layout.store) || needsLookup(file, layout.store));
-    if (files.length === 0) return next();
-    anyStoreFile(files, layout.store).then((store) => (store ? refuse(response) : next()), () => refuse(response));
+    void readsStore(servedFiles(url, layout, fsRoot), layout.store).then((store) => (store ? refuse(response) : next()));
   };
 }

@@ -6,14 +6,50 @@ import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build, createServer, resolveConfig, type InlineConfig, type Plugin, type ViteDevServer } from "vite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readMatchingDaemonFile } from "./daemon.js";
 import { checkConfigRequest } from "./endpoint.js";
 import { CLIENT_ID, iterbar } from "./index.js";
 import { isLoadOfStore, isStoreFile, isStoreRequest, servedFiles, type ResolvePath, type Store } from "./store.js";
 
+// Every realpath the plugin makes, which a test can hold back to stand in for a slow file system.
+const lookups = vi.hoisted(() => ({ paths: [] as string[], held: null as Promise<void> | null }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const realpath = (async (path: string, options?: never) => {
+    lookups.paths.push(String(path));
+    await lookups.held;
+    return actual.realpath(path, options);
+  }) as typeof actual.realpath;
+  return { ...actual, realpath, default: { ...actual, realpath } };
+});
+
 let root: string;
 let servers: ViteDevServer[] = [];
+
+/**
+ * A refusal: the store guard's `404`, the error the plugin's load hook throws, or Vite's own `server.fs` refusal of
+ * the resolved path; never a page or another error.
+ */
+function isRefusal({ status, body }: { status: number; body: string }): boolean {
+  return (status === 404 && body === "Not found") || (status === 500 && body.includes("which the dev server does not serve"))
+    || (status === 403 && body.includes("<h1>403 Restricted</h1>"));
+}
+
+/** Vite's answer for a path it has no file or module for: the app's page (its SPA fallback), which holds no store bytes. */
+function isAppPage({ status, body }: { status: number; body: string }): boolean {
+  return status === 200 && body.startsWith("<!doctype html>") && body.includes("<p>App</p>");
+}
+
+/** Holds every realpath until the returned function is called. */
+function holdLookups(): () => void {
+  let release = (): void => undefined;
+  lookups.held = new Promise((resolve) => (release = resolve));
+  return () => {
+    lookups.held = null;
+    release();
+  };
+}
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -93,6 +129,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  lookups.held = null;
   await Promise.all(servers.map((server) => server.close()));
   await rm(root, { recursive: true, force: true });
 });
@@ -277,6 +314,7 @@ describe("iterbar() in vite dev", () => {
     const cwd = process.cwd();
     // Vite reads an id it cannot resolve relative to the working directory.
     process.chdir(root);
+    const fallbacks: string[] = [];
     try {
       for (const path of [
         "/base/ITERBA~1/daemon.json", "/base/ITERBA~1/daemon.json?raw", "/base/ITERBA~1/daemon.json?url",
@@ -292,42 +330,135 @@ describe("iterbar() in vite dev", () => {
         "/base/vault/daemon.json", "/base/vault/daemon.json?raw", `/base/@fs${root}/vault/daemon.json`,
       ]) {
         const answer = await get(port, path);
-        // Vite answers a path it has no file for with the app's page (its SPA fallback): what counts is no store bytes.
-        expect(answer.status === 200 ? answer.body : "", path).toMatch(/^(<!doctype html>.*<p>App<\/p>.*)?$/s);
+        if (isAppPage(answer)) fallbacks.push(path.replace(root, "<root>"));
+        else expect(isRefusal(answer), `${path}: ${answer.status} ${answer.body.slice(0, 200)}`).toBe(true);
         for (const secret of secrets) expect(answer.body, path).not.toContain(secret);
       }
     } finally {
       process.chdir(cwd);
     }
+    // `/@id/` without `?import` is no module request: Vite answers it with the app's page.
+    expect(fallbacks).toEqual([
+      "/base/@id/<root>/IT3F2A~1/daemon.json?raw", "/base/@id/ITERBA~1/daemon.json?raw", "/base/@id//PUBLIC~1/daemon.json?raw", "/base/@id/PUBLIC~1/daemon.json?raw",
+    ]);
     expect((await get(port, "/base/__iterbar/config")).status).toBe(200);
   });
 
-  it("looks a file up only when its path has a `~`, and counts a failed lookup as the store unless the file is missing", async () => {
+  it.each([true, false])("refuses a plain link to the store, on each way Vite reads one (fs.strict %s)", async (strict) => {
+    const publicDir = join(root, "public");
+    for (const directory of [".iterbar", "public"]) await mkdir(join(root, directory));
+    await symlink(join(root, ".iterbar"), join(publicDir, "store"), "dir");
+    await symlink(join(root, ".iterbar"), join(root, "docs"), "dir");
+    await symlink(root, join(root, "up"), "dir");
+    const alias = [{ find: "/s", replacement: join(root, "docs") }];
+    const { server, port } = await devServer({ publicDir, resolve: { alias }, server: { fs: { strict } } });
+    expect((await get(port, "/__iterbar/config")).status).toBe(200);
+    const token = String((await readMatchingDaemonFile(root))?.token);
+    const fallbacks: string[] = [];
+    for (const path of [
+      "/store/daemon.json", "/store/daemon.json?raw", "/docs/daemon.json", "/docs/daemon.json?raw", "/docs/daemon.json?import&raw",
+      `/@fs${root}/docs/daemon.json`, `/@fs${root}/docs/daemon.json?raw`, `/@id/${root}/docs/daemon.json?import&raw`,
+      "/s/daemon.json", "/s/daemon.json?raw", "/up/.iterbar/daemon.json", `/@fs${root}/up/docs/daemon.json`,
+    ]) {
+      const answer = await get(port, path);
+      if (isAppPage(answer)) fallbacks.push(path.replace(root, "<root>"));
+      else expect(isRefusal(answer), `${path}: ${answer.status} ${answer.body.slice(0, 200)}`).toBe(true);
+      expect(answer.body, path).not.toContain(token);
+    }
+    expect(fallbacks).toEqual([]);
+    // A module that imports the store through a link, as `import config from "./docs/daemon.json?raw"` would. With
+    // fs.strict, Vite denies the real path it resolved first; without it, only the plugin stands in the way.
+    await expect(server.environments.client.transformRequest("/docs/daemon.json?raw")).rejects.toThrow(strict ? /Denied ID/ : /Iterbar store/);
+    expect((await get(port, "/index.html")).body).toContain("<p>App</p>");
+  });
+
+  it.each([true, false])("refuses a linked store's real name before its first lookup has answered (fs.strict %s)", async (strict) => {
+    await mkdir(join(root, "vault"));
+    await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
+    await writeFile(join(root, "vault", "secret.json"), '"LINKED-STORE-SECRET"');
+    // Held from the start, so no lookup the plugin could make while Vite starts has answered.
+    const release = holdLookups();
+    const { server, port } = await devServer({ server: { fs: { strict } } });
+    const answers = Promise.all([get(port, "/vault/secret.json"), get(port, "/vault/secret.json?raw")]);
+    const loaded = server.environments.client.transformRequest(join(root, "vault", "secret.json?raw")).then(String, String);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    for (const answer of await answers) {
+      expect(isRefusal(answer), `${answer.status} ${answer.body.slice(0, 200)}`).toBe(true);
+      expect(answer.body).not.toContain("LINKED-STORE-SECRET");
+    }
+    expect(await loaded).toMatch(/Iterbar store/);
+    const config = await get(port, "/__iterbar/config");
+    expect(JSON.parse(config.body).token).toBe((await readMatchingDaemonFile(root))?.token);
+  });
+
+  it("keeps each dev server to its own store when one plugin serves two projects at once", async () => {
+    const plugin = iterbar();
+    const projects = [join(root, "a"), join(root, "b")];
+    const started = [];
+    for (const project of projects) {
+      await mkdir(join(project, "vault"), { recursive: true });
+      await writeFile(join(project, "index.html"), "<!doctype html><html><body></body></html>");
+      await symlink(join(project, "vault"), join(project, ".iterbar"), "dir");
+      await writeFile(join(project, "vault", "secret.json"), `"SECRET-OF-${project}"`);
+      // The second server starts before the first closes, as a restart with a changed root does.
+      started.push(await devServer({ root: project, plugins: [plugin] }));
+    }
+    for (const [index, { server, port }] of started.entries()) {
+      const project = projects[index] ?? "";
+      lookups.paths = [];
+      const answer = await get(port, "/vault/secret.json?raw");
+      expect(isRefusal(answer), `${project}: ${answer.status}`).toBe(true);
+      await expect(server.environments.client.transformRequest(join(project, "vault", "secret.json?raw"))).rejects.toThrow(/Iterbar store/);
+      expect((await get(port, "/__iterbar/config")).status).toBe(200);
+      expect(lookups.paths).toContain(join(project, ".iterbar"));
+      expect(lookups.paths).not.toContain(join(projects[1 - index] ?? "", ".iterbar"));
+    }
+    // Closing the first server leaves the second its own daemon and token.
+    await started[0]?.server.close();
+    const second = await get(started[1]?.port ?? 0, "/__iterbar/config");
+    expect(JSON.parse(second.body).token).toBe((await readMatchingDaemonFile(projects[1] ?? ""))?.token);
+    expect(await readMatchingDaemonFile(projects[0] ?? "")).toBeNull();
+  });
+
+  it("looks each path up once per decision, stops at the first missing directory, and counts a failed lookup as the store", async () => {
     const store: Store = { path: "/srv/app/.iterbar", real: null };
     const looked: string[] = [];
     const disk = (real: Record<string, string>, code = "ENOENT"): ResolvePath => async (path) => {
       looked.push(path);
       return real[path] ?? Promise.reject(Object.assign(new Error(code), { code }));
     };
-    expect([await isStoreFile("/srv/app/src/a.js", store, disk({})), await isStoreFile("/srv/app/.ITERBAR./x", store, disk({}))]).toEqual([false, true]);
+    expect(await isStoreFile("/srv/app/.ITERBAR./x", store, disk({}))).toBe(true);
+    expect(looked).toEqual([]);
+    expect(await isStoreFile("/srv/app/src/a.js", store, disk({ "/srv/app/src/a.js": "/srv/app/src/a.js" }))).toBe(false);
     expect(await isStoreFile("/srv/app/ITEMSA~1/a.js", store, disk({}))).toBe(false);
-    expect(looked).toEqual(["/srv/app/ITEMSA~1/a.js", "/srv/app/ITEMSA~1"]);
-    expect(await isStoreFile("/srv/app/X~1/a", store, disk({}, "EACCES"))).toBe(true);
+    expect(looked).toEqual(["/srv/app/.iterbar", "/srv/app/src/a.js", "/srv/app/.iterbar", "/srv/app/ITEMSA~1/a.js", "/srv/app/ITEMSA~1"]);
+    // A link with a plain name leads to the store, its own or another project's.
+    expect(await isStoreFile("/srv/app/docs/x", store, disk({ "/srv/app/docs/x": "/srv/other/.iterbar/x" }))).toBe(true);
+    await expect(isStoreFile("/srv/app/X~1/a", store, disk({}, "EACCES"))).rejects.toThrow("EACCES");
     const linked = { "/srv/app/.iterbar": "/srv/vault", "/srv/app/X~1": "/srv/vaultx" };
+    expect(await isStoreFile("/srv/app/docs/daemon.json", store, disk({ ...linked, "/srv/app/docs/daemon.json": "/srv/vault/daemon.json" }))).toBe(true);
     expect(await isStoreFile("/srv/app/X~1/a", store, disk({ ...linked, "/srv/app/X~1/a": "/srv/vaultx/a" }))).toBe(false);
-    expect(await isStoreFile("/srv/app/X~1/a", store, disk({ ...linked, "/srv/app/X~1/a": "/srv/vault/a" }))).toBe(true);
     // A short name beside a store names it, whether the file exists yet or the store is another project's link.
     expect(await isStoreFile("/srv/app/ITERBA~1/daemon.json", store, disk({ ...linked, "/srv/app/ITERBA~1": "/srv/vault" }))).toBe(true);
     expect(await isStoreFile("/srv/app/sub/ITERBA~1/x", store, disk({ "/srv/app/sub/ITERBA~1": "/d", "/srv/app/sub/.iterbar": "/d" }))).toBe(true);
-    // Another case of the store's real path is looked up: the same directory only where the file system says so.
-    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/VAULT/a" }))).toBe(false);
-    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/vault/a" }))).toBe(true);
-    expect(await isStoreFile("/srv/vault/daemon.json", store, disk({}, "EIO"))).toBe(true);
+    // The store's real path in another case is the store on the file systems that ignore case.
+    expect(await isStoreFile("/srv/VAULT/a", store, disk({ ...linked, "/srv/VAULT/a": "/srv/VAULT/a" }))).toBe(true);
+    expect(await isLoadOfStore("/srv/vault/daemon.json", { publicDir: "", store }, disk({}, "EIO"))).toBe(true);
+    // A missing path with a hundred `~` directories costs a lookup of the file and of its first missing directory.
+    looked.length = 0;
+    const deep = `/srv/app/${Array.from({ length: 100 }, (_, index) => `D~${index}`).join("/")}/a.js`;
+    expect(await isStoreFile(deep, store, disk(linked))).toBe(false);
+    expect(looked).toEqual(["/srv/app/.iterbar", deep, "/srv/app/D~0"]);
+    // One decision over several files looks each path up once.
+    looked.length = 0;
     const layout = { root: "/srv/app", base: "/base/", publicDir: "/srv/app/public", alias: [], store };
+    expect(await isLoadOfStore("/X~1/a.js?raw", layout, disk({ ...linked, "/X~1": "/X~1" }))).toBe(false);
+    expect([...looked].sort((a, b) => a.localeCompare(b))).toEqual(["/srv/app/.iterbar", "/X~1/a.js", "/srv/app/public/X~1/a.js", "/X~1", "/.iterbar", "/srv/app/public/X~1"].sort((a, b) => a.localeCompare(b)));
     expect(servedFiles("/base/src/a.js?raw", layout)).toEqual(expect.arrayContaining(["/srv/app/src/a.js", "/srv/app/public/src/a.js"]));
     expect(servedFiles("/base/@fs/srv/p/x%2541.txt", layout)).toContain("/srv/p/x%41.txt");
     expect(servedFiles("/base/a%2F..%2F/x.html", layout)).toContain("/srv/app/x.html");
-    expect(isLoadOfStore("/srv/app/src/a.js?import", layout)).toBe(false);
+    expect(await isLoadOfStore("\0/srv/app/.iterbar/daemon.json", layout)).toBe(false);
     expect(await isLoadOfStore("/srv/app/.iterbar/daemon.json?raw", layout)).toBe(true);
   });
 

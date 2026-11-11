@@ -4,7 +4,7 @@ import type { HtmlTagDescriptor, Plugin, ResolvedConfig, ViteDevServer } from "v
 import { DaemonLink } from "./daemon.js";
 import { checkConfigRequest, CONFIG_PATH, sendJson, type BarConfigResponse } from "./endpoint.js";
 import { checkExtraOrigins, devServerOrigins, originOf } from "./origins.js";
-import { isLoadOfStore, locateStore, STORE_DENY_PATTERN, storeGuard, type Store } from "./store.js";
+import { isLoadOfStore, STORE_DENY_PATTERN, storeGuard, type Store } from "./store.js";
 
 export type { BarConfigResponse } from "./endpoint.js";
 
@@ -93,9 +93,16 @@ interface ServerState {
  */
 export function iterbar(options: IterbarPluginOptions = {}): Plugin {
   const extraOrigins = checkExtraOrigins(options.origins ?? []);
-  let config: ResolvedConfig;
-  /** The project's store; its real path is looked up at once, since the store may be a link. */
-  let store: Store;
+  /**
+   * Each resolved config's own store: the dev server it belongs to, and the plugin hooks its environments run, decide
+   * by that one store, never by the store of a server that a restart made later.
+   */
+  const stores = new WeakMap<ResolvedConfig, Store>();
+  const storeOf = (config: ResolvedConfig): Store => {
+    const store = stores.get(config) ?? { path: resolve(config.root, options.projectRoot ?? ".", ".iterbar"), real: null };
+    stores.set(config, store);
+    return store;
+  };
   /**
    * Keyed by each dev server's resolved config. A plugin instance outlives a server restart with an inline config,
    * and Vite creates the new server before it closes the old one, so each close must release its own server's link.
@@ -125,9 +132,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
     },
 
     configResolved(resolved) {
-      config = resolved;
-      store = { path: resolve(resolved.root, options.projectRoot ?? ".", ".iterbar"), real: null };
-      locateStore(store).catch(() => undefined);
+      storeOf(resolved);
     },
 
     resolveId(source, importer, resolveOptions) {
@@ -145,18 +150,19 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
       // Ahead of every other loader, Vite's `?raw` and fallback file reads included, so none of them reads the store.
       order: "pre",
       async handler(id) {
+        const config = this.environment.getTopLevelConfig();
         if (id === RESOLVED_CLIENT_ID) return clientModule(withBase(config.base, CONFIG_PATH));
-        if (await isLoadOfStore(id, { publicDir: config.publicDir, store })) {
+        if (await isLoadOfStore(id, { publicDir: config.publicDir, store: storeOf(config) })) {
           throw new Error(`Iterbar: ${id} is in an Iterbar store, which the dev server does not serve`);
         }
         return null;
       },
     },
 
-    transformIndexHtml() {
+    transformIndexHtml(_html, { server }) {
       const tag: HtmlTagDescriptor = {
         tag: "script",
-        attrs: { type: "module", src: withBase(config.base, `@id/${CLIENT_ID}`) },
+        attrs: { type: "module", src: withBase(server?.config.base ?? "/", `@id/${CLIENT_ID}`) },
         injectTo: "body",
       };
       return [tag];
@@ -177,7 +183,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
       const logger = key.logger;
 
       // Ahead of every middleware Vite adds to serve files, so none of them can serve the store.
-      server.middlewares.use(storeGuard({ root: key.root, base: key.base, publicDir: key.publicDir, alias: key.resolve.alias, store }));
+      server.middlewares.use(storeGuard({ root: key.root, base: key.base, publicDir: key.publicDir, alias: key.resolve.alias, store: storeOf(key) }));
       server.middlewares.use((request, response, next) => {
         if ((request.url ?? "").split("?")[0] !== configPath) return next();
         const origins = serverOrigins(server, extraOrigins);
@@ -188,9 +194,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
         });
         if (!check.allowed) return sendJson(response, check.status, { error: check.error }, check.headers);
         if (state.closing) return sendJson(response, 503, { error: "The dev server is closing" });
-        // The daemon has made the store by now; its real path is known before a page can learn the token.
-        state.link.connect(origins).then(async (access) => {
-          await locateStore(store).catch(() => undefined);
+        state.link.connect(origins).then((access) => {
           const described = `${access.daemonUrl} (${access.started ? "started in this process" : "already running"})`;
           if (described !== state.lastDaemon) {
             state.lastDaemon = described;
