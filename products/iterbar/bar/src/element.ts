@@ -124,6 +124,11 @@ export class IterbarBarElement extends ElementBase {
   #pick: Pick | null = null;
   /** The pick whose comment is being sent; another element cannot be picked meanwhile. */
   #sendingPick: Pick | null = null;
+  /**
+   * The pick whose comment has been posted to the daemon and not yet answered. It can no longer be withdrawn, so
+   * Cancel is disabled and leaving comment mode keeps the composer open, saying "Sending…", until the answer.
+   */
+  #postingPick: Pick | null = null;
   #daemonUrl: string | null = null;
   #token: string | null = null;
   #connection: DaemonConnection | null = null;
@@ -298,15 +303,35 @@ export class IterbarBarElement extends ElementBase {
     return true;
   }
 
-  /** Drops the pick and closes the composer; comment mode stays on. */
+  /**
+   * Drops the pick and closes the composer; comment mode stays on. A send still waiting for its screenshot is
+   * withdrawn (see {@link #send}); one already posted cannot be, and Cancel is disabled meanwhile.
+   */
   #cancelPick(): void {
+    if (this.#postingPick !== null && this.#postingPick === this.#pick) return;
     this.#pick = null;
     this.#closeComposer();
     this.#picker.clearPick();
   }
 
+  /**
+   * Stops picking. The pick and the composer go too, withdrawing a send still waiting for its screenshot, unless
+   * the comment is already posted: then the composer stays until the daemon answers, so it never looks discarded.
+   */
   #leavePicking(): void {
     this.#picker.stop();
+    if (this.#postingPick !== null && this.#postingPick === this.#pick) return;
+    this.#pick = null;
+    this.#closeComposer();
+  }
+
+  /** The comment on `pick` was stored: comment mode ends, and the pick and composer go. */
+  #finishPick(pick: Pick): void {
+    if (this.#pick !== pick) return;
+    if (this.#commentMode) {
+      this.commentMode = false;
+      return;
+    }
     this.#pick = null;
     this.#closeComposer();
   }
@@ -320,7 +345,8 @@ export class IterbarBarElement extends ElementBase {
 
   /**
    * Sends a comment on the current pick, with its screenshot or the reason there is none. On success the thread is
-   * shown and comment mode ends; on failure the composer keeps the text and shows why.
+   * shown and comment mode ends; on failure the composer keeps the text and shows why. Cancel or Escape while the
+   * screenshot is being taken withdraws the comment before anything is posted.
    */
   async #send(text: string): Promise<void> {
     const pick = this.#pick;
@@ -338,6 +364,8 @@ export class IterbarBarElement extends ElementBase {
     this.#composer.setBusy(true);
     try {
       const screenshot = await pick.screenshot;
+      // Cancelled, Escaped or replaced while the screenshot was being taken: the comment was withdrawn.
+      if (this.#pick !== pick) return;
       const draft: FeedbackDraft = {
         schemaVersion: SCHEMA_VERSION,
         kind: "comment",
@@ -348,12 +376,16 @@ export class IterbarBarElement extends ElementBase {
         screenshotUnavailableReason: screenshot.ok ? null : screenshot.reason,
         evidenceWindow: null,
       };
+      this.#postingPick = pick;
+      this.#composer.setBusy(true, false);
       const feedback = await connection.sendFeedback(draft, screenshot.ok ? screenshot.png : null);
+      this.#postingPick = null;
       if (this.#connection === connection) this.#threads.merge(feedback);
-      if (this.#pick === pick) this.commentMode = false;
+      this.#finishPick(pick);
     } catch (error) {
       if (this.#pick === pick) this.#composer.showError((error as Error).message);
     } finally {
+      if (this.#postingPick === pick) this.#postingPick = null;
       if (this.#sendingPick === pick) this.#sendingPick = null;
       if (this.#pick === pick) this.#composer.setBusy(false);
     }

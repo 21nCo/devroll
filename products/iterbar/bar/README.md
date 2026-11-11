@@ -77,7 +77,10 @@ element is described when it is picked:
 - **Active variants**: the version each slot on the page shows.
 - **Screenshot**: a PNG of the element rendered in the page with
   `modern-screenshot`, at the device pixel ratio, scaled down to stay within
-  4 MP. When the capture fails (for example a canvas tainted by a cross-origin
+  4 MP. The scale is chosen from the element's size once its images and
+  fonts have loaded, so an element that grows meanwhile stays within the
+  cap, and the image produced is checked again: one over 4 MP is not sent.
+  When the capture fails (for example a canvas tainted by a cross-origin
   image, an element with no area, or a capture over 10 seconds) the comment is
   still sent, without a screenshot and with the reason in
   `screenshotUnavailableReason`.
@@ -86,8 +89,12 @@ element is described when it is picked:
   `THIRD-PARTY-NOTICES.md`) rather than imported, so a Vite dev server has no
   extra dependency to discover, and reload the page for, on first load.
 
-The page URL is filed as for slot reports. On success the thread appears in
-the bar and comment mode ends. A refused or failed send keeps the composer
+The page URL is filed as for slot reports. While Send waits for the
+screenshot, Cancel or Escape withdraws the comment and nothing is posted.
+Once it is posted it can no longer be withdrawn: Cancel is disabled, and
+Escape ends comment mode but leaves the composer saying "Sending…" until the
+daemon answers. On success the thread appears in the bar and comment mode
+ends. A refused or failed send keeps the composer
 open with the text and the daemon's reason, so it can be sent again; sends
 are never retried automatically, since a request that timed out may already
 have been stored.

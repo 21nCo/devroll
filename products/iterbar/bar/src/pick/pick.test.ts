@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SCREENSHOT_PIXELS, screenshotScale, unavailableReason } from "./screenshot.js";
+import { MAX_SCREENSHOT_PIXELS, pngDimensions, screenshotScale, unavailableReason } from "./screenshot.js";
 import { cssString } from "./selector.js";
 import { textExcerpt } from "./target.js";
 
@@ -51,5 +51,27 @@ describe("cssString", () => {
     expect(cssString("src/App.tsx:12:5")).toBe('"src/App.tsx:12:5"');
     expect(cssString('a"b\\c')).toBe('"a\\"b\\\\c"');
     expect(cssString("a\nb")).toBe('"a\\a b"');
+  });
+});
+
+describe("pngDimensions", () => {
+  const header = (width: number, height: number): Uint8Array => {
+    const bytes = new Uint8Array(24);
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(16, width);
+    view.setUint32(20, height);
+    return bytes;
+  };
+
+  it("reads the size from the IHDR chunk", () => {
+    expect(pngDimensions(header(2001, 2000))).toEqual({ width: 2001, height: 2000 });
+  });
+
+  it("refuses bytes that are not a PNG header", () => {
+    const notPng = header(10, 10);
+    notPng[1] = 0;
+    expect(pngDimensions(notPng)).toBeNull();
+    expect(pngDimensions(header(10, 10).subarray(0, 20))).toBeNull();
   });
 });

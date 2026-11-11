@@ -19,6 +19,8 @@ export interface FakeDaemon {
   readonly posts: { draft: FeedbackDraft; screenshot: Buffer | null }[];
   /** A status to answer `POST /feedback` with instead of storing it. */
   failFeedback: number | null;
+  /** While set, `POST /feedback` (already in `requests`) waits for it before it is stored and answered. */
+  holdFeedback: Promise<void> | null;
   readonly sockets: WebSocketRoute[];
   readonly closedSockets: WebSocketRoute[];
   send(event: DaemonEvent | string): void;
@@ -43,6 +45,7 @@ export async function fakeDaemon(
     slotReports: [],
     posts: [],
     failFeedback: null,
+    holdFeedback: null,
     sockets: [],
     closedSockets: [],
     send(event) {
@@ -74,6 +77,7 @@ export async function fakeDaemon(
       return;
     }
     if (request.method() === "POST" && path === "/feedback") {
+      if (daemon.holdFeedback) await daemon.holdFeedback;
       if (daemon.failFeedback !== null) {
         await route.fulfill({
           status: daemon.failFeedback, headers: cors, contentType: "application/json",

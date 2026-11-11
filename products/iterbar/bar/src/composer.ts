@@ -6,7 +6,7 @@ export const MAX_COMMENT_LENGTH = 20_000;
 export interface ComposerOptions {
   /** Send was pressed (or Ctrl/Cmd+Enter) with non-blank text. */
   readonly onSend: (text: string) => void;
-  /** Cancel was pressed: the pick is dropped, comment mode stays on. */
+  /** Cancel was pressed: the pick is dropped (and a send not yet posted is withdrawn), comment mode stays on. */
   readonly onCancel: () => void;
 }
 
@@ -65,11 +65,15 @@ export class Composer {
     this.setBusy(false);
   }
 
-  /** While busy (sending) the text and Send are disabled and Send says so. */
-  setBusy(busy: boolean): void {
+  /**
+   * While busy (sending) the text and Send are disabled and Send says so. Cancel stays enabled unless
+   * `cancellable` is `false`: once the comment is on its way to the daemon it can no longer be withdrawn.
+   */
+  setBusy(busy: boolean, cancellable = true): void {
     this.#busy = busy;
     this.#text.readOnly = busy;
     this.#send.textContent = busy ? "Sending…" : "Send";
+    this.#cancel.disabled = busy && !cancellable;
     this.#renderSend();
   }
 

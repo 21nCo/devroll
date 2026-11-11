@@ -206,7 +206,7 @@ export class DaemonConnection {
         throw new DaemonRequestError("The daemon rejected the token. Restart the dev server to get a new one.");
       }
       if (error instanceof DaemonRequestError) throw error;
-      throw new DaemonRequestError(this.#stopped ? "The bar was disconnected from the daemon." : `Cannot reach the daemon: ${(error as Error).message}`);
+      throw new DaemonRequestError(this.#stopped ? "The bar was disconnected from the daemon before it answered, so the comment may already be stored." : `Cannot reach the daemon: ${(error as Error).message}`);
     }
     const feedback = feedbackSchema.safeParse(response);
     if (!feedback.success) throw new DaemonRequestError("The daemon's answer was not a feedback item.");

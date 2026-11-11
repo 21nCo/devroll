@@ -53,6 +53,42 @@ async function comment(page: Page, daemon: FakeDaemon, target: Locator, text: st
   return daemon.posts[before]!;
 }
 
+/** How many `POST /feedback` requests reached the daemon, held or not. */
+function feedbackPosts(daemon: FakeDaemon): number {
+  return daemon.requests.filter((request) => request.method === "POST" && request.path === "/feedback").length;
+}
+
+/**
+ * Serves a `width` x `height` SVG at `url` only once the returned function is called. The capture waits for the
+ * images in the element, so this holds a screenshot back for as long as the test needs.
+ */
+async function heldImage(page: Page, url: string, width: number, height: number): Promise<() => void> {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const body = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#c60"/></svg>`;
+  await page.route(url, async (route) => {
+    await released;
+    await route.fulfill({ status: 200, contentType: "image/svg+xml", headers: { "cache-control": "no-store" }, body });
+  });
+  return release;
+}
+
+/** Counts the PNGs the page's canvases have produced in `window.canvasBlobs`. */
+async function countCanvasBlobs(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.canvasBlobs = 0;
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) {
+      toBlob.call(this, (blob) => {
+        window.canvasBlobs += 1;
+        callback(blob);
+      }, ...rest);
+    };
+  });
+}
+
 /** What `selector` matches in the page, by `data-case`. */
 function resolve(page: Page, selector: string): Promise<(string | undefined)[]> {
   return page.evaluate((value) => [...document.querySelectorAll<HTMLElement>(value)].map((element) => element.dataset.case), selector);
@@ -189,6 +225,50 @@ test.describe("on a 2x display", () => {
   });
 });
 
+test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP).
+  const release = await heldImage(page, `${fixtureServer.origin}/grow.svg`, 2500, 2000);
+  await openFixture();
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+    '<div data-testid="grows" style="display: inline-block; vertical-align: top; min-width: 40px; min-height: 40px; background: #036">'
+    + '<img src="/grow.svg" alt="" style="display: block"></div>'));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await enterCommentMode(page);
+  await page.getByTestId("grows").click();
+  await inBar(page, "[data-role=composer-text]").fill("Grew");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect(inBar(page, "[data-role=composer-send]")).toHaveText("Sending…");
+  release();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  expect(await page.getByTestId("grows").evaluate((element) => element.getBoundingClientRect().width)).toBe(2500);
+  const { draft, screenshot } = daemon.posts[0]!;
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  const { width, height } = pngSize(screenshot!);
+  expect(width * height).toBeLessThanOrEqual(4_000_000);
+  expect(width * height).toBeGreaterThan(3_990_000);
+  expect(width / height).toBeCloseTo(1.25, 2);
+});
+
+test("sends no screenshot, and says why, when the image produced is over 4 MP", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  // Whatever the renderer did, the image it hands back is checked: here every canvas exports 2001 x 2000.
+  await page.evaluate(() => {
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) {
+      const big = document.createElement("canvas");
+      big.width = 2001;
+      big.height = 2000;
+      toBlob.call(big, callback, ...rest);
+    };
+  });
+  const { draft, screenshot } = await comment(page, daemon, page.locator('[data-case="testid"]'), "Oversized");
+  expect(screenshot).toBeNull();
+  expect(draft.screenshotUnavailableReason).toBe("The screenshot failed: the image is 2001 x 2000 pixels, over the 4 MP cap");
+  await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("Oversized");
+});
+
 test("still sends the comment when the screenshot fails, with the reason and no screenshot", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openCases(page, openFixture, daemon);
@@ -293,6 +373,98 @@ test("picking another element keeps the text, Cancel keeps comment mode, and a r
   await expect.poll(() => daemon.posts.length).toBe(1);
   expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-iterbar-src="src/Card.tsx:4:3"] > p.lead:nth-of-type(2)');
   await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("Retry me");
+});
+
+test("Cancel or Escape while the screenshot is being taken withdraws the comment, and nothing is posted", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  const release = await heldImage(page, `${fixtureServer.origin}/slow.svg`, 40, 40);
+  await openCases(page, openFixture, daemon);
+  await countCanvasBlobs(page);
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("beforeend",
+    '<div data-testid="slow" style="width: 120px; height: 60px; background: #036"><img src="/slow.svg" alt=""></div>'));
+  const slow = page.getByTestId("slow");
+  const text = inBar(page, "[data-role=composer-text]");
+  const send = inBar(page, "[data-role=composer-send]");
+  const cancel = inBar(page, "[data-role=composer-cancel]");
+
+  await enterCommentMode(page);
+  await slow.click();
+  await text.fill("Withdrawn by Cancel");
+  await send.click();
+  await expect(send).toHaveText("Sending…");
+  await expect(cancel).toBeEnabled();
+  await cancel.click();
+  await expect(inBar(page, "[data-section=composer]")).toBeHidden();
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
+
+  await slow.click();
+  await expect(send).toHaveText("Send");
+  await text.fill("Withdrawn by Escape");
+  await send.click();
+  await expect(send).toHaveText("Sending…");
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-section=composer]")).toBeHidden();
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
+
+  // Both captures finish after they were withdrawn; neither comment is posted.
+  release();
+  await expect.poll(() => page.evaluate(() => window.canvasBlobs)).toBe(2);
+  const { draft } = await comment(page, daemon, slow, "Kept");
+  expect(draft.text).toBe("Kept");
+  expect(feedbackPosts(daemon)).toBe(1);
+  await expect(inBar(page, "[data-section=threads] [data-feedback-id]")).toHaveCount(1);
+});
+
+test("a comment already posted cannot be cancelled, and leaving comment mode keeps it until the daemon answers", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  const save = page.locator('[data-case="testid"]');
+  const composer = inBar(page, "[data-section=composer]");
+  const text = inBar(page, "[data-role=composer-text]");
+  const send = inBar(page, "[data-role=composer-send]");
+  const cancel = inBar(page, "[data-role=composer-cancel]");
+  let answer!: () => void;
+  daemon.holdFeedback = new Promise((resolve) => {
+    answer = resolve;
+  });
+
+  await enterCommentMode(page);
+  await save.click();
+  await text.fill("In flight");
+  await send.click();
+  await expect.poll(() => feedbackPosts(daemon)).toBe(1);
+  await expect(send).toHaveText("Sending…");
+  await expect(cancel).toBeDisabled();
+  await page.keyboard.press("Escape");
+  // Comment mode ends and the page has its events back, but the comment is not shown as discarded.
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
+  await expect(inBar(page, "[data-role=pick-layer]")).toBeHidden();
+  await expect(composer).toBeVisible();
+  await expect(text).toHaveValue("In flight");
+  await expect(send).toHaveText("Sending…");
+  answer();
+  await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("In flight");
+  await expect(composer).toBeHidden();
+
+  // A refusal that arrives after leaving comment mode is still shown, with the text, until Cancel.
+  daemon.holdFeedback = new Promise((resolve) => {
+    answer = resolve;
+  });
+  daemon.failFeedback = 500;
+  await enterCommentMode(page);
+  await save.click();
+  await text.fill("Refused later");
+  await send.click();
+  await expect.poll(() => feedbackPosts(daemon)).toBe(2);
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
+  answer();
+  await expect(inBar(page, "[data-role=composer-error]")).toHaveText("The daemon refused it (500): The store is unavailable");
+  await expect(text).toHaveValue("Refused later");
+  await expect(cancel).toBeEnabled();
+  await cancel.click();
+  await expect(composer).toBeHidden();
+  expect(daemon.posts).toHaveLength(1);
 });
 
 test("says why a comment cannot be sent without a daemon", async ({ page, openFixture }) => {
