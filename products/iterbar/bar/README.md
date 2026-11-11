@@ -51,13 +51,18 @@ attributes. The bar never writes the token to an attribute.
 
 While comment mode is on, hovering outlines the page element under the
 pointer, and clicking one (or pressing Enter on a focused page control)
-picks it instead of reaching the page: the press, the click and the focus
-change are all swallowed. The composer then opens in the bar, which expands
-if collapsed. Picking another element keeps the typed text, Cancel drops the
-pick, and Escape leaves comment mode from anywhere, discarding the draft.
-While comment mode is off the bar has no page listeners at all and its
-outline layer is hidden, so the page gets every event. A page script's own
-`element.click()` is never taken for a pick.
+picks it instead of reaching the page: the press, the click, the focus
+change, a context menu and the Enter key are all swallowed, including
+presses on the document root, which is never picked itself. Keys and clicks
+inside the bar are left alone. The composer then opens in the bar, which
+expands if collapsed. Picking another element keeps the typed text, Cancel
+drops the pick, and Escape leaves comment mode from anywhere, discarding a
+draft not yet posted (see below for one already posted). While comment mode
+is off the picker has no page listeners and its outline layer is hidden, so
+the page gets every event apart from the bar's Alt+Shift+I shortcut. A page
+script's own `element.click()` is never taken for a pick. The picker listens
+on `window` in the capture phase, so only capture listeners the page added
+to `window` before it can still see picking input.
 
 Send (or Ctrl/Cmd+Enter) creates a `comment` with `POST /feedback`. The
 element is described when it is picked:
@@ -76,10 +81,16 @@ element is described when it is picked:
 - **Source location**: the nearest well-formed `data-iterbar-src`, or `null`.
 - **Active variants**: the version each slot on the page shows.
 - **Screenshot**: a PNG of the element rendered in the page with
-  `modern-screenshot`, at the device pixel ratio, scaled down to stay within
-  4 MP. The scale is chosen from the element's size once its images and
-  fonts have loaded, so an element that grows meanwhile stays within the
-  cap, and the image produced is checked again: one over 4 MP is not sent.
+  `modern-screenshot` when Send is first pressed (a retry reuses it), at the
+  device pixel ratio, scaled down to stay within 4 MP. Picks that are never
+  sent take none. The element is drawn alone at the image origin, upright at
+  its untransformed size: its own transform, margins and offsets are left
+  out, while transforms and scroll positions inside it are kept. The scale
+  is chosen from the element's size once its images and fonts have loaded,
+  so an element that grows meanwhile stays within the cap, and the image
+  produced is checked again: one over 4 MP is not sent. Captures run one at
+  a time, and one withdrawn by Cancel or Escape stops before rendering
+  further.
   When the capture fails (for example a canvas tainted by a cross-origin
   image, an element with no area, or a capture over 10 seconds) the comment is
   still sent, without a screenshot and with the reason in
@@ -87,17 +98,19 @@ element is described when it is picked:
 
   `modern-screenshot` is bundled into `dist/` (its licence is in
   `THIRD-PARTY-NOTICES.md`) rather than imported, so a Vite dev server has no
-  extra dependency to discover, and reload the page for, on first load.
+  extra dependency to discover, and the page needs no reload on first load.
 
 The page URL is filed as for slot reports. While Send waits for the
 screenshot, Cancel or Escape withdraws the comment and nothing is posted.
 Once it is posted it can no longer be withdrawn: Cancel is disabled, and
 Escape ends comment mode but leaves the composer saying "Sending…" until the
 daemon answers. On success the thread appears in the bar and comment mode
-ends. A refused or failed send keeps the composer
-open with the text and the daemon's reason, so it can be sent again; sends
-are never retried automatically, since a request that timed out may already
-have been stored.
+ends. A refused send keeps the composer open with the text and the daemon's
+reason, so it can be sent again. A send that gets no answer (a lost
+connection or no answer within 10 seconds) also keeps the text, but says
+the comment may already be stored, since the daemon stores it before it
+answers: check the threads, where a stored comment appears, before sending
+it again. Sends are never retried automatically.
 
 ## Connection
 

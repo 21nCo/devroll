@@ -21,6 +21,8 @@ export interface FakeDaemon {
   failFeedback: number | null;
   /** While set, `POST /feedback` (already in `requests`) waits for it before it is stored and answered. */
   holdFeedback: Promise<void> | null;
+  /** When set, `POST /feedback` is stored and then the connection drops without an answer. */
+  dropFeedbackAnswer: boolean;
   readonly sockets: WebSocketRoute[];
   readonly closedSockets: WebSocketRoute[];
   send(event: DaemonEvent | string): void;
@@ -46,6 +48,7 @@ export async function fakeDaemon(
     posts: [],
     failFeedback: null,
     holdFeedback: null,
+    dropFeedbackAnswer: false,
     sockets: [],
     closedSockets: [],
     send(event) {
@@ -87,6 +90,10 @@ export async function fakeDaemon(
       }
       const post = await readFeedbackPost(request);
       daemon.posts.push(post);
+      if (daemon.dropFeedbackAnswer) {
+        await route.abort("connectionreset");
+        return;
+      }
       const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);
       await route.fulfill({ status: 201, headers: cors, contentType: "application/json", body: JSON.stringify(stored) });
       return;

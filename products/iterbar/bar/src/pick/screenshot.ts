@@ -47,42 +47,95 @@ function errorMessage(error: unknown): string {
 }
 
 /**
+ * The picked element is rendered on its own at the image origin, so what places it on the page (its transform, its
+ * margins and offsets, inline ones included) is dropped from the copy; transforms inside it are kept. The live
+ * element is never changed.
+ */
+const ROOT_STYLE = {
+  transform: "none", translate: "none", rotate: "none", scale: "none", margin: "0", inset: "auto",
+} as Partial<CSSStyleDeclaration>;
+
+/** The untransformed border-box size of a transformed HTML element, which its copy is drawn at; else `null`. */
+function untransformedSize(element: Element): { width: number; height: number } | null {
+  if (!(element instanceof HTMLElement)) return null;
+  const style = getComputedStyle(element);
+  if ([style.transform, style.translate, style.rotate, style.scale].every((value) => !value || value === "none")) return null;
+  return { width: element.offsetWidth, height: element.offsetHeight };
+}
+
+/** Ends a render that was withdrawn (Cancel, Escape) or timed out, at the next step it reaches. */
+function checkWithdrawn(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error("the capture was withdrawn");
+}
+
+/**
  * Renders `element` to a PNG at the device scale lowered to the pixel cap. modern-screenshot measures the element
  * again once its images and fonts have loaded and sizes the image from that measurement, so the scale is chosen
- * from it rather than from the size at the pick: an element that grew meanwhile still stays within the cap.
+ * from it rather than from the size at the pick: an element that grew meanwhile still stays within the cap. Scroll
+ * offsets inside the element are kept, so the image shows what the page shows. Once `signal` aborts, the render
+ * stops at its next step and its context is destroyed.
  */
-async function render(element: Element, exclude: Node, deviceScale: number): Promise<{ png: Blob; scale: number }> {
+async function render(element: Element, exclude: Node, deviceScale: number, signal: AbortSignal): Promise<{ png: Blob; scale: number }> {
+  checkWithdrawn(signal);
+  const check = (): void => checkWithdrawn(signal);
   const context = await createContext(element, {
     type: "image/png",
     timeout: SCREENSHOT_TIMEOUT_MS,
     filter: (node) => node !== exclude,
+    style: ROOT_STYLE,
+    features: { restoreScrollPosition: true },
+    onCloneNode: check,
+    onEmbedNode: check,
+    onCreateForeignObjectSvg: check,
     autoDestruct: true,
   });
-  const scale = screenshotScale(context.width, context.height, deviceScale);
-  if (scale === null) {
+  try {
+    check();
+    const size = untransformedSize(element);
+    if (size) {
+      context.width = size.width;
+      context.height = size.height;
+    }
+    const scale = screenshotScale(context.width, context.height, deviceScale);
+    if (scale === null) throw new Error("the element has no visible area");
+    context.scale = scale;
+    context.dpi = scale === 1 ? null : 96 * scale;
+    return { png: await domToBlob(context), scale };
+  } catch (error) {
     destroyContext(context);
-    throw new Error("the element has no visible area");
+    throw error;
   }
-  context.scale = scale;
-  context.dpi = scale === 1 ? null : 96 * scale;
-  return { png: await domToBlob(context), scale };
 }
+
+/** The last render started: renders run one at a time, so withdrawn or timed-out ones never pile up. */
+let lastRender: Promise<unknown> = Promise.resolve();
 
 /**
  * Captures `element` as a PNG in the page with modern-screenshot, leaving out `exclude` (the bar), within
  * {@link MAX_SCREENSHOT_PIXELS} and the daemon's attachment size limit. Never rejects: a failure resolves with the
- * reason, so the comment can still be sent without a screenshot.
+ * reason, so the comment can still be sent without a screenshot. Aborting `signal` withdraws the capture: its render
+ * stops at its next step. A capture waits for the previous render to end, within its own time limit.
  */
-export async function captureScreenshot(element: Element, exclude: Node): Promise<ScreenshotResult> {
+export async function captureScreenshot(element: Element, exclude: Node, signal?: AbortSignal): Promise<ScreenshotResult> {
+  if (!element.isConnected) return { ok: false, reason: unavailableReason("the element is no longer on the page") };
   const rect = element.getBoundingClientRect();
   if (screenshotScale(rect.width, rect.height, 1) === null) return { ok: false, reason: unavailableReason("the element has no visible area") };
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
+  const withdraw = new AbortController();
+  const onAbort = (): void => withdraw.abort();
+  if (signal?.aborted) onAbort();
+  signal?.addEventListener("abort", onAbort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`it took longer than ${SCREENSHOT_TIMEOUT_MS / 1000} seconds`)), SCREENSHOT_TIMEOUT_MS);
+    timer = setTimeout(() => {
+      withdraw.abort();
+      reject(new Error(`it took longer than ${SCREENSHOT_TIMEOUT_MS / 1000} seconds`));
+    }, SCREENSHOT_TIMEOUT_MS);
   });
+  const rendering = lastRender.then(() => render(element, exclude, deviceScale, withdraw.signal));
+  lastRender = rendering.catch(() => undefined);
   try {
-    const { png, scale } = await Promise.race([render(element, exclude, deviceScale), timeout]);
+    const { png, scale } = await Promise.race([rendering, timeout]);
     if (png.type !== "image/png") return { ok: false, reason: unavailableReason(`the browser produced ${png.type || "no image type"}`) };
     if (png.size === 0) return { ok: false, reason: unavailableReason("the image is empty") };
     if (png.size > MAX_ATTACHMENT_BYTES) {
@@ -102,5 +155,6 @@ export async function captureScreenshot(element: Element, exclude: Node): Promis
     return { ok: false, reason: unavailableReason(errorMessage(error)) };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 }

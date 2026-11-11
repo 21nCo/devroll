@@ -42,11 +42,11 @@ async function enterCommentMode(page: Page): Promise<void> {
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
 }
 
-/** Picks `target`, types `text` and sends it; resolves with the draft the daemon received. */
-async function comment(page: Page, daemon: FakeDaemon, target: Locator, text: string): Promise<FakeDaemon["posts"][number]> {
+/** Picks `target` (clicked at `position`, else its centre), types `text` and sends it; resolves with what the daemon received. */
+async function comment(page: Page, daemon: FakeDaemon, target: Locator, text: string, position?: { x: number; y: number }): Promise<FakeDaemon["posts"][number]> {
   const before = daemon.posts.length;
   await enterCommentMode(page);
-  await target.click();
+  await target.click(position ? { position } : {});
   await inBar(page, "[data-role=composer-text]").fill(text);
   await inBar(page, "[data-role=composer-send]").click();
   await expect.poll(() => daemon.posts.length).toBe(before + 1);
@@ -87,6 +87,22 @@ async function countCanvasBlobs(page: Page): Promise<void> {
       }, ...rest);
     };
   });
+}
+
+/** The RGBA of `png` at each CSS-pixel `[x, y]` point, and the share of its pixels that are opaque, decoded in the page. */
+function pngPixels(page: Page, png: Buffer, points: readonly (readonly [number, number])[]): Promise<{ at: number[][]; opaque: number }> {
+  return page.evaluate(async ({ base64, points }) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    let opaque = 0;
+    for (let index = 3; index < data.length; index += 4) if (data[index] === 255) opaque += 1;
+    const at = points.map(([x, y]) => [...data.subarray((y * bitmap.width + x) * 4, (y * bitmap.width + x) * 4 + 4)]);
+    return { at, opaque: opaque / (bitmap.width * bitmap.height) };
+  }, { base64: png.toString("base64"), points });
 }
 
 /** What `selector` matches in the page, by `data-case`. */
@@ -225,6 +241,58 @@ test.describe("on a 2x display", () => {
   });
 });
 
+test("frames a transformed element at the image origin, keeping the transforms inside it", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+    <div data-testid="moved" style="position: relative; left: 15px; width: 100px; height: 50px; background: rgb(0, 255, 0);
+      transform: translateX(120px)"></div>
+    <div style="position: relative; height: 60px">
+      <div data-testid="centred" style="position: absolute; left: 50%; width: 100px; height: 50px; background: rgb(0, 255, 0);
+        transform: translate(-50%, 0); overflow: hidden">
+        <div style="width: 30px; height: 50px; background: rgb(0, 0, 255); transform: translateX(70px)"></div>
+      </div>
+    </div>
+    <div data-testid="scaled" style="width: 100px; height: 50px; margin: 30px; background: rgb(0, 255, 0); transform: scale(1.5) rotate(10deg)"></div>`));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+
+  // Moved off its layout box (and offset relatively): the whole image is the element, not empty.
+  const moved = (await comment(page, daemon, page.getByTestId("moved"), "Moved")).screenshot!;
+  expect(pngSize(moved)).toEqual({ width: 100, height: 50 });
+  expect(await pngPixels(page, moved, [[5, 25], [95, 25]])).toEqual({ at: [[0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1 });
+
+  // Centred with translate(-50%): the image is the element, with its child still moved to its right edge.
+  const centred = (await comment(page, daemon, page.getByTestId("centred"), "Centred")).screenshot!;
+  expect(pngSize(centred)).toEqual({ width: 100, height: 50 });
+  expect(await pngPixels(page, centred, [[25, 25], [85, 25]])).toEqual({ at: [[0, 255, 0, 255], [0, 0, 255, 255]], opaque: 1 });
+
+  // Scaled and rotated, with margins: drawn upright at its own size, filling the image.
+  const scaled = (await comment(page, daemon, page.getByTestId("scaled"), "Scaled")).screenshot!;
+  expect(pngSize(scaled)).toEqual({ width: 100, height: 50 });
+  expect((await pngPixels(page, scaled, [[50, 25]])).opaque).toBe(1);
+});
+
+test("shows the scrolled position of the element and of scrolled boxes inside it", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  const panels = '<div style="height: 100px; background: rgb(255, 0, 0)"></div><div style="height: 100px; background: rgb(0, 0, 255)"></div>';
+  await page.evaluate((html) => {
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", html);
+    for (const scroller of document.querySelectorAll<HTMLElement>("[data-scroller]")) scroller.scrollTop = 100;
+  }, `
+    <div data-testid="scroller" data-scroller style="width: 100px; height: 100px; overflow: auto; scrollbar-width: none">${panels}</div>
+    <div data-testid="card" style="width: 140px; height: 120px; padding: 10px 20px; box-sizing: border-box; background: rgb(255, 255, 255)">
+      <div data-scroller style="width: 100px; height: 100px; overflow: auto; scrollbar-width: none">${panels}</div>
+    </div>`);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+
+  const scroller = (await comment(page, daemon, page.getByTestId("scroller"), "Scroller")).screenshot!;
+  expect((await pngPixels(page, scroller, [[50, 50]])).at).toEqual([[0, 0, 255, 255]]);
+  const card = (await comment(page, daemon, page.getByTestId("card"), "Card", { x: 5, y: 5 })).screenshot!;
+  expect(pngSize(card)).toEqual({ width: 140, height: 120 });
+  expect((await pngPixels(page, card, [[70, 60], [5, 5]])).at).toEqual([[0, 0, 255, 255], [255, 255, 255, 255]]);
+});
+
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP).
@@ -343,9 +411,75 @@ test("the page receives every event while comment mode is off, and none of a pic
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();
 });
 
+test("Enter on a focused page control, the context menu and the document root reach no page handler while picking", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => {
+    document.querySelector("main")!.insertAdjacentHTML("beforeend",
+      '<form data-testid="form"><input data-testid="field" name="q"><button data-testid="go">Go</button></form>');
+    window.pageEvents = [];
+    for (const type of ["pointerdown", "click", "keydown", "keyup", "contextmenu", "auxclick", "focusin", "submit"]) {
+      document.addEventListener(type, (event) => {
+        window.pageEvents.push(`${type}:${(event.target as Element).localName}`);
+        if (type === "submit") event.preventDefault();
+      }, true);
+    }
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  // Focus moving into the bar reaches the page as a focusin on the bar itself, which is not the page's input.
+  const events = () => page.evaluate(() => window.pageEvents.splice(0).filter((entry) => !entry.endsWith(":iterbar-bar")));
+  const field = page.getByTestId("field");
+  // A point where nothing but the document root is hit.
+  const root = await page.evaluate(() => {
+    const point = { x: 20, y: innerHeight - 20 };
+    return document.elementFromPoint(point.x, point.y)?.localName === "html" ? point : null;
+  });
+  expect(root).not.toBeNull();
+
+  // Comment mode off: the page gets all of it.
+  await field.focus();
+  await field.press("Enter");
+  await page.getByTestId("go").click({ button: "right" });
+  await page.mouse.click(root!.x, root!.y);
+  expect(await events()).toEqual(expect.arrayContaining(["keydown:input", "submit:form", "keyup:input", "contextmenu:button", "click:html"]));
+
+  await enterCommentMode(page);
+  await field.focus();
+  await events();
+  await page.keyboard.press("Enter");
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On input");
+  await expect(inBar(page, "[data-role=pick-picked]")).toBeVisible();
+  await page.getByTestId("go").click({ button: "right" });
+  await page.mouse.click(root!.x, root!.y);
+  // Neither a key, a submit, a menu, a focus change nor a press on the root reached the page; the composer kept focus.
+  expect(await events()).toEqual([]);
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On input");
+
+  // Keys inside the bar are its own: Enter in the composer types a line break.
+  await inBar(page, "[data-role=composer-text]").press("Enter");
+  await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("\n");
+  expect(daemon.posts).toEqual([]);
+});
+
+test("outlines the hovered and picked elements in place under an inherited page zoom", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  await page.addStyleTag({ content: "html { zoom: 2; } body { zoom: 0.75; }" });
+  const save = page.locator('[data-case="testid"]');
+  await enterCommentMode(page);
+  await save.hover();
+  await expect(inBar(page, "[data-role=pick-hover]")).toBeVisible();
+  const expected = await save.boundingBox();
+  expect(await inBar(page, "[data-role=pick-hover]").boundingBox()).toEqual(expected);
+  await save.click();
+  await expect(inBar(page, "[data-role=pick-picked]")).toBeVisible();
+  expect(await inBar(page, "[data-role=pick-picked]").boundingBox()).toEqual(expected);
+});
+
 test("picking another element keeps the text, Cancel keeps comment mode, and a refused send can be retried", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openCases(page, openFixture, daemon);
+  await countCanvasBlobs(page);
   await enterCommentMode(page);
   await page.locator('[data-case="testid"]').click();
   await inBar(page, "[data-role=composer-text]").fill("Draft text");
@@ -373,6 +507,22 @@ test("picking another element keeps the text, Cancel keeps comment mode, and a r
   await expect.poll(() => daemon.posts.length).toBe(1);
   expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-iterbar-src="src/Card.tsx:4:3"] > p.lead:nth-of-type(2)');
   await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("Retry me");
+  // Only the sent pick was captured, once for both of its sends; the picks replaced or cancelled took no screenshot.
+  expect(await page.evaluate(() => window.canvasBlobs)).toBe(1);
+  expect(pngSize(daemon.posts[0]!.screenshot!).width).toBeGreaterThan(0);
+});
+
+test("a send that gets no answer says the comment may already be stored", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  daemon.dropFeedbackAnswer = true;
+  await comment(page, daemon, page.locator('[data-case="testid"]'), "Stored, unanswered");
+  // The daemon stored it before the connection dropped; the bar cannot know that, so it says so instead of
+  // "cannot reach the daemon", and a refusal (which stores nothing) keeps its own message (see the retry test).
+  await expect(inBar(page, "[data-role=composer-error]")).toHaveText(
+    /^The daemon did not answer \(.+\), so the comment may already be stored\. Check the threads before sending it again\.$/u);
+  await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Stored, unanswered");
+  expect(daemon.posts).toHaveLength(1);
 });
 
 test("Cancel or Escape while the screenshot is being taken withdraws the comment, and nothing is posted", async ({ page, openFixture, fixtureServer }) => {
@@ -388,6 +538,9 @@ test("Cancel or Escape while the screenshot is being taken withdraws the comment
   const cancel = inBar(page, "[data-role=composer-cancel]");
 
   await enterCommentMode(page);
+  // Picking takes no screenshot; the capture starts at Send.
+  await slow.click();
+  await page.locator('[data-case="id"]').click();
   await slow.click();
   await text.fill("Withdrawn by Cancel");
   await send.click();
@@ -406,11 +559,20 @@ test("Cancel or Escape while the screenshot is being taken withdraws the comment
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
 
-  // Both captures finish after they were withdrawn; neither comment is posted.
+  // Captures run one at a time: the next waits until both withdrawn ones have stopped, which they do once the image
+  // they wait for loads, before rendering anything.
+  await enterCommentMode(page);
+  await page.locator('[data-case="testid"]').click();
+  await text.fill("Kept");
+  await send.click();
+  await expect(send).toHaveText("Sending…");
+  await page.waitForTimeout(300);
+  expect(feedbackPosts(daemon)).toBe(0);
   release();
-  await expect.poll(() => page.evaluate(() => window.canvasBlobs)).toBe(2);
-  const { draft } = await comment(page, daemon, slow, "Kept");
-  expect(draft.text).toBe("Kept");
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  expect(daemon.posts[0]!.draft.text).toBe("Kept");
+  expect(daemon.posts[0]!.screenshot).not.toBeNull();
+  expect(await page.evaluate(() => window.canvasBlobs)).toBe(1);
   expect(feedbackPosts(daemon)).toBe(1);
   await expect(inBar(page, "[data-section=threads] [data-feedback-id]")).toHaveCount(1);
 });

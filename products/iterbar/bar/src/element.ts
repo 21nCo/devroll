@@ -75,8 +75,12 @@ interface Pick {
   /** The page URL as slot reports file it, or `null` for a page the contract cannot name (such as `file:`). */
   readonly pageUrl: string | null;
   readonly activeVariants: readonly ActiveVariant[];
-  /** Started at the pick; it never rejects. */
-  readonly screenshot: Promise<ScreenshotResult>;
+  /** Captured when Send is first pressed, so picks that are never sent take no screenshot. */
+  readonly element: Element;
+  /** The capture for this pick, kept for a send retried after a refusal; it never rejects. */
+  screenshot: Promise<ScreenshotResult> | null;
+  /** Aborted when the pick is replaced, cancelled or left: a screenshot still being taken for it stops. */
+  readonly withdraw: AbortController;
 }
 
 interface DragState {
@@ -292,11 +296,14 @@ export class IterbarBarElement extends ElementBase {
   /** Takes a click in comment mode; refused while the current pick's comment is being sent. */
   #onPick(element: Element): boolean {
     if (this.#sendingPick !== null && this.#sendingPick === this.#pick) return false;
+    this.#pick?.withdraw.abort();
     this.#pick = {
       target: describeTarget(element),
-      pageUrl: reportPageUrl(location.href),
+      pageUrl: /^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null,
       activeVariants: readActiveVariants(),
-      screenshot: captureScreenshot(element, this),
+      element,
+      screenshot: null,
+      withdraw: new AbortController(),
     };
     this.#setCollapsed(false);
     this.#composer.show(describeElement(element));
@@ -309,6 +316,7 @@ export class IterbarBarElement extends ElementBase {
    */
   #cancelPick(): void {
     if (this.#postingPick !== null && this.#postingPick === this.#pick) return;
+    this.#pick?.withdraw.abort();
     this.#pick = null;
     this.#closeComposer();
     this.#picker.clearPick();
@@ -321,6 +329,7 @@ export class IterbarBarElement extends ElementBase {
   #leavePicking(): void {
     this.#picker.stop();
     if (this.#postingPick !== null && this.#postingPick === this.#pick) return;
+    this.#pick?.withdraw.abort();
     this.#pick = null;
     this.#closeComposer();
   }
@@ -345,8 +354,8 @@ export class IterbarBarElement extends ElementBase {
 
   /**
    * Sends a comment on the current pick, with its screenshot or the reason there is none. On success the thread is
-   * shown and comment mode ends; on failure the composer keeps the text and shows why. Cancel or Escape while the
-   * screenshot is being taken withdraws the comment before anything is posted.
+   * shown and comment mode ends; on failure the composer keeps the text and shows why. The screenshot is taken at the
+   * first Send; Cancel or Escape while it is being taken stops it and withdraws the comment before anything is posted.
    */
   async #send(text: string): Promise<void> {
     const pick = this.#pick;
@@ -363,6 +372,7 @@ export class IterbarBarElement extends ElementBase {
     this.#sendingPick = pick;
     this.#composer.setBusy(true);
     try {
+      pick.screenshot ??= captureScreenshot(pick.element, this, pick.withdraw.signal);
       const screenshot = await pick.screenshot;
       // Cancelled, Escaped or replaced while the screenshot was being taken: the comment was withdrawn.
       if (this.#pick !== pick) return;
@@ -423,11 +433,14 @@ export class IterbarBarElement extends ElementBase {
     }
   }
 
-  /** The top layer still inherits `zoom`, so the bar applies the inverse of what the page gives it. */
+  /** The top layer still inherits `zoom`, so the bar and the pick layer apply the inverse of what the page gives them. */
   #fitZoom(): void {
     const zoom = (this.#zoomProbe as { currentCSSZoom?: number }).currentCSSZoom;
     if (typeof zoom !== "number" || !Number.isFinite(zoom) || zoom <= 0) return;
-    this.#bar.style.zoom = zoom === 1 ? "" : String(1 / zoom);
+    const inverse = zoom === 1 ? "" : String(1 / zoom);
+    this.#bar.style.zoom = inverse;
+    // The pick layer outlines viewport rectangles, so it cancels the inherited zoom too.
+    this.#picker.setZoom(inverse);
   }
 
   /** Refits on every change of the page's zoom, which changes the probe's size in device pixels. */

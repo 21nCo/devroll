@@ -187,8 +187,8 @@ export class DaemonConnection {
 
   /**
    * Creates a feedback item with `POST /feedback`: the draft, plus the screenshot as a PNG part. Resolves with the
-   * stored item. Never retried, since a request that timed out may still have been stored; a `401` stops the
-   * connection as everywhere else.
+   * stored item. A refusal rejects with the daemon's reason; no answer at all rejects saying the comment may already
+   * be stored. Never retried for that reason; a `401` stops the connection as everywhere else.
    */
   async sendFeedback(draft: FeedbackDraft, screenshot: Blob | null): Promise<Feedback> {
     if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
@@ -205,11 +205,15 @@ export class DaemonConnection {
         this.#reject();
         throw new DaemonRequestError("The daemon rejected the token. Restart the dev server to get a new one.");
       }
+      // The daemon answered with a refusal, so nothing was stored.
       if (error instanceof DaemonRequestError) throw error;
-      throw new DaemonRequestError(this.#stopped ? "The bar was disconnected from the daemon before it answered, so the comment may already be stored." : `Cannot reach the daemon: ${(error as Error).message}`);
+      // No answer (a lost connection or the deadline): the daemon stores a comment before it answers, so the outcome
+      // is unknown and sending again could file it twice.
+      const why = this.#stopped ? "The bar was disconnected from the daemon before it answered" : `The daemon did not answer (${(error as Error).message})`;
+      throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`);
     }
     const feedback = feedbackSchema.safeParse(response);
-    if (!feedback.success) throw new DaemonRequestError("The daemon's answer was not a feedback item.");
+    if (!feedback.success) throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.");
     return feedback.data;
   }
 

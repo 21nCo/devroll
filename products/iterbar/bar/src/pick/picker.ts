@@ -2,25 +2,25 @@ import { h } from "../dom.js";
 
 /**
  * Page events the picker swallows while it is active, so picking never presses a page button, follows a link, moves
- * focus or starts a selection. Hover (`pointermove`) is observed but left to the page.
+ * focus, starts a selection or opens a menu. Hover (`pointermove`) is observed but left to the page.
  */
-const SWALLOWED_EVENTS = ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "auxclick"] as const;
+const SWALLOWED_EVENTS = ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu"] as const;
 
 export interface PickerOptions {
   /** The bar's host element: events inside it reach the bar as usual, and it is never picked. */
   readonly host: Element;
   /** The highlight layer is appended here, inside the bar's shadow root. */
   readonly container: ParentNode;
-  /** A page element was clicked. Returns whether it is now the picked element (`false` keeps the previous one). */
+  /** A page element was clicked, or Enter pressed on it. Returns whether it is now the picked element (`false` keeps the previous one). */
   readonly onPick: (element: Element) => boolean;
   /** Escape was pressed: the caller leaves comment mode. */
   readonly onEscape: () => void;
 }
 
 /**
- * Comment mode's element picker. While active it outlines the element under the pointer, picks the clicked element
- * (outlining it until the pick is cleared) and swallows the click; Escape asks to leave. While inactive it has no
- * listeners and its layer is hidden, so the page gets every event.
+ * Comment mode's element picker. While active it outlines the element under the pointer, picks the clicked element,
+ * or the focused one on Enter (outlining it until the pick is cleared), and swallows that input; Escape asks to leave.
+ * While inactive it has no listeners and its layer is hidden, so the page gets every event.
  *
  * The layer is a manual popover in the top layer, like the bar, so page stacking and transforms cannot hide or shift
  * it, and it never takes pointer events.
@@ -57,6 +57,7 @@ export class ElementPicker {
     window.addEventListener("pointermove", this.#onPointerMove, { capture: true, passive: true });
     window.addEventListener("pointerout", this.#onPointerOut, { capture: true, passive: true });
     window.addEventListener("keydown", this.#onKeydown, true);
+    window.addEventListener("keyup", this.#onKeyup, true);
     window.addEventListener("scroll", this.#queueLayout, { capture: true, passive: true });
     window.addEventListener("resize", this.#queueLayout, { passive: true });
     this.#layer.toggleAttribute("data-active", true);
@@ -77,6 +78,7 @@ export class ElementPicker {
     window.removeEventListener("pointermove", this.#onPointerMove, true);
     window.removeEventListener("pointerout", this.#onPointerOut, true);
     window.removeEventListener("keydown", this.#onKeydown, true);
+    window.removeEventListener("keyup", this.#onKeyup, true);
     window.removeEventListener("scroll", this.#queueLayout, true);
     window.removeEventListener("resize", this.#queueLayout);
     if (this.#frame !== null) cancelAnimationFrame(this.#frame);
@@ -86,6 +88,11 @@ export class ElementPicker {
     this.#layer.removeAttribute("data-active");
     if (typeof this.#layer.hidePopover === "function" && this.#layer.matches(":popover-open")) this.#layer.hidePopover();
     this.#layout();
+  }
+
+  /** Sets the layer's CSS `zoom`, which cancels the zoom it inherits from the page (`""` for none). */
+  setZoom(zoom: string): void {
+    this.#layer.style.zoom = zoom;
   }
 
   /** Forgets the picked element; hovering and picking carry on. */
@@ -102,18 +109,34 @@ export class ElementPicker {
     return target.isConnected ? target : null;
   }
 
-  readonly #swallow = (event: Event): void => {
+  /** Whether `event` comes from the user and is not for the bar. */
+  #isPageInput(event: Event): boolean {
     // A page script's own `element.click()` is left alone; only the user's input picks.
-    if (!event.isTrusted) return;
-    const element = this.#pageElement(event);
-    if (!element) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (event.type !== "click" || (event as MouseEvent).button !== 0) return;
+    return event.isTrusted && !event.composedPath().includes(this.#options.host);
+  }
+
+  #pick(element: Element): void {
     if (!this.#options.onPick(element)) return;
     this.#picked = element;
     this.#layout();
+  }
+
+  /** Swallows pointer input on the page, the document root included, and picks on a primary click. */
+  readonly #swallow = (event: Event): void => {
+    if (!this.#isPageInput(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== "click" || (event as MouseEvent).button !== 0) return;
+    const element = this.#pageElement(event);
+    if (element) this.#pick(element);
   };
+
+  /** The focused page element Enter is for: not the bar, nor the body when nothing is focused. */
+  #enterTarget(event: KeyboardEvent): Element | null {
+    if (event.key !== "Enter" || event.isComposing || !this.#isPageInput(event)) return null;
+    const element = this.#pageElement(event);
+    return element === document.body ? null : element;
+  }
 
   readonly #onPointerMove = (event: PointerEvent): void => {
     const element = this.#pageElement(event);
@@ -130,10 +153,24 @@ export class ElementPicker {
   };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
+    const element = this.#enterTarget(event);
+    if (element) {
+      // Picks at once, before the page's handlers could submit, act on or cancel the key.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) this.#pick(element);
+      return;
+    }
     if (event.key !== "Escape" || event.isComposing) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     this.#options.onEscape();
+  };
+
+  readonly #onKeyup = (event: KeyboardEvent): void => {
+    if (!this.#enterTarget(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
   };
 
   readonly #queueLayout = (): void => {
