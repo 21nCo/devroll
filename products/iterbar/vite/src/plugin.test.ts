@@ -452,6 +452,17 @@ describe("iterbar() in vite dev", () => {
     await rename(away, daemonFile);
   });
 
+  it("serves the app when the public directory or another directory is a link to nothing yet", async () => {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "a.js"), 'export const marker = "MODULE-BESIDE-DANGLING";');
+    await symlink(join(root, "assets-not-built"), join(root, "public"), "dir");
+    await symlink(join(root, "gone"), join(root, "docs"), "dir");
+    const { server, port } = await devServer({ publicDir: join(root, "public") });
+    for (const path of ["/", "/index.html", "/docs/intro"]) expect(isAppPage(await get(port, path)), path).toBe(true);
+    expect((await get(port, "/src/a.js")).body).toContain("MODULE-BESIDE-DANGLING");
+    expect(String((await server.environments.client.transformRequest("/src/a.js"))?.code)).toContain("MODULE-BESIDE-DANGLING");
+  });
+
   it("keeps each dev server to its own store when one plugin serves two projects at once", async () => {
     const plugin = iterbar();
     const projects = [join(root, "a"), join(root, "b")];
@@ -485,14 +496,14 @@ describe("iterbar() in vite dev", () => {
     const store: Store = { path: "/srv/app/.iterbar", real: null };
     const looked: string[] = [];
     const failure = (code: string): Promise<never> => Promise.reject(Object.assign(new Error(code), { code }));
-    // The project's directories exist; `real` adds files and links, and `links` lists dangling links.
+    // The project's directories exist; `real` adds files and links, and `links` adds dangling links and their targets.
     const tree = { "/srv": "/srv", "/srv/app": "/srv/app", "/srv/app/sub": "/srv/app/sub" };
-    const disk = (real: Record<string, string>, code = "ENOENT", links: readonly string[] = []): PathLookups => ({
+    const disk = (real: Record<string, string>, code = "ENOENT", links: Record<string, string> = {}): PathLookups => ({
       realpath: async (path) => {
         looked.push(path);
         return { ...tree, ...real }[path] ?? failure(code);
       },
-      lstat: async (path) => (links.includes(path) ? {} : failure("ENOENT")),
+      readlink: async (path) => links[path] ?? failure("ENOENT"),
     });
     expect(await isStoreFile("/srv/app/.ITERBAR./x", store, disk({}))).toBe(true);
     expect(looked).toEqual([]);
@@ -516,25 +527,31 @@ describe("iterbar() in vite dev", () => {
     // A path no file can have, by a name too long or a NUL byte, cannot be read.
     expect(await isStoreFile("/srv/app/x", store, disk(linked, "ENAMETOOLONG"))).toBe(false);
     // A file that does not exist yet counts where it would be created: in the store by its own name or a link, in
-    // any case where the file system ignores case, or behind a dangling link, which may lead to the store by then.
+    // any case where the file system ignores case, or where a dangling link leads, which may be the store by then.
     const kept: Store = { path: "/srv/app/.iterbar", real: "/srv/vault" };
     expect(await isStoreFile("/srv/vault/daemon.json", kept, disk({ ...linked, "/srv/vault": "/srv/vault" }))).toBe(true);
     expect(await isStoreFile("/srv/app/docs/daemon.json", kept, disk({ ...linked, "/srv/app/docs": "/srv/vault" }))).toBe(true);
     expect(await isStoreFile("/srv/VAULT/daemon.json", kept, disk({ ...linked, "/srv/VAULT": "/srv/vault" }))).toBe(true);
     expect(await isStoreFile("/srv/vault/sub/daemon.json", kept, disk({}))).toBe(true);
     expect(await isStoreFile("/srv/VAULT/daemon.json", kept, disk({}))).toBe(["darwin", "win32"].includes(process.platform));
-    expect(await isStoreFile("/srv/app/docs/daemon.json", kept, disk({}, "ENOENT", ["/srv/app/docs"]))).toBe(true);
-    // Other missing files, SPA routes among them, stay Vite's to answer.
-    for (const file of ["/srv/app/about/team", "/srv/vaultx/a.js", "/srv/app/vault/daemon.json", "/srv/app/docs/a"]) {
-      expect(await isStoreFile(file, kept, disk({ ...linked, "/srv/vault": "/srv/vault" })), file).toBe(false);
+    const leads: Record<string, string>[] = [{ "/srv/app/docs": "/srv/app/.iterbar" }, { "/srv/app/docs": "../vault" }, { "/srv/app/docs": "next", "/srv/app/next": "/srv/vault/x" }];
+    for (const links of leads) {
+      expect(await isStoreFile("/srv/app/docs/daemon.json", kept, disk({}, "ENOENT", links)), JSON.stringify(links)).toBe(true);
     }
-    await expect(isStoreFile("/srv/app/docs/a", kept, { ...disk({}), lstat: () => failure("EACCES") })).rejects.toThrow("EACCES");
+    expect(await isStoreFile("/srv/app/docs/daemon.json", kept, disk({}, "ENOENT", { "/srv/app/docs": "docs" }))).toBe(true);
+    // Other missing files stay Vite's to answer: SPA routes, and files behind a dangling link that leads elsewhere.
+    for (const file of ["/srv/app/about/team", "/srv/vaultx/a.js", "/srv/app/vault/daemon.json", "/srv/app/docs/a", "/srv/app/public/index"]) {
+      expect(await isStoreFile(file, kept, disk({ ...linked, "/srv/vault": "/srv/vault" }, "ENOENT", { "/srv/app/public": "../assets" })), file).toBe(false);
+    }
+    await expect(isStoreFile("/srv/app/docs/a", kept, { ...disk({}), readlink: () => failure("EACCES") })).rejects.toThrow("EACCES");
     await mkdir(join(root, "vault"));
     await symlink(join(root, "vault"), join(root, ".iterbar"), "dir");
     await symlink(join(root, "gone"), join(root, "docs"), "dir");
+    await symlink(join(root, "vault", "later"), join(root, "later"), "dir");
     const onDisk: Store = { path: join(root, ".iterbar"), real: null };
     expect(await isStoreFile(join(root, "vault", "daemon.json"), onDisk)).toBe(true);
-    expect(await isStoreFile(join(root, "docs", "daemon.json"), onDisk)).toBe(true);
+    expect(await isStoreFile(join(root, "later", "daemon.json"), onDisk)).toBe(true);
+    expect(await isStoreFile(join(root, "docs", "daemon.json"), onDisk)).toBe(false);
     expect(await isStoreFile(join(root, "about", "team"), onDisk)).toBe(false);
     expect(await isLoadOfStore("/srv/vault/daemon.json", { publicDir: "", store }, disk({}, "EIO"))).toBe(true);
     // A missing path with a hundred directories costs a lookup of the file and of each directory down to the first

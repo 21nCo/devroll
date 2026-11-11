@@ -1,4 +1,4 @@
-import { lstat, realpath } from "node:fs/promises";
+import { readlink, realpath } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join, parse, posix, resolve, sep } from "node:path";
 import type { Alias } from "vite";
@@ -88,13 +88,15 @@ function hasStoreSegment(file: string): boolean {
 /** Resolves a path to its real path, short names and links included, as `realpath` does. */
 export type ResolvePath = (path: string) => Promise<string>;
 
-/** The file system calls a decision makes: real paths, and `lstat` to tell a dangling link from a missing file. */
+/** The file system calls a decision makes: real paths, and the target of a link that leads to no file (yet). */
 export interface PathLookups {
   readonly realpath: ResolvePath;
-  readonly lstat: (path: string) => Promise<unknown>;
+  readonly readlink: (path: string) => Promise<string>;
 }
 
-const FILE_SYSTEM: PathLookups = { realpath: (path) => realpath(path), lstat: (path) => lstat(path) };
+const FILE_SYSTEM: PathLookups = { realpath: (path) => realpath(path), readlink: (path) => readlink(path) };
+/** How many dangling links one decision follows, as the file system limits a chain of links. */
+const MAX_LINKS = 40;
 
 /**
  * Whether a lookup failed because no file can be at that path, so that nothing can read it: it does not exist, its
@@ -121,23 +123,23 @@ async function realOrNull(path: string, resolvePath: ResolvePath): Promise<strin
 }
 
 /** Real paths for one decision: each path is looked up at most once, and nothing is kept for the next request. */
-interface Lookup {
-  (path: string): Promise<string | null>;
-  readonly files: PathLookups;
-}
+type Lookup = (path: string) => Promise<string | null>;
 
 function lookupOnce(files: PathLookups): Lookup {
   const seen = new Map<string, Promise<string | null>>();
-  return Object.assign((path: string) => {
+  return (path) => {
     const known = seen.get(path) ?? realOrNull(path, files.realpath);
     seen.set(path, known);
     return known;
-  }, { files });
+  };
 }
 
-/** Whether a path that does not resolve is a link, whose target can appear (or be the store) once Vite reads it. */
-async function isDanglingLink(path: string, files: PathLookups): Promise<boolean> {
-  return files.lstat(path).then(() => true, (error: unknown) => (isMissing(error) ? false : Promise.reject(error)));
+/** The target of a path that does not resolve when it is a link, or `null` when no file is there at all. */
+async function danglingTarget(path: string, files: PathLookups): Promise<string | null> {
+  return files.readlink(path).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    return isMissing(error) || code === "EINVAL" ? null : Promise.reject(error);
+  });
 }
 
 /**
@@ -166,10 +168,10 @@ function isInStore(real: string, storeReal: string | null): boolean {
  * request on. A short name names an entry of its own directory, which may be a `.iterbar` that links elsewhere, so
  * each `~` segment is also compared with the `.iterbar` beside it. A file that does not exist yet is decided by
  * where it would be created ({@link wouldBeInStore}), from its directories looked up from the root down to the first
- * missing one; that one must not be a dangling link, which could lead to the store by the time Vite reads it. Any
- * other failed lookup rejects, which counts as the store.
+ * missing one. When that one is a dangling link, which can lead to the store by the time Vite reads the file, the
+ * file is decided by the link's target in the same way. Any other failed lookup rejects, which counts as the store.
  */
-export async function isStoreFile(file: string, store: Store, files: PathLookups = FILE_SYSTEM, lookup = lookupOnce(files)): Promise<boolean> {
+export async function isStoreFile(file: string, store: Store, files: PathLookups = FILE_SYSTEM, lookup = lookupOnce(files), links = 0): Promise<boolean> {
   if (hasStoreSegment(file)) return true;
   store.real = (await lookup(store.path)) ?? store.real;
   const storeReal = store.real;
@@ -185,7 +187,11 @@ export async function isStoreFile(file: string, store: Store, files: PathLookups
     const parentReal = prefixReal;
     prefixReal = await lookup(prefix);
     if (prefixReal === null) {
-      return real === null && (wouldBeInStore(parentReal, parts.slice(index), storeReal) || (await isDanglingLink(prefix, lookup.files)));
+      if (real !== null) return false;
+      if (wouldBeInStore(parentReal, parts.slice(index), storeReal)) return true;
+      const target = await danglingTarget(prefix, files);
+      if (target === null) return false;
+      return links >= MAX_LINKS || isStoreFile(join(resolve(parentReal, target), ...parts.slice(index + 1)), store, files, lookup, links + 1);
     }
     if (isInStore(prefixReal, storeReal) || (part.includes("~") && prefixReal === (await lookup(join(dirname(prefix), STORE_DIR))))) return true;
   }
