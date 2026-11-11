@@ -48,12 +48,18 @@ function errorMessage(error: unknown): string {
 
 /**
  * The picked element is rendered on its own at the image origin, so what places it on the page (its transform, its
- * margins and offsets, inline ones included) is dropped from the copy; transforms inside it are kept. The live
- * element is never changed.
+ * margins and offsets, inline ones included) is dropped from the copy; transforms inside it are kept. A transformed
+ * element keeps an identity transform, so it still contains its fixed descendants. The live element is never changed.
  */
-const ROOT_STYLE = {
-  transform: "none", translate: "none", rotate: "none", scale: "none", margin: "0", inset: "auto",
-} as Partial<CSSStyleDeclaration>;
+function rootStyle(element: Element): Partial<CSSStyleDeclaration> {
+  const transform = isTransformed(element) ? "translate(0px)" : "none";
+  return { transform, translate: "none", rotate: "none", scale: "none", margin: "0", inset: "auto" } as Partial<CSSStyleDeclaration>;
+}
+
+/** Whether the element or a box inside it is scrolled, which the copy cannot show: it is drawn unscrolled. */
+function hasScrolledBox(element: Element): boolean {
+  return [element, ...element.querySelectorAll("*")].some((node) => node.scrollTop !== 0 || node.scrollLeft !== 0);
+}
 
 function isTransformed(element: Element): boolean {
   const style = getComputedStyle(element);
@@ -94,7 +100,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, sign
     type: "image/png",
     timeout: SCREENSHOT_TIMEOUT_MS,
     filter: (node) => node !== exclude,
-    style: ROOT_STYLE,
+    style: rootStyle(element),
     onCloneNode: check,
     onEmbedNode: check,
     onCreateForeignObjectSvg: check,
@@ -128,6 +134,7 @@ export async function captureScreenshot(element: Element, exclude: Node, signal?
   if (!element.isConnected) return { ok: false, reason: unavailableReason("the element is no longer on the page") };
   const rect = element.getBoundingClientRect();
   if (screenshotScale(rect.width, rect.height, 1) === null) return { ok: false, reason: unavailableReason("the element has no visible area") };
+  if (hasScrolledBox(element)) return { ok: false, reason: unavailableReason("a box in the element is scrolled, which a screenshot cannot show yet") };
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
   const withdraw = new AbortController();
   const onAbort = (): void => withdraw.abort();

@@ -85,15 +85,15 @@ element is described when it is picked:
   to stay within 4 MP. The element is drawn alone at the image origin,
   upright at its untransformed size: its own transform, margins and offsets
   and its ancestors' transforms are left out, while transforms inside it are
-  kept. Boxes scrolled inside it are drawn at their unscrolled position for
-  now. The scale
+  kept. The scale
   is chosen from the element's size once its images and fonts have loaded,
   so an element that grows meanwhile stays within the cap, and the image
   produced is checked again: one over 4 MP is not sent. A capture withdrawn
   by another pick, Cancel, Escape or its time limit stops at its next step
   and holds up no other capture.
   When the capture fails (for example a canvas tainted by a cross-origin
-  image, an element with no area, or a capture over 10 seconds) the comment is
+  image, an element with no area, a scrolled box in the element, which the
+  copy would show unscrolled, or a capture over 10 seconds) the comment is
   still sent, without a screenshot and with the reason in
   `screenshotUnavailableReason`.
 

@@ -300,6 +300,45 @@ test("the screenshot shows the element as it was when picked", async ({ page, op
   expect((await pngPixels(page, daemon.posts[0]!.screenshot!, [[30, 20]])).at).toEqual([[255, 0, 0, 255]]);
 });
 
+test("sends no screenshot, and says why, when a box in the element is scrolled", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => {
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+      <div data-testid="card" style="width: 140px; height: 120px; padding: 10px 20px; box-sizing: border-box">
+        <div data-testid="scroller" style="height: 100px; overflow: auto"><div style="height: 300px; pointer-events: none"></div></div>
+      </div>`);
+    document.querySelector<HTMLElement>("[data-testid=scroller]")!.scrollTop = 100;
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  // The copy would show the box unscrolled, unlike the page, whether the box is the element or inside it.
+  for (const [index, target] of ["card", "scroller"].entries()) {
+    const { draft, screenshot } = await comment(page, daemon, page.getByTestId(target), target, { x: 5, y: 5 });
+    expect(screenshot, target).toBeNull();
+    expect(draft.screenshotUnavailableReason).toBe("The screenshot failed: a box in the element is scrolled, which a screenshot cannot show yet");
+    expect(daemon.posts).toHaveLength(index + 1);
+  }
+});
+
+test("a transformed element still contains its fixed descendants", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+    '<div data-testid="framed" tabindex="0" style="width: 200px; height: 200px; box-sizing: border-box; border: 50px solid rgb(255, 0, 0);'
+    + ' transform: translateZ(0)"><div style="position: fixed; inset: 0; background: rgb(0, 0, 255)"></div></div>'));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  // Its fixed child covers its padding box, so it is picked from the keyboard.
+  await enterCommentMode(page);
+  await page.getByTestId("framed").focus();
+  await page.keyboard.press("Enter");
+  await inBar(page, "[data-role=composer-text]").fill("Framed");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  const { draft, screenshot } = daemon.posts[0]!;
+  expect(draft.target?.selector).toBe('[data-testid="framed"]');
+  expect((await pngPixels(page, screenshot!, [[10, 10], [100, 100]])).at).toEqual([[255, 0, 0, 255], [0, 0, 255, 255]]);
+});
+
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP).
