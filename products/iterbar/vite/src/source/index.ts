@@ -1,9 +1,20 @@
 import type { SourceMap } from "magic-string";
+import type { ResolvedConfig } from "vite";
 import { sourcePath, type SourceRoot } from "./location.js";
 import { reactSourcePlugin } from "./react.js";
 import { svelteSourcePreprocessor, type SvelteCompiler } from "./svelte.js";
 
 export { SOURCE_ATTRIBUTE, sourceRoot, type SourceRoot } from "./location.js";
+
+/**
+ * Whether a dev server stamps source locations: not under Vitest, which runs its tests on a Vite dev server, so that
+ * a component test's DOM stays as the component renders it. Vitest's server resolves the `test` mode by default and
+ * carries Vitest's own plugins whatever mode a run picks.
+ */
+export function stampsSources(config: ResolvedConfig): boolean {
+  if (config.mode === "test") return false;
+  return !config.plugins.some((plugin) => plugin.name === "vitest" || plugin.name.startsWith("vitest:"));
+}
 
 /** The Babel options `@vitejs/plugin-react` passes each `api.reactBabel` hook for one module, which it may extend. */
 export interface ReactBabelOptions {

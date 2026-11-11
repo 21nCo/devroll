@@ -4,7 +4,7 @@ import type { HtmlTagDescriptor, Plugin, ResolvedConfig, ViteDevServer } from "v
 import { DaemonLink } from "./daemon.js";
 import { checkConfigRequest, CONFIG_PATH, sendJson, type BarConfigResponse } from "./endpoint.js";
 import { checkExtraOrigins, devServerOrigins, originOf } from "./origins.js";
-import { addReactSourcePlugin, sourceRoot, stampSvelteModule, type ReactBabelOptions, type SourceRoot } from "./source/index.js";
+import { addReactSourcePlugin, sourceRoot, stampsSources, stampSvelteModule, type ReactBabelOptions, type SourceRoot } from "./source/index.js";
 import { isLoadOfStore, STORE_DENY_PATTERN, storeGuard, type Store } from "./store.js";
 
 export type { BarConfigResponse } from "./endpoint.js";
@@ -139,6 +139,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
        * to dev only: it adds the Babel plugin that stamps JSX host elements with their source location.
        */
       reactBabel(babel: ReactBabelOptions, context: { id: string }, config: ResolvedConfig) {
+        if (!stampsSources(config)) return;
         addReactSourcePlugin(babel, context.id, sourceRootOf(config));
       },
     },
@@ -183,7 +184,9 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
       order: "pre",
       filter: { id: /\.svelte$/ },
       handler(code, id) {
-        return stampSvelteModule(code, id, sourceRootOf(this.environment.getTopLevelConfig()));
+        const config = this.environment.getTopLevelConfig();
+        if (!stampsSources(config)) return null;
+        return stampSvelteModule(code, id, sourceRootOf(config));
       },
     },
 

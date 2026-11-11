@@ -67,7 +67,9 @@ attribute, so one written after it, or a spread, still wins.
 
 The plugin applies to `vite dev` only, so `vite build` adds no stamps. A
 server render in dev gets the same stamps as the browser, so hydration
-matches.
+matches. Vitest runs tests on a Vite dev server, so the plugin adds no stamps
+there either (in the `test` mode, or wherever Vitest's own plugins are
+present), and component tests see the DOM as the components render it.
 
 ## The daemon
 

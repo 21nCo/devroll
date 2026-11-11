@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { eachMapping, originalPositionFor, TraceMap, type EncodedSourceMap } from "@jridgewell/trace-mapping";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { svelte, vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 import react from "@vitejs/plugin-react";
 import * as svelteCompiler from "svelte/compiler";
 import { build, createServer, type Plugin, type ViteDevServer } from "vite";
@@ -45,12 +45,16 @@ afterEach(async () => {
  * A dev server whose React modules all go through Babel, `node_modules` included, so the stamp's own rules decide
  * which files are stamped rather than plugin-react's default exclusion.
  */
-async function devServer(plugins: Plugin[] = [iterbar()]): Promise<ViteDevServer> {
+async function devServer(
+  plugins: Plugin[] = [iterbar()],
+  { mode, frameworks }: { mode?: string; frameworks?: Plugin[] } = {},
+): Promise<ViteDevServer> {
   const server = await createServer({
     root,
     configFile: false,
     logLevel: "silent",
-    plugins: [react({ exclude: [/^\0never$/] }), svelte(), ...plugins],
+    ...(mode === undefined ? {} : { mode }),
+    plugins: [...(frameworks ?? [react({ exclude: [/^\0never$/] }), svelte()]), ...plugins],
     optimizeDeps: { noDiscovery: true },
     server: { middlewareMode: true, hmr: false, ws: false },
   });
@@ -214,6 +218,17 @@ describe("Svelte source locations", () => {
     expect(svelteMapNames(card.map, card.code, "src/Card.svelte:1:1", "div")).toBe(true);
   });
 
+  it("stamps the component as written when vite-plugin-svelte's preprocessors are listed first", async () => {
+    await write("src/App.svelte", SVELTE_APP);
+    await write("src/Card.svelte", "<div>card</div>\n");
+    const server = await devServer([iterbar()], { frameworks: svelte({ preprocess: vitePreprocess() }) });
+    const { code, map } = await transform(server, "/src/App.svelte");
+
+    const expected = { "src/App.svelte:12:1": "main", "src/App.svelte:13:3": "h1", "src/App.svelte:14:14": "p", "src/App.svelte:17:3": "aside" };
+    expect(stamps(code).sort()).toEqual(Object.keys(expected).sort());
+    for (const [stamp, tag] of Object.entries(expected)) expect(svelteMapNames(map, code, stamp, tag), stamp).toBe(true);
+  });
+
   it("stamps relative to the project root, and not files outside it or in node_modules", async () => {
     await write("app/src/Inside.svelte", "<div>inside</div>\n");
     await write("shared/Outside.svelte", "<div>outside</div>\n");
@@ -249,6 +264,31 @@ describe("Svelte source locations", () => {
     const attribute = element.attributes[0] as svelteCompiler.AST.Attribute;
     const [text] = attribute.value as svelteCompiler.AST.Text[];
     expect(text!.data).toBe('we"ird {dir} & co/App.svelte:1:1');
+  });
+});
+
+describe("Vitest", () => {
+  async function stampsOf(server: ViteDevServer): Promise<string[]> {
+    return [
+      ...stamps((await transform(server, "/src/App.tsx")).code),
+      ...stamps((await transform(server, "/src/Card.svelte")).code),
+    ];
+  }
+
+  beforeEach(async () => {
+    await write("src/App.tsx", "export const App = () => <div />;\n");
+    await write("src/Card.svelte", "<div>card</div>\n");
+  });
+
+  it("gets no stamps on its test-mode dev server, while a dev server does", async () => {
+    expect(await stampsOf(await devServer())).toEqual(["src/App.tsx:1:26", "src/Card.svelte:1:1"]);
+    expect(await stampsOf(await devServer([iterbar()], { mode: "test" }))).toEqual([]);
+  });
+
+  it("gets no stamps when a run picks another mode", async () => {
+    // Vitest's server carries Vitest's plugins, by these names, whatever its mode.
+    const vitest: Plugin = { name: "vitest" };
+    expect(await stampsOf(await devServer([iterbar(), vitest], { mode: "development" }))).toEqual([]);
   });
 });
 
