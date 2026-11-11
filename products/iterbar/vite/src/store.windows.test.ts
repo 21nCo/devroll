@@ -172,6 +172,8 @@ describe.runIf(process.platform === "win32")("the store guard on Windows", () =>
         if (token) expect(answer.body, path).not.toContain(token);
       }
     };
+    // The plugin starts the daemon on the first config request, so daemon.json is not there yet: L dangles.
+    await expect(readFile(join(dir, "vault", "daemon.json"))).rejects.toThrow(/ENOENT/);
     await refusesL("");
     expect((await get("/__iterbar/config")).status).toBe(200);
     const token = (await readMatchingDaemonFile(dir))?.token ?? "";
