@@ -114,9 +114,8 @@ element is described when it is picked:
   namespace) as anything. Text in a family with any font face (the
   page's, loaded or not, or the drawing's own) is unavailable, and so is
   text a `<use>` shows when there is any face. A drawing holding an SVG
-  animation element (`<set>`, `<animate>`), or whose root, shapes or
-  definitions one elsewhere targets, is unavailable, as is content a
-  `<use>` shows that a CSS animation moves. Otherwise transitions and
+  animation element, or whose root, shapes or definitions one elsewhere
+  targets, is unavailable, as is `<use>` content a CSS animation moves. Otherwise transitions and
   animations are drawn as they are at that moment. Pointing, selection
   and list-marker properties (`cursor`, `pointer-events`, `user-select`,
   `-webkit-user-select`, `list-style-image`) are left out of the copy, as

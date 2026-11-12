@@ -626,7 +626,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       .wrap { .nested-r { fill: rgb(255, 0, 0) } } .sprite-wrap { .nested-in { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
       @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
       @property --reg-green { syntax: "<color>"; inherits: false; initial-value: rgb(0, 255, 0) }
-      @font-face { font-family: page-face; src: url(${block}) } @font-face { font-family: masked-face; src: url(${block}) } @font-face { font-family: ","; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
+      @font-face { font-family: page-face; src: url(${block}) } @font-face { font-family: masked-face; src: url(${block}) } @font-face { font-family: ","; src: url(${block}) } @font-face { font-family: "pad "; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
       .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }
       .scope-amp { @scope (.amp-root) { & > .amp-child { fill: currentColor } &.amp-self { fill: currentColor } } }
       @media (min-width: 0px) { [data-kind="a&b"] { fill: currentColor } [data-kind=":scope"] { fill: currentColor } }
@@ -789,6 +789,9 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <use href="#own-nth-tile" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="escaped-id" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect id="esc-tile" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#esc%2Dtile"/></svg>
+    <svg data-testid="newline-id" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="nltile" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#nl&#10;tile"/></svg>
+    <svg data-testid="padded-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="'pad '" font-size="40">WW</text></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
     <svg width="0" height="0" style="position: absolute"><animate href="#from-afar" attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></svg>
@@ -886,7 +889,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // URL, added by a script, or without a src, which masks no page face), in a link in the text, under a condition.
     ...([["page-font", "page-face"], ["script-font", "script-face"], ["own-font", "own-face"], ["scripted-font", "scripted-face"],
       ["srcless-face", "masked-face"], ["srcless-own", "lone-face"], ["linked-text", "page-face"], ["media-font", "media-face"],
-      ["narrow-face", "narrow-face"], ["failed-face", "page-face"], ["comma-font", '","']] as const).map(([id, family]) => [id, fontFace(family)] as const),
+      ["narrow-face", "narrow-face"], ["failed-face", "page-face"], ["comma-font", '","'], ["padded-font", "pad"]] as const).map(([id, family]) => [id, fontFace(family)] as const),
     // An SVG animation: of a link, outside the page or to a #fragment, of a paint, or of a polygon's points, frozen
     // where it ended, which the copy would draw from its start, whether it is in the drawing or targets it from outside.
     ["linked-set", animated("set")],
@@ -898,6 +901,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["frozen-root", animated("set")],  // by a percent-encoded #id
     // A <use> of a percent-encoded #id, which the browser decodes.
     ["escaped-id", "the drawing refers to #esc%2Dtile, an escaped #id a screenshot cannot resolve yet"],
+    ["newline-id", "the drawing refers to #nl tile, an escaped #id a screenshot cannot resolve yet"],  // its newline, as a reason has it
     // One that names the drawing's root by the page's URL and its #id.
     ["frozen-abs", animated("set")],
   ] as const) {
