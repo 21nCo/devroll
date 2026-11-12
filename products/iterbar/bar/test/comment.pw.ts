@@ -632,7 +632,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       @media (min-width: 0px) { [data-kind="a&b"] { fill: currentColor } [data-kind=":scope"] { fill: currentColor } }
       .scope-media { @scope (.media-root) { @media all { & > .media-child { fill: currentColor } } } }
       .scope-bare { @scope (.bare-root) { @media all { & { fill: currentColor } } } }
-      .neg-twice { :not(:is(:not(&))) .neg-twice-tile { fill: currentColor } }</style>
+      .neg-twice { :not(:is(:not(&))) .neg-twice-tile { fill: currentColor } } .nth-wrap { :nth-child(1 of :not(&)).nth-tile { fill: currentColor } }</style>
     <style>@namespace svg url("http://www.w3.org/2000/svg"); .ns-twice-tile:not(:is(:not(svg|rect))) { fill: currentColor }</style>
     <style>@import url(/never.css) supports(display: nonexistent);</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
@@ -771,6 +771,11 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <defs><g id="neg-twice-shape" class="neg-twice"><rect class="neg-twice-tile" width="40" height="40"/></g></defs><use href="#neg-twice-shape" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="ns-twice" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect id="ns-twice-tile" class="ns-twice-tile" width="40" height="40"/></defs><use href="#ns-twice-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="nth-of" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect class="nth-wrap" width="0" height="0"/><rect id="nth-tile" class="nth-tile" width="40" height="40"/></defs><use href="#nth-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg width="0" height="0" style="position: absolute"><set href="#zoomed-root" attributeName="viewBox" to="0 0 20 20" fill="freeze"/></svg>
+    <svg data-testid="frozen-root" id="zoomed-root" tabindex="0" width="40" height="40" viewBox="0 0 40 40" style="display: block">
+      <rect width="20" height="20" fill="rgb(0, 255, 0)"/><rect x="20" width="20" height="40" fill="rgb(255, 0, 0)"/></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
     <svg width="0" height="0" style="position: absolute"><animate href="#from-afar" attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></svg>
@@ -781,7 +786,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg data-testid="srcless-own" tabindex="0" width="120" height="50" style="display: block">
       <style>@font-face { font-family: lone-face }</style><text x="0" y="40" font-family="lone-face, monospace" font-size="40">WW</text></svg>
     <svg data-testid="cursor-url" tabindex="0" width="100" height="50" style="display: block">
-      <rect cursor="url(http://example.invalid/c), auto" width="100" height="50" fill="rgb(0, 255, 0)"/></svg>`);
+      <rect cursor="url(http://example.invalid/c), auto" width="100" height="50" fill="rgb(0, 255, 0)"/>${'<rect width="1" height="1" fill="rgb(0, 255, 0)"/>'.repeat(3_000)}</svg>`);
     // Rules a script adds to a drawing's own style sheets, which its text does not have.
     const scripted = (document.getElementById("scripted-sheet") as unknown as { sheet: CSSStyleSheet }).sheet;
     scripted.insertRule(".scripted { fill: rgb(255, 0, 0) }");
@@ -801,7 +806,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   const live = new Map<string, Buffer>();
   for (const id of faithful) live.set(id, await page.getByTestId(id).screenshot());
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-  // What the captures request from outside the page (the cursor's image), from here on.
+  // What the captures request from outside the page (the cursor's image, which a copy of the cursor attribute would
+  // load while the many shapes after it are checked), from here on.
   const outside: string[] = [];
   await page.route("http://example.invalid/**", (route) => {
     outside.push(route.request().url());
@@ -852,6 +858,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // namespace, each of which matches at most what the outer negation, read as anything, does.
     ["neg-twice", shownRule("rect")],
     ["ns-twice", shownRule("rect")],
+    // One whose parent stands in the selector argument of :nth-child(), which counts other siblings once widened.
+    ["nth-of", shownRule("rect")],
     // Shown text, whose font each <use> may set (here by a var()) to a page font.
     ["font-var", "a <use> in the drawing shows text, which it may set in a font face, which a screenshot cannot check yet"],
     // What a <use> shows that the drawing's own keyframes animate.
@@ -870,6 +878,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["fragment-set", animated("set")],
     ["frozen", animated("animate")],
     ["frozen-afar", animated("animate")],
+    ["frozen-root", animated("set")],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(screenshot, id).toBeNull();

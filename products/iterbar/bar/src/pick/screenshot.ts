@@ -377,17 +377,22 @@ function inName(char: string): boolean {
   return char === "*" || char === "-" || char === "_" || /[\p{L}\p{N}]/u.test(char) || char > "\u007f";
 }
 
+/** Functional pseudo-classes that match more when their argument does; in any other, it can match less. */
+const MONOTONE = new Set(["is", "where", "has", "matches", "-webkit-any", "host", "host-context"]);
+
 /**
  * `selector` widened for `matches()`, so that it matches at least every element it can on the page, in one pass over
  * it: `&` becomes `:is(parent)` (any element without a parent), `:scope` any element, and a namespace prefix (which
- * `matches()` does not know) any namespace, `*|`; each matches more where it stands. Then each outermost `:not()` that
- * holds one of them, at any depth, where matching more would match less, becomes `:is(*)`; a `:not()` that holds none
- * is matched as it is. Quoted strings and escapes are kept as they are. `null` when its parentheses do not balance.
+ * `matches()` does not know) any namespace, `*|`; each matches more where it stands. Then each outermost functional
+ * pseudo-class other than {@link MONOTONE} ones (`:not()`, `:nth-child(… of …)`) that holds one of them, at any depth,
+ * where matching more could match less, becomes `:is(*)`; one that holds none is matched as it is. Quoted strings and
+ * escapes are kept as they are. `null` when its parentheses do not balance.
  */
 function widen(selector: string, parent: string | null): string | null {
   let out = "";
-  // Each open parenthesis: where it starts in `out`, whether it opens a :not(), and whether something in it was widened.
-  const open: { start: number; negation: boolean; widened: boolean }[] = [];
+  // Each open parenthesis: where its pseudo-class starts in `out`, whether it is monotone, and whether something in it
+  // was widened.
+  const open: { start: number; monotone: boolean; widened: boolean }[] = [];
   // Where the name `out` ends with starts: a namespace prefix there is replaced.
   let name = 0;
   const emit = (text: string, widened = false): void => {
@@ -408,10 +413,6 @@ function widen(selector: string, parent: string | null): string | null {
       const end = escapeEnd(selector, at);
       out += selector.slice(at, end);
       at = end;
-    } else if (char === ":" && selector.slice(at, at + 5).toLowerCase() === ":not(") {
-      open.push({ start: out.length, negation: true, widened: false });
-      emit(":not(");
-      at += 5;
     } else if (char === ":" && selector.slice(at, at + 6).toLowerCase() === ":scope" && !inName(selector[at + 6] ?? "")) {
       emit("*", true);
       at += 6;
@@ -423,14 +424,16 @@ function widen(selector: string, parent: string | null): string | null {
       emit("*|", true);
       at++;
     } else if (char === "(") {
-      open.push({ start: out.length, negation: false, widened: false });
+      // The pseudo-class (or pseudo-element) whose name `out` ends with.
+      const colons = out[name - 1] === ":" ? 1 + Number(out[name - 2] === ":") : 0;
+      open.push({ start: name - colons, monotone: colons === 1 && MONOTONE.has(out.slice(name).toLowerCase()), widened: false });
       emit(char);
       at++;
     } else if (char === ")") {
       const group = open.pop();
       if (!group) return null;
       emit(char);
-      if (group.negation && group.widened) {
+      if (group.widened && !group.monotone) {
         out = out.slice(0, group.start);
         emit(":is(*)");
       }
@@ -633,12 +636,13 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     }
     // What <use>s show, which must have nothing from the page; then every element again, now that all are given values.
     const copies = new Map<Node, SVGElement>(pairs);
-    // One elsewhere on the page that animates a copied element (by its href) changes it too.
+    // One elsewhere on the page that animates the root, a copied element or a definition's ancestor (by its href)
+    // changes it too.
     for (const animation of lookup.querySelectorAll([...ANIMATIONS].join(","))) {
       await eachNode();
       const href = hrefOf(animation)?.trim();
-      const target = href?.startsWith("#") ? lookup.getElementById(href.slice(1)) : animation.parentElement;
-      if (target && copies.has(target)) return `the drawing is animated (<${animation.localName}>), which a screenshot cannot check yet`;
+      const target: Element | null = href?.startsWith("#") ? lookup.getElementById(href.slice(1)) : animation.parentElement;
+      if (target && (target === svg || copies.has(target) || ancestors.has(target))) return `the drawing is animated (<${animation.localName}>), which a screenshot cannot check yet`;
     }
     const shown = new Set<Element>();
     for (const [live] of pairs) {
