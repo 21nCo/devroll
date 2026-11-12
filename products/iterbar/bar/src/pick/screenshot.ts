@@ -331,7 +331,10 @@ async function shownRefusal(
         } else if (rule instanceof CSSStyleRule) {
           const relative = /&|:scope\b/u;
           const loose = selector.replaceAll(/:not\((?:[^()]|\([^()]*\))*\)/giu, (negation) => (relative.test(negation) ? ":is(*)" : negation));
-          parent = /:not\([^)]*(?:&|:scope\b)/iu.test(loose) ? "*" : loose.replaceAll("&", `:is(${parent ?? "*"})`).replaceAll(/:scope\b/gu, "*");
+          // Directly in @scope, `&` is the scope's root, which its start selector (any element without one) matches.
+          const scope = rule.parentRule as { start?: string | null } | null;
+          const ampersand = scope && "start" in scope ? scope.start?.replaceAll("&", `:is(${parent ?? "*"})`) ?? "*" : parent ?? "*";
+          parent = /:not\([^)]*(?:&|:scope\b)/iu.test(loose) ? "*" : loose.replaceAll("&", `:is(${ampersand})`).replaceAll(/:scope\b/gu, "*");
         } else {
           parent = selector;
         }

@@ -627,7 +627,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
       @property --reg-green { syntax: "<color>"; inherits: false; initial-value: rgb(0, 255, 0) }
       @font-face { font-family: page-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
-      .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }</style>
+      .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }
+      .scope-amp { @scope (.amp-root) { & > .amp-child { fill: currentColor } &.amp-self { fill: currentColor } } }</style>
     <style>@import url(/never.css) supports(display: nonexistent);</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
@@ -724,6 +725,11 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg width="0" height="0" style="position: absolute"><g class="scope-parent"><symbol id="nested-scope" class="nested-scope" viewBox="0 0 10 10">
       <rect width="10" height="10"/></symbol></g></svg>
     <svg data-testid="nested-scoped" tabindex="0" width="20" height="20" style="display: block"><use href="#nested-scope" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
+    <svg width="0" height="0" style="position: absolute"><g class="scope-amp">
+      <symbol id="amp-child" class="amp-root" viewBox="0 0 10 10"><rect class="amp-child" width="10" height="10"/></symbol>
+      <symbol id="amp-self" class="amp-root amp-self" viewBox="0 0 10 10"><rect width="10" height="10"/></symbol></g></svg>
+    <svg data-testid="scope-child" tabindex="0" width="20" height="20" style="display: block"><use href="#amp-child" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="scope-self" tabindex="0" width="20" height="20" style="display: block"><use href="#amp-self" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="piped" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect id="piped-tile" data-kind="foo|bar" width="40" height="40"/></defs><use href="#piped-tile" fill="rgb(0, 255, 0)" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="spun" tabindex="0" width="40" height="40" style="display: block">
@@ -791,6 +797,9 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["negated", shownRule("rect")],
     ["scoped", shownRule("symbol")],
     ["nested-scoped", shownRule("symbol")],
+    // A rule in a nested @scope whose & (the scope's root) has a child or a compound selector.
+    ["scope-child", shownRule("rect")],
+    ["scope-self", shownRule("symbol")],
     // A rule whose attribute value holds a "|", which is not a namespace; and the drawing's own rule that negates a
     // namespace, taken to match what a <use> shows, whose registered custom property is then seen.
     ["piped", shownRule("rect")],
