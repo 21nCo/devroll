@@ -80,7 +80,13 @@ function reference(url: string, ids: Set<string>): string | null {
  * tab, LF and CR; lone surrogates; U+FFFE, U+FFFF), which changes what an attribute or a style sheet means there.
  */
 function markupDrops(text: string): boolean {
-  return /[\uD800-\uDFFF\uFFFE\uFFFF]/u.test(text) || [...text].some((char) => char < " " && !"\t\n\r".includes(char));
+  if (/[\uD800-\uDFFF\uFFFE\uFFFF]/u.test(text)) return true;
+  // One pass without copying: the text may be a whole drawing's markup.
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) return true;
+  }
+  return false;
 }
 
 /** `url` without the C0 controls and spaces at its ends, which the URL parser strips (and nothing else). */
@@ -896,7 +902,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
  * holds the frame a drawing's copy is checked in while it is), within
  * {@link MAX_SCREENSHOT_PIXELS} and the daemon's attachment size limit, doing its heavy work only while it holds
  * `slot`. Never rejects: a failure resolves with the reason, so the comment can still be sent without a screenshot.
- * Call it as the element is picked, before focus moves: focus on, in or around the element refuses it. Aborting
+ * Call it as the element is picked, before focus moves: focus on a page element refuses it. Aborting
  * `signal` (or the time limit, counted from this call, when its render starts: it is queued behind nothing but a
  * withdrawn holder finishing its drawing) withdraws the capture: it resolves at once, and its render stops at its next
  * copied node or step and its context is destroyed.
@@ -908,11 +914,13 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
   }
   const rect = element.getBoundingClientRect();
   if (screenshotScale(rect.width, rect.height, 1) === null) return { ok: false, reason: unavailableReason("the element has no visible area") };
-  // Read as the pick is made: the comment box takes focus next, before the element is copied, so the copy would lose
-  // what focus gives it (:focus, :focus-visible, :focus-within) and anything a blur handler changes.
-  const focused = element.ownerDocument.activeElement;
-  if (focused && focused !== exclude && focused.matches(":focus") && (focused.contains(element) || element.contains(focused))) {
-    return { ok: false, reason: unavailableReason("focus was on, in or around the element when it was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet") };
+  // Read as the pick is made: the comment box takes focus next, before the element is copied. Focus anywhere on the
+  // page (but the bar) may style the element (:focus on it, :focus-within around it, a sibling's :focus, :has(:focus))
+  // or have a blur handler change it, so the copy could show what was not on screen. The body holds no focus unless
+  // focused itself.
+  const { activeElement: focused, body, documentElement } = element.ownerDocument;
+  if (focused && focused !== exclude && (focused.matches(":focus") || (focused !== body && focused !== documentElement))) {
+    return { ok: false, reason: unavailableReason("a page element had focus when this one was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet") };
   }
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
   const withdraw = new AbortController();

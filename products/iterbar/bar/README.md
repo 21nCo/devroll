@@ -135,9 +135,9 @@ element is described when it is picked:
   that first, so the next capture may wait for it, within its own
   10-second limit.
   When the capture fails (for example a canvas tainted by a cross-origin
-  image, an element with no area, focus on, in or around the element when
-  it is picked (so a keyboard pick, too), which the composer then takes, so
-  focus styles and blur handlers would change it before it is copied, a
+  image, an element with no area, focus on any page element when it is
+  picked (so a keyboard pick, too), which the composer then takes, so focus
+  styles and blur handlers could change it before it is copied, a
   scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an

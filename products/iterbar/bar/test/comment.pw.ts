@@ -983,18 +983,22 @@ test("sends no drawing whose copy would hold a character its image drops: in a v
   await page.evaluate(() => {
     document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
       <div id="drop-wrap"><svg data-testid="drop-var" width="100" height="50" style="display: block"><rect width="100" height="50" style="fill: var(--c)"/></svg></div>
+      <div id="drop-half"><svg data-testid="drop-surrogate" width="100" height="50" style="display: block"><rect width="100" height="50" style="fill: var(--c)"/></svg></div>
       <div id="drop-defs"><svg width="0" height="0" style="position: absolute"><linearGradient id="drop-grad"><stop style="stop-color: var(--c)"/></linearGradient></svg></div>
       <svg data-testid="drop-def" width="100" height="50" style="display: block"><rect width="100" height="50" fill="url(#drop-grad)"/></svg>
       <svg data-testid="drop-sheet" width="100" height="50" style="display: block"><style></style><rect width="100" height="50"/></svg>`);
     // Raw characters, set from a script (CSS text would hold them escaped): "re<U+0001>d" is no colour, so the page
     // draws black, but "red" once the image's markup drops the U+0001.
     for (const id of ["drop-wrap", "drop-defs"]) document.getElementById(id)!.style.setProperty("--c", "re\u0001d");
+    document.getElementById("drop-half")!.style.setProperty("--c", "re\uD800d");
     document.querySelector("[data-testid=drop-sheet] style")!.textContent = "rect { --k: a\u0001b }";
   });
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   for (const [id, reason] of [
-    // A custom property the drawing's root inherits, or a definition's ancestor (outside the drawing) does.
+    // A custom property the drawing's root inherits (with U+0001, or a lone surrogate), or a definition's ancestor
+    // (outside the drawing) does.
     ["drop-var", "the drawing's copy has a character its image would drop, which a screenshot cannot keep yet"],
+    ["drop-surrogate", "the drawing's copy has a character its image would drop, which a screenshot cannot keep yet"],
     ["drop-def", "the drawing's copy has a character its image would drop, which a screenshot cannot keep yet"],
     ["drop-sheet", "the drawing's style sheet has a character its image would drop, which a screenshot cannot keep yet"],
   ] as const) {
@@ -1506,7 +1510,7 @@ test("still sends the comment when the screenshot fails, with the reason and no 
   await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("No picture");
 });
 
-test("sends no screenshot, and says why, when focus is on, in or around the picked element, which the comment box takes", async ({ page, openFixture, fixtureServer }) => {
+test("sends no screenshot, and says why, when a page element has focus at the pick, which the comment box takes", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openFixture();
   await page.evaluate(() => {
@@ -1514,17 +1518,19 @@ test("sends no screenshot, and says why, when focus is on, in or around the pick
       <style>.lit { width: 100px; height: 40px; border: 0; background: rgb(0, 0, 255) } .lit:focus-visible { background: rgb(255, 0, 0) }</style>
       <button type="button" class="lit" data-testid="lit"></button>
       <div data-testid="holder" style="width: 100px; padding: 10px"><input data-testid="field" style="width: 100px; height: 40px; border: 0; background: rgb(0, 0, 255)"></div>
-      <div data-testid="around" tabindex="-1"><span data-testid="inside" style="display: inline-block; width: 80px; height: 30px; background: rgb(0, 255, 0)"></span></div>`);
+      <div data-testid="around" tabindex="-1"><span data-testid="inside" style="display: inline-block; width: 80px; height: 30px; background: rgb(0, 255, 0)"></span></div>
+      <style>.sibling:focus + .hint { background: rgb(255, 0, 0) }</style>
+      <div><input class="sibling" data-testid="sibling"><span class="hint" data-testid="hint" style="display: inline-block; width: 80px; height: 30px; background: rgb(0, 0, 255)"></span></div>`);
     // What leaving the field does, once the comment box takes focus.
     document.querySelector("[data-testid=field]")!.addEventListener("blur", (event) => {
       (event.target as HTMLElement).style.background = "rgb(255, 0, 0)";
     });
   });
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-  const reason = "The screenshot failed: focus was on, in or around the element when it was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet";
+  const reason = "The screenshot failed: a page element had focus when this one was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet";
   // A keyboard pick of a control its focus styles, or of a field a blur handler changes; a click on the box around a
-  // focused field, or inside a focused box.
-  for (const [focused, picked] of [["lit", null], ["field", null], ["field", "holder"], ["around", "inside"]] as const) {
+  // focused field, inside a focused box, or on a hint its focused sibling styles.
+  for (const [focused, picked] of [["lit", null], ["field", null], ["field", "holder"], ["around", "inside"], ["sibling", "hint"]] as const) {
     const index = daemon.posts.length;
     await enterCommentMode(page);
     await page.getByTestId(focused).focus();
