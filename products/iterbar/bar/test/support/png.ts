@@ -59,3 +59,29 @@ export function colourCounts(page: Page, png: Buffer, colours: readonly (readonl
     return counts;
   }, { base64: png.toString("base64"), colours });
 }
+
+/**
+ * {@link colourCounts} for each quadrant of `png` (top left, top right, bottom left, bottom right), so that a colour in
+ * the wrong place does not pass for one in the right place.
+ */
+export function quadrantColourCounts(page: Page, png: Buffer, colours: readonly (readonly [number, number, number])[]): Promise<number[][]> {
+  return page.evaluate(async ({ base64, colours }) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    const counts = [0, 1, 2, 3].map(() => colours.map(() => 0));
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index + 3] !== 255) continue;
+      const x = (index / 4) % bitmap.width;
+      const y = Math.floor(index / 4 / bitmap.width);
+      const quadrant = (y < bitmap.height / 2 ? 0 : 2) + (x < bitmap.width / 2 ? 0 : 1);
+      colours.forEach((colour, which) => {
+        if (colour.every((channel, offset) => Math.abs(data[index + offset]! - channel) <= 8)) counts[quadrant]![which]! += 1;
+      });
+    }
+    return counts;
+  }, { base64: png.toString("base64"), colours });
+}

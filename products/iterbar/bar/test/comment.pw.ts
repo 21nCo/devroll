@@ -2,7 +2,8 @@ import type { Locator, Page } from "@playwright/test";
 import type { FeedbackDraft } from "iterbar";
 import { fakeDaemon, type FakeDaemon } from "./support/fake-daemon.js";
 import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
-import { colourCounts, darkPixels, pngPixels, pngSize } from "./support/png.js";
+import { blockFontUrl } from "./support/font.js";
+import { darkPixels, pngPixels, pngSize, quadrantColourCounts } from "./support/png.js";
 
 // Comment mode against a fake daemon that records each POST /feedback: picking, the selector's closed set, the
 // target description, the screenshot and its failure path, and what the page receives while picking.
@@ -441,6 +442,18 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
   expect(await styles()).toEqual(before);
 });
 
+const SHOWN_COLOURS = [[0, 255, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]] as const;
+
+/** Expects `sent` to have each colour of {@link SHOWN_COLOURS} in each quadrant as `live` does, within 2% (or 3 pixels). */
+async function expectLike(page: Page, sent: Buffer, live: Buffer, id: string): Promise<void> {
+  const [have, want] = [await quadrantColourCounts(page, sent, SHOWN_COLOURS), await quadrantColourCounts(page, live, SHOWN_COLOURS)];
+  want.forEach((counts, quadrant) => counts.forEach((count, which) => {
+    expect(Math.abs(have[quadrant]![which]! - count), `${id} quadrant ${quadrant} colour ${which}: ${have[quadrant]![which]} vs ${count}`)
+      .toBeLessThanOrEqual(Math.max(3, count * 0.02));
+  }));
+  expect(have.flat().reduce((sum, count) => sum + count, 0), id).toBeGreaterThan(0);
+}
+
 test("draws an <svg> only as the page shows it, and sends none, saying why, when the page styles it or it loads an outside resource", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   // A style sheet from another origin, which the page cannot read, followed by a rule it can.
@@ -539,44 +552,39 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   // A style sheet whose text is split across two nodes, neither of which refers to anything alone.
   await page.evaluate(() => document.getElementById("split-sheet")!.append("@font-face { font-family: split-face; src: u", "rl(/split.woff2) }"));
   const faithful = [
-    "plain", "instances", "literal", "referring", "variable", "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset",
-    "styled", "nest", "imported", "red-use", "tokens", "nested-ids", "ruled", "local-ruled", "themed", "ico", "important", "trans", "spin",
-    "root-has", "capped",
+    "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset", "styled", "nest", "imported", "tokens", "trans", "spin", "root-has",
+    "capped",
   ] as const;
-  const colours = [[0, 255, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]] as const;
   // What the page shows of each drawing, before the bar is on it.
-  const live = new Map<string, number[]>();
-  for (const id of faithful) live.set(id, await colourCounts(page, await page.getByTestId(id).screenshot(), colours));
+  const live = new Map<string, Buffer>();
+  for (const id of faithful) live.set(id, await page.getByTestId(id).screenshot());
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   const markup = () => page.evaluate(() => [...document.querySelectorAll("svg, svg *")].map((element) => element.outerHTML));
   const before = await markup();
 
-  // Drawings are drawn as the page shows them, on a page whose cursor and a custom property refer to images: a page
-  // colour inherited as currentColor, a symbol with a relative size, <use>s of different colours, a symbol and
-  // gradients from elsewhere (one in a hidden drawing, one inside a symbol named before the symbol), a data: image and
-  // font, a custom property set on a <use> (inline or by a rule), the page's background on the drawing, page rules that
-  // do not apply, and page rules on its shapes: CSS d and d: none over the d attribute, an opacity attribute reset, an
-  // individual transform, a CSS reset's box-sizing and borders, a custom property a rule resets, and a fill from a
-  // rule, a nested rule and a rule after a style sheet the page cannot read. What a <use> shows keeps a page rule's
-  // fill even where it equals what it inherits where it is defined (a sprite's fill, the default black), and inherits
-  // from the <use> what a rule on an ancestor where it is defined gives it there. A page rule's currentColor on it
-  // follows the <use>'s colour; an important rule wins over its inline style; a rule under a media query that does
-  // not hold is left out; a universal box-sizing: inherit reset changes nothing. A shape with a transition, and one
-  // a running animation turns (a circle, which looks the same at every turn), are drawn as they are now. A page whose
-  // universal rule declares an empty custom property, a drawing whose own rule on its root depends on its shapes' style
-  // attributes, and one whose maximum width is a share of its parent's are drawn as the page shows them too.
+  // Drawings without a <use> are drawn as the page shows them, on a page whose cursor and a custom property refer to
+  // images: a data: font, the page's background on the drawing, page rules that do not apply, and page rules on its
+  // shapes: CSS d and d: none over the d attribute, an opacity attribute reset, an individual transform, a CSS reset's
+  // box-sizing and borders, a custom property a rule resets, and a fill from a rule, a nested rule and a rule after a
+  // style sheet the page cannot read. A shape with a transition, and one a running animation turns (a circle, which
+  // looks the same at every turn), are drawn as they are now. A page whose universal rule declares an empty custom
+  // property, a drawing whose own rule on its root depends on its shapes' style attributes, and one whose maximum
+  // width is a share of its parent's are drawn as the page shows them too.
   for (const id of faithful) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
-    const sent = await colourCounts(page, screenshot!, colours);
-    sent.forEach((count, which) => expect(Math.abs(count - live.get(id)![which]!), `${id} colour ${which}: ${count} vs ${live.get(id)![which]}`).toBeLessThanOrEqual(Math.max(3, live.get(id)![which]! * 0.02)));
-    expect(sent.reduce((sum, count) => sum + count, 0), id).toBeGreaterThan(0);
+    await expectLike(page, screenshot!, live.get(id)!, id);
   }
 
-  // A page rule for what a <use> shows under a condition this cannot evaluate is not drawn. Nor is a drawing whose own
-  // selectors would match differently once its copy's shapes carry their values.
+  // A drawing with a <use> is not drawn on this page: its universal rules (and others) match what the <use>s show,
+  // which the copy cannot check for each <use>. Nor is a drawing whose own selectors would match differently once its
+  // copy's shapes carry their values.
+  for (const id of ["plain", "instances", "literal", "referring", "variable", "red-use", "nested-ids", "ruled", "local-ruled", "themed", "ico", "important", "contained"]) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id).toMatch(/^The screenshot failed: the page has a style rule for the <\w+> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet$/u);
+  }
   for (const [id, reason] of [
-    ["contained", "the page has a rule for the <rect> that a <use> in the drawing shows under a condition a screenshot cannot evaluate yet"],
     ["has", "the page styles the drawing's <rect> (its opacity) in a way its copy cannot reproduce yet"],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
@@ -600,6 +608,167 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   expect(await markup()).toEqual(before);
   // The frames the copies were checked in are gone.
   expect(await page.evaluate(() => document.querySelector("iterbar-bar")!.shadowRoot!.querySelectorAll("iframe").length)).toBe(0);
+});
+
+test("draws what a <use> shows only when nothing on the page but the <use> styles it, and text only in its own fonts", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  const block = blockFontUrl("Block");
+  const green = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="rgb(0,255,0)"/></svg>')}`;
+  await page.evaluate(({ block, green }) => {
+    // A page whose rules reach a <use> or a definition's ancestor, but none of what a <use> shows, except where named.
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+    <style>.red-use { --tone: rgb(255, 0, 0) } .themed { fill: rgb(255, 0, 0) } .sprite-blue { fill: rgb(0, 0, 255) } .ico rect { fill: currentColor }
+      .tile { fill: rgb(255, 0, 0) !important } .r { fill: rgb(0, 0, 0) } @container (min-width: 1px) { .contained-shape { fill: rgb(255, 0, 0) } }
+      .wrap { .nested-r { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
+      @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
+      @font-face { font-family: page-face; src: url(${block}) }</style>
+    <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
+      <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
+      <symbol id="two-tone" viewBox="0 0 100 50" preserveAspectRatio="none"><rect width="50" height="50" fill="#000"/><rect x="50" width="50" height="50" fill="currentColor"/></symbol>
+      <symbol id="toned" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" style="fill: var(--tone, rgb(0, 0, 255))"/></symbol>
+      <symbol id="ruled" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="sprite-blue" width="10" height="10"/></symbol>
+      <symbol id="outer-icon" viewBox="0 0 10 10" preserveAspectRatio="none">
+        <linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient>
+        <rect width="10" height="10" fill="url(#inner-green)"/></symbol>
+      <linearGradient id="blue"><stop offset="0" stop-color="rgb(0, 0, 255)"/><stop offset="1" stop-color="rgb(0, 0, 255)"/></linearGradient>
+      <g id="inner"><rect width="50" height="50" fill="rgb(0, 255, 0)"/></g>
+      <symbol id="outer" viewBox="0 0 50 50" width="50" height="50"><use href="#inner"/></symbol>
+      <g id="inner-ruled"><rect class="r2" width="50" height="50" fill="rgb(0, 255, 0)"/></g>
+      <rect id="nested-rect" class="nested-r" width="100" height="50" fill="rgb(0, 255, 0)"/>
+      <rect id="empty-tile" class="ec" width="100" height="50" style="fill: var(--c, rgb(255, 0, 0))"/></svg>
+    <svg style="display: none"><g class="themed"><symbol id="themed-shape" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol></g>
+      <symbol id="ico" class="ico" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
+      <symbol id="contained" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="contained-shape" width="10" height="10"/></symbol>
+      <linearGradient id="hidden-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></svg>
+    <div style="color: rgb(0, 0, 255)">
+      <svg data-testid="plain" tabindex="0" width="100" height="50" style="display: block">
+        <defs><symbol id="half" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="50%" height="50%" fill="rgb(0, 255, 0)"/></symbol></defs>
+        <use href="#half" width="100" height="50"/><rect x="50" width="50" height="50" fill="currentColor"/></svg></div>
+    <svg data-testid="instances" tabindex="0" width="100" height="50" color="rgb(255, 0, 0)" style="display: block">
+      <defs><g id="shape"><rect width="50" height="50" fill="currentColor"/></g></defs>
+      <use href="#shape" color="rgb(0, 0, 255)"/><use href="#shape" x="50" color="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="literal" tabindex="0" width="150" height="50" style="display: block; color: rgb(0, 0, 0); fill: rgb(0, 255, 0)">
+      <use href="#two-tone" width="100" height="50" style="color: rgb(255, 0, 0)"/><use href="#dot" x="100" width="50" height="50"/></svg>
+    <svg data-testid="referring" tabindex="0" width="125" height="50" style="display: block">
+      <defs><linearGradient id="local-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></defs>
+      <rect width="25" height="50" fill="url(#local-green)"/><rect x="25" width="25" height="50" fill="url(#blue)"/>
+      <image x="50" width="25" height="50" preserveAspectRatio="none" href="${green}"/><rect x="75" width="25" height="50" fill="url(#hidden-green)"/>
+      <use href="#toned" x="100" width="25" height="50" style="--tone: rgb(255, 0, 0)"/></svg>
+    <svg data-testid="variable" tabindex="0" width="20" height="20" color="rgb(255, 0, 0)" style="display: block; --paint: currentColor">
+      <defs><rect id="var-tile" width="20" height="20" style="fill: var(--paint)"/></defs><use href="#var-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="red-use" tabindex="0" width="20" height="20" style="display: block"><use class="red-use" href="#toned" width="20" height="20"/></svg>
+    <svg data-testid="nested-ids" tabindex="0" width="100" height="50" style="display: block">
+      <rect width="50" height="50" fill="url(#inner-green)"/><use href="#outer-icon" x="50" width="50" height="50"/></svg>
+    <svg data-testid="themed" tabindex="0" width="20" height="20" style="display: block"><use href="#themed-shape" fill="rgb(0, 255, 0)" width="20" height="20"/></svg>
+    <svg data-testid="copied-twice" tabindex="0" width="100" height="50" style="display: block"><use href="#inner"/><use href="#outer" x="50"/></svg>
+    <svg data-testid="root-current" tabindex="0" width="100" height="50" style="display: block; color: rgb(255, 0, 0); fill: currentColor">
+      <defs><rect id="current-tile" width="50" height="50"/></defs>
+      <use href="#current-tile" style="color: rgb(0, 255, 0)"/><use href="#current-tile" x="50" style="color: rgb(0, 0, 255)"/></svg>
+    <svg data-testid="empty-var" tabindex="0" width="100" height="50" style="display: block; fill: rgb(0, 255, 0)">
+      <rect class="ec-plain" width="100" height="50" style="fill: var(--c, rgb(255, 0, 0))"/></svg>
+    <svg data-testid="noted" tabindex="0" width="100" height="50" style="display: block">
+      <rect data-note="see url(http://example.invalid/x)" aria-label="url(http://example.invalid/y)" width="100" height="50" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="own-font" tabindex="0" width="120" height="50" style="display: block">
+      <style>@font-face { font-family: own-face; src: url(${block}) }</style><text x="0" y="40" font-family="own-face" font-size="40">WW</text></svg>
+    <svg data-testid="generic-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="monospace" font-size="40">WW</text></svg>
+
+    <svg data-testid="ruled" tabindex="0" width="20" height="20" style="display: block; fill: rgb(0, 255, 0)"><use href="#ruled" width="20" height="20"/></svg>
+    <svg data-testid="ico" tabindex="0" width="20" height="20" style="display: block; color: rgb(255, 0, 0)"><use href="#ico" width="20" height="20"/></svg>
+    <svg data-testid="important" tabindex="0" width="20" height="20" color="rgb(255, 0, 0)" style="display: block">
+      <defs><rect id="tile" class="tile" width="20" height="20" style="fill: currentColor"/></defs><use href="#tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="local-ruled" tabindex="0" width="20" height="20" style="display: block">
+      <defs><g id="local-shape"><rect class="r" width="20" height="20"/></g></defs><use href="#local-shape" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="contained" tabindex="0" width="20" height="20" style="display: block"><use href="#contained" width="20" height="20"/></svg>
+    <svg data-testid="nested" tabindex="0" width="100" height="50" style="display: block"><use href="#nested-rect"/></svg>
+    <svg data-testid="copied-twice-ruled" tabindex="0" width="100" height="50" style="display: block"><use href="#inner-ruled"/><use href="#inner-ruled" x="50"/></svg>
+    <svg data-testid="empty-use" tabindex="0" width="100" height="50" style="display: block; fill: rgb(0, 255, 0)"><use href="#empty-tile"/></svg>
+    <svg data-testid="registered" tabindex="0" width="40" height="40" style="display: block">
+      <defs><g id="reg-shape"><rect width="40" height="40" style="fill: var(--reg-tone)"/></g></defs><use href="#reg-shape" style="--reg-tone: rgb(0, 0, 255)"/></svg>
+    <svg data-testid="script-registered" tabindex="0" width="40" height="40" style="display: block">
+      <defs><g id="js-shape"><rect width="40" height="40" style="fill: var(--js-tone)"/></g></defs><use href="#js-shape" style="--js-tone: rgb(0, 0, 255)"/></svg>
+    <svg data-testid="page-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="page-face" font-size="40">WW</text></svg>
+    <svg data-testid="script-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="script-face" font-size="40">WW</text></svg>
+    <svg data-testid="linked-set" tabindex="0" width="20" height="20" style="display: block">
+      <defs><rect id="set-a" width="20" height="20" fill="rgb(0, 255, 0)"/></defs><use href="#set-a"><set attributeName="href" to="/elsewhere.svg#b"/></use></svg>
+    <svg data-testid="xlinked-set" tabindex="0" width="20" height="20" style="display: block">
+      <defs><rect id="xset-a" width="20" height="20" fill="rgb(0, 255, 0)"/></defs><use href="#xset-a"><set attributeName="xlink:href" to="#xset-a"/>
+      <animate attributeName="xlink:href" values="#xset-a;/far.svg#c" dur="2s"/></use></svg>
+    <svg data-testid="animated-paint" tabindex="0" width="20" height="20" style="display: block">
+      <rect width="20" height="20" fill="rgb(0, 255, 0)"><animate attributeName="fill" values="rgb(0, 255, 0);url(/paint.svg#p)" dur="2s"/></rect></svg>`);
+    CSS.registerProperty({ name: "--js-tone", syntax: "<color>", inherits: false, initialValue: "rgb(255, 0, 0)" });
+  }, { block, green });
+  await page.evaluate(async (block) => {
+    const face = new FontFace("script-face", await (await fetch(block)).arrayBuffer());
+    document.fonts.add(face);
+    await face.load();
+    await document.fonts.ready;
+  }, block);
+  const faithful = [
+    "plain", "instances", "literal", "referring", "variable", "red-use", "nested-ids", "themed", "copied-twice", "root-current", "empty-var",
+    "noted", "own-font", "generic-font",
+  ] as const;
+  const live = new Map<string, Buffer>();
+  for (const id of faithful) live.set(id, await page.getByTestId(id).screenshot());
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+
+  // What a <use> shows, styled by nothing on the page but the <use> (its colour, a custom property inline or by a
+  // rule on the <use>, a rule on the definition's ancestor, the drawing's root), drawn per quadrant as the page shows it;
+  // and drawings with text in a font of their own or a generic family, or attributes whose text reads like a url().
+  for (const id of faithful) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(draft.screenshotUnavailableReason, id).toBeNull();
+    await expectLike(page, screenshot!, live.get(id)!, id);
+  }
+  const shownRule = (element: string) => `the page has a style rule for the <${element}> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet`;
+  for (const [id, reason] of [
+    // A page rule on what a <use> shows, plain, as currentColor, important, on a definition in the drawing, under a
+    // condition, nested, on a source shown twice, or declaring an empty custom property.
+    ...["ruled", "ico", "important", "local-ruled", "contained", "nested", "copied-twice-ruled", "empty-use"].map((id) => [id, shownRule("rect")] as const),
+    // A custom property the page registers (by @property or from a script), which shown content uses.
+    ["registered", "what a <use> in the drawing shows uses --reg-tone, which the page registers, and a screenshot cannot reproduce yet"],
+    ["script-registered", "what a <use> in the drawing shows uses --js-tone, which the page registers, and a screenshot cannot reproduce yet"],
+    // Text in a font the page has a face for, from a style sheet or a script.
+    ["page-font", "the drawing's text uses the page's font page-face, which a screenshot cannot embed yet"],
+    ["script-font", "the drawing's text uses the page's font script-face, which a screenshot cannot embed yet"],
+    // A link an animation sets.
+    ["linked-set", "the drawing loads /elsewhere.svg#b, which a screenshot cannot embed yet"],
+    ["xlinked-set", "the drawing loads /far.svg#c, which a screenshot cannot embed yet"],
+    ["animated-paint", "the drawing loads /paint.svg#p, which a screenshot cannot embed yet"],
+  ] as const) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
+  }
+
+  // A style sheet from another origin, which the page cannot read, may style what a <use> shows, and its font faces
+  // are the page's too; a drawing without a <use> or text is still drawn.
+  const elsewhere = `${fixtureServer.origin.replace("127.0.0.1", "localhost")}/elsewhere.css`;
+  await page.route(elsewhere, (route) => route.fulfill({
+    status: 200, contentType: "text/css", body: `.far { fill: rgb(0, 0, 0) } @font-face { font-family: far-face; src: url(${block}) }`,
+  }));
+  await page.evaluate(async (elsewhere) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = elsewhere;
+    const loaded = new Promise((resolve) => link.addEventListener("load", resolve, { once: true }));
+    document.head.append(link);
+    await loaded;
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+      '<svg data-testid="far-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="far-face" font-size="40">WW</text></svg>');
+    await document.fonts.ready;
+  }, elsewhere);
+  for (const [id, reason] of [
+    ["plain", "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet"],
+    ["far-font", "the drawing's text uses the page's font far-face, which a screenshot cannot embed yet"],
+  ] as const) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
+  }
+  const { draft, screenshot } = await commentFromKeyboard(page, daemon, "noted");
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  await expectLike(page, screenshot!, live.get("noted")!, "noted");
 });
 
 test("a large drawing on a page with many style rules is copied well within the time limit", async ({ page, openFixture, fixtureServer }) => {

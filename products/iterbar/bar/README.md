@@ -97,18 +97,25 @@ element is described when it is picked:
   compute every style property (custom properties too) as its original
   does. What the page's rules give an element (a fill, opacity,
   transform, `d`, box-sizing or custom property) is given to its copy as
-  computed, and then every element is compared again. What a `<use>`
-  shows inherits from the `<use>`: what the page's applying rules
-  declare for a shown element is given to its copy inline (a value that
-  depends on where it is shown, such as `currentColor` or `var()`, as
-  declared, so each instance resolves it as on the page). Rules under a
-  condition it cannot evaluate (`@container`, `@scope`) are not drawn,
-  and rules in another origin's style sheet, which the page cannot read,
-  cannot be checked. Transitions and animations are drawn as they are at
-  that moment. Pointing and selection properties (`cursor`,
-  `pointer-events`, `user-select`) and a custom property that refers to
-  an image are not carried. The size and scale are measured once
-  its images and fonts have loaded, so an element that grows meanwhile
+  computed (an empty custom property stays empty), and then every
+  element is compared again. What a `<use>` shows is drawn with only its
+  own attributes and inline style, the drawing's own rules and what it
+  inherits from the `<use>`, which comparing elements cannot check for each
+  `<use>`; so the screenshot is unavailable when the page could style it
+  otherwise: a page style sheet it cannot read (another origin's), any
+  page rule matching a shown element at any nesting or under any
+  condition (a universal reset such as Tailwind's matches every element),
+  one of the drawing's own rules that is nested, conditional or matches
+  the copy differently, or a custom property the page registers
+  (`@property` or `CSS.registerProperty`) that shown content uses. Text in
+  a font the page has a face for is drawn by the image without it, so it
+  is unavailable too, unless the drawing's own `<style>` declares the face
+  from a `data:` URL. Transitions and animations are drawn as they are at
+  that moment. Pointing, selection and list-marker properties (`cursor`,
+  `pointer-events`, `user-select`, `list-style-image`) and a custom
+  property that refers to an image are not carried. The size and scale
+  are measured once its images and fonts have loaded, so an element that
+  grows meanwhile
   stays within the cap, and the image produced is checked again: one over
   4 MP is not sent. One capture at a time reads, copies, checks and draws
   the element; a capture waiting for its turn holds no copy. A capture
@@ -123,9 +130,10 @@ element is described when it is picked:
   image, an element with no area, a scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
-  `href`, or a `url()` or `src()` in an attribute, an inherited value or
-  its own `<style>` text, that is neither a `#fragment` nor a `data:` URL;
-  an `@import`; an `image-set()`), holds HTML in a `<foreignObject>`, has
+  `href`, a link an animation sets, or a `url()` or `src()` in a style or
+  presentation attribute, an inherited value or its own `<style>` text,
+  that is neither a `#fragment` nor a `data:` URL; an `@import`; an
+  `image-set()`; text in a page font), holds HTML in a `<foreignObject>`, has
   padding or a border, or that the page styles in a way its copy cannot reproduce,
   an inline element inside a scaled or rotated box, or a capture over 10
   seconds) the comment is still sent, without a screenshot and with the
