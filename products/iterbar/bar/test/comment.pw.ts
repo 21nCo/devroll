@@ -787,6 +787,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg data-testid="own-nth" tabindex="0" width="40" height="40" style="display: block">
       <style>@namespace url("http://www.w3.org/2000/svg"); .own-nth-sprite rect:nth-child(2) { fill: currentColor }</style>
       <use href="#own-nth-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="escaped-id" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="esc-tile" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#esc%2Dtile"/></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
     <svg width="0" height="0" style="position: absolute"><animate href="#from-afar" attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></svg>
@@ -894,6 +896,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["frozen", animated("animate")],
     ["frozen-afar", animated("animate")],
     ["frozen-root", animated("set")],  // by a percent-encoded #id
+    // A <use> of a percent-encoded #id, which the browser decodes.
+    ["escaped-id", "the drawing refers to #esc%2Dtile, an escaped #id a screenshot cannot resolve yet"],
     // One that names the drawing's root by the page's URL and its #id.
     ["frozen-abs", animated("set")],
   ] as const) {

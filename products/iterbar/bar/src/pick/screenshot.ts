@@ -68,6 +68,8 @@ const XLINK = "http://www.w3.org/1999/xlink";
  */
 function reference(url: string, ids: Set<string>): string | null {
   const value = url.trim();
+  // The browser percent-decodes a #fragment; one with an escape is not looked up here.
+  if (value.startsWith("#") && value.includes("%")) return `the drawing refers to ${value.slice(0, 100)}, an escaped #id a screenshot cannot resolve yet`;
   if (value.startsWith("#")) ids.add(value.slice(1));
   else if (!/^data:/iu.test(value)) return `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
   return null;
