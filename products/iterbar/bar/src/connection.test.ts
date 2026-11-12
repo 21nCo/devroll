@@ -140,6 +140,36 @@ describe("DaemonConnection", () => {
       .toBe("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
   });
 
+  it("lists the threads again after an uncertain send, never alongside a recovery listing", async () => {
+    const connection = new DaemonConnection({ url: "http://127.0.0.1:4555", token }, {
+      onStatus: () => {}, onFeedback: () => true, isComplete: () => false, onListing: () => false,
+    });
+    connection.start();
+    socket().open();
+    const gets = () => requests.filter((request) => request.method === "GET" && request.path === "/feedback");
+    // Incomplete listings: two recovery listings at once, then one waiting for its 1 s backoff.
+    for (let index = 0; index < 3; index += 1) {
+      gets()[index]!.respond(200, list([]));
+      await settle();
+    }
+    expect(gets()).toHaveLength(3);
+    const draft: FeedbackDraft = {
+      schemaVersion: SCHEMA_VERSION, kind: "comment", text: "Hi", pageUrl: "http://localhost:5173/", target: null,
+      activeVariants: [], screenshotUnavailableReason: "The screenshot failed: test", evidenceWindow: null,
+    };
+    const sent = connection.sendFeedback(draft, null).catch((error: Error) => error.message);
+    await settle();
+    requests.find((request) => request.method === "POST")!.respond(500, { schemaVersion: SCHEMA_VERSION, error: { code: "internal", message: "Sync failed" } });
+    expect(await sent).toContain("may already be stored");
+    // The refresh starts at once and replaces the waiting recovery listing: one listing in flight, however long.
+    expect(gets()).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(gets()).toHaveLength(4);
+    gets()[3]!.respond(200, list([]));
+    await settle();
+    expect(gets()).toHaveLength(5);
+  });
+
   it("calls only a 4xx answer a refusal; after a 5xx the comment may already be stored", async () => {
     const connection = connect();
     socket().open();

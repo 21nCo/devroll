@@ -108,18 +108,23 @@ function frameOf(element: Element): Frame | string {
   return {
     width: width * zoom,
     height: height * zoom,
-    style: { ...PLACEMENT, transform: own ? "translate(0px)" : "none", width: `${width}px`, height: `${height}px`, zoom: String(zoom) },
+    style: {
+      ...PLACEMENT, transform: own ? "translate(0px)" : "none", boxSizing: "border-box", width: `${width}px`, height: `${height}px`, zoom: String(zoom),
+    },
   };
 }
 
-/** Frames a detached copy of an `<svg>`, which is drawn from its markup: without its placement or offsets, at the frame's size. */
+/**
+ * Frames a detached copy of an `<svg>`, which is drawn from its markup: at the frame's size, with its placement and
+ * offsets overridden by important inline declarations, which win over its own style sheets too.
+ */
 function frameSvgCopy(copy: SVGSVGElement, frame: Frame): void {
-  for (const name of ["transform", "translate", "rotate", "scale", "margin", "zoom", "position", "inset", "top", "right", "bottom", "left"]) {
-    copy.style.removeProperty(name);
-  }
   copy.removeAttribute("transform");
-  copy.style.width = frame.style.width!;
-  copy.style.height = frame.style.height!;
+  const style: Record<string, string> = {
+    transform: "none", translate: "none", rotate: "none", scale: "none", margin: "0", zoom: "1", position: "static",
+    inset: "auto", "box-sizing": "border-box", width: frame.style.width!, height: frame.style.height!,
+  };
+  for (const [name, value] of Object.entries(style)) copy.style.setProperty(name, value, "important");
   copy.setAttribute("width", frame.style.width!.slice(0, -2));
   copy.setAttribute("height", frame.style.height!.slice(0, -2));
 }
@@ -149,9 +154,10 @@ function yieldToPage(): Promise<void> {
 /**
  * Lets one capture at a time do the heavy part of a render: copying the element, embedding its resources, drawing and
  * encoding. Waiting for images and fonts to load is outside it. The holder is always withdrawn before another capture
- * starts (a new pick replaces the old one) and frees the slot when it is withdrawn: its copy stops at the next node,
- * and what it may still be waiting for (a resource fetch, a video, decoding or encoding) holds up no other capture. So
- * the copying in flight stays bounded however fast the user re-picks.
+ * starts (a new pick replaces the old one). Withdrawn while copying or embedding, it frees the slot at once: its copy
+ * stops at the next node, and what it may still wait for (a resource fetch, a video) holds up no other capture.
+ * Withdrawn while drawing (decoding the finished copy, drawing and encoding it, which waits on nothing outside the
+ * page), it keeps the slot until it ends. So one render at a time does heavy work, however fast the user re-picks.
  */
 export class RenderSlot {
   #tail: Promise<void> = Promise.resolve();
@@ -177,6 +183,8 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
   checkWithdrawn(signal);
   const check = (): void => checkWithdrawn(signal);
   let worked = performance.now();
+  // Whether the render has reached drawing, which it finishes holding the slot (see RenderSlot).
+  let drawing = false;
   const eachNode = async (): Promise<void> => {
     check();
     if (performance.now() - worked < YIELD_EVERY_MS) return;
@@ -194,14 +202,20 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     onCloneEachNode: eachNode,
     onCloneNode: check,
     onEmbedNode: check,
-    onCreateForeignObjectSvg: check,
+    onCreateForeignObjectSvg: () => {
+      check();
+      drawing = true;
+    },
     autoDestruct: true,
   });
   let release: (() => void) | null = null;
+  const freeUnlessDrawing = (): void => {
+    if (!drawing) release?.();
+  };
   try {
     check();
     release = await slot.acquire();
-    signal.addEventListener("abort", release, { once: true });
+    signal.addEventListener("abort", freeUnlessDrawing, { once: true });
     check();
     worked = performance.now();
     const frame = frameOf(element);
@@ -210,6 +224,8 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     context.height = frame.height;
     context.style = frame.style as Partial<CSSStyleDeclaration>;
     if (svgCopy) frameSvgCopy(svgCopy, frame);
+    // A drawing's markup copy goes straight to drawing.
+    drawing = svgCopy !== null;
     const scale = screenshotScale(context.width, context.height, deviceScale);
     if (scale === null) throw new Error("the element has no visible area");
     context.scale = scale;
@@ -219,10 +235,8 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     destroyContext(context);
     throw error;
   } finally {
-    if (release) {
-      signal.removeEventListener("abort", release);
-      release();
-    }
+    signal.removeEventListener("abort", freeUnlessDrawing);
+    release?.();
   }
 }
 
@@ -230,9 +244,9 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
  * Captures `element` as a PNG in the page with modern-screenshot, leaving out `exclude` (the bar), within
  * {@link MAX_SCREENSHOT_PIXELS} and the daemon's attachment size limit, doing its heavy work only while it holds
  * `slot`. Never rejects: a failure resolves with the reason, so the comment can still be sent without a screenshot.
- * Aborting `signal` (or the time limit, counted from this call, when its render starts: it is queued behind nothing,
- * as the slot's holder frees it once withdrawn) withdraws the capture: it resolves at once and frees the slot, and its
- * render stops at its next copied node or step and its context is destroyed.
+ * Aborting `signal` (or the time limit, counted from this call, when its render starts: it is queued behind nothing
+ * but a withdrawn holder finishing its drawing) withdraws the capture: it resolves at once, and its render stops at its
+ * next copied node or step and its context is destroyed.
  */
 export async function captureScreenshot(element: Element, exclude: Node, slot: RenderSlot, signal?: AbortSignal): Promise<ScreenshotResult> {
   if (!element.isConnected) return { ok: false, reason: unavailableReason("the element is no longer on the page") };

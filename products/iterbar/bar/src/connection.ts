@@ -343,6 +343,8 @@ export class DaemonConnection {
       this.#listAgain = true;
       return;
     }
+    // This listing replaces a recovery listing still waiting for its backoff, so only one is ever in flight.
+    this.#cancelRelist();
     void this.#list(socket);
   }
 

@@ -401,6 +401,9 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
     <div style="position: relative; height: 60px">
       <svg data-testid="svg-offset" tabindex="0" width="100" height="50" style="position: absolute; left: 10px; top: 5px">
         <rect width="100" height="50" fill="rgb(0, 255, 0)"/></svg></div>
+    <svg data-testid="svg-styled" id="styled-svg" tabindex="0" width="100" height="50">
+      <style>#styled-svg { transform: translateX(120px); margin-left: 7px }</style><rect width="100" height="50" fill="rgb(0, 255, 0)"/></svg>
+    <div data-testid="boxed" style="width: 60px; height: 20px; padding: 10px; border: 5px solid rgb(255, 0, 0); background: rgb(0, 0, 255)"></div>
     <div data-testid="zoomed" style="zoom: 2; width: 50px; height: 25px; background: rgb(0, 255, 0); transform: translateX(80px)"></div>
     <div style="transform: scale(0.5)"><span data-testid="inline" style="background: #fff">Inline</span></div>`),
   [chip("plain"), chip("in-transformed"), chip("transformed", "transform: translateX(5px)")]);
@@ -424,9 +427,14 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
     expect(Math.abs(await darkPixels(page, png) - text) / text, id).toBeLessThan(0.05);
   }
 
-  // A translated <svg> drawing, and one placed by offsets (which their shapes cover, so they are picked from the
-  // keyboard), fill their images.
-  for (const id of ["svg", "svg-offset"]) {
+  // A content-box element with padding and a border: its whole border box, laid out as on the page.
+  const boxed = (await comment(page, daemon, page.getByTestId("boxed"), "Boxed")).screenshot!;
+  expect(pngSize(boxed)).toEqual({ width: 90, height: 50 });
+  expect((await pngPixels(page, boxed, [[2, 2], [87, 47], [12, 12], [77, 37]])).at).toEqual([[255, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
+
+  // A translated <svg> drawing, one placed by offsets and one placed by its own style sheet (which their shapes cover,
+  // so they are picked from the keyboard) fill their images.
+  for (const id of ["svg", "svg-offset", "svg-styled"]) {
     const index = daemon.posts.length;
     await enterCommentMode(page);
     await page.getByTestId(id).focus();
@@ -504,6 +512,41 @@ test("rapid re-picks copy one element at a time and draw only the last", async (
   expect(await page.evaluate(() => window.canvasBlobs)).toBe(1);
   expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-testid="big-e"]');
   expect(daemon.posts[0]!.screenshot).not.toBeNull();
+});
+
+test("a capture withdrawn while it is drawn finishes before another draws, so encodes never overlap", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  // Every encode takes 300 ms; the page records how many run at once.
+  await page.evaluate(() => {
+    const state = window as unknown as { encoding: number; maxEncoding: number };
+    state.encoding = 0;
+    state.maxEncoding = 0;
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) {
+      state.encoding += 1;
+      state.maxEncoding = Math.max(state.maxEncoding, state.encoding);
+      toBlob.call(this, (blob) => setTimeout(() => {
+        state.encoding -= 1;
+        callback(blob);
+      }, 300), ...rest);
+    };
+  });
+  const encoding = () => page.evaluate(() => (window as unknown as { encoding: number }).encoding);
+  await enterCommentMode(page);
+  // Each pick replaces, or Cancel withdraws, a capture that is being encoded.
+  for (const target of ['[data-case="testid"]', '[data-case="id"]', '[data-case="stamped"]', '[data-case="slot"]']) {
+    await page.locator(target).click();
+    await expect.poll(encoding).toBe(1);
+  }
+  await inBar(page, "[data-role=composer-cancel]").click();
+  await page.locator('[data-case="root"]').click();
+  await expect.poll(encoding).toBe(1);
+  await inBar(page, "[data-role=composer-text]").fill("Last");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  expect(daemon.posts[0]!.screenshot).not.toBeNull();
+  expect(await page.evaluate(() => (window as unknown as { maxEncoding: number }).maxEncoding)).toBe(1);
 });
 
 test("a withdrawn capture still waiting inside its render holds up no later capture", async ({ page, openFixture, fixtureServer }) => {
