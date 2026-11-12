@@ -800,6 +800,12 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <defs><rect id="ct&#1;" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#ct&#1;"/></svg>
     <svg data-testid="control-inside" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect id="ci-tile" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#ci&#1;-tile"/></svg>
+    <svg data-testid="control-class" tabindex="0" width="40" height="40" style="display: block">
+      <style>.cx { fill: rgb(0, 255, 0) }</style><rect class="cx&#1;" width="40" height="40"/></svg>
+    <svg data-testid="control-fill" tabindex="0" width="40" height="40" style="display: block">
+      <defs><linearGradient id="fg"><stop stop-color="rgb(0, 255, 0)"/></linearGradient></defs><rect width="40" height="40" fill="url(#fg&#1;)"/></svg>
+    <svg data-testid="lone-surrogate" tabindex="0" width="40" height="40" style="display: block"><rect width="40" height="40" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="bare-hash" tabindex="0" width="40" height="40" style="display: block"><use href="#"/><rect x="20" width="20" height="40" fill="rgb(0, 0, 255)"/></svg>
     <svg data-testid="padded-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="'pad '" font-size="40">WW</text></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
@@ -815,6 +821,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // Rules a script adds to a drawing's own style sheets, which its text does not have.
     const scripted = (document.getElementById("scripted-sheet") as unknown as { sheet: CSSStyleSheet }).sheet;
     scripted.insertRule(".scripted { fill: rgb(255, 0, 0) }");
+    document.querySelector('[data-testid="lone-surrogate"] rect')!.setAttribute("data-k", "a\uD800");
     (document.getElementById("scripted-face") as unknown as { sheet: CSSStyleSheet }).sheet.insertRule(`@font-face { font-family: scripted-face; src: url(${block}) }`);
     CSS.registerProperty({ name: "--js-tone", syntax: "<color>", inherits: false, initialValue: "rgb(255, 0, 0)" });
   }, { block, green });
@@ -826,7 +833,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   }, block);
   const faithful = [
     "plain", "instances", "literal", "referring", "variable", "red-use", "nested-ids", "themed", "copied-twice", "root-current", "empty-var",
-    "noted", "accented-id", "nbsp-id", "control-id", "scripted-rule", "nested", "namespaced", "hinted", "cursor-url",
+    "noted", "accented-id", "nbsp-id", "bare-hash", "scripted-rule", "nested", "namespaced", "hinted", "cursor-url",
   ] as const;
   const live = new Map<string, Buffer>();
   for (const id of faithful) live.set(id, await page.getByTestId(id).screenshot());
@@ -843,8 +850,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   // rule on the <use>, a rule on the definition's ancestor, the drawing's root, a nested page rule whose parent does
   // not match), drawn per quadrant as the page shows it;
   // and drawings with a #id the browser percent-encodes and decodes back (one outside the drawing ending in a
-  // no-break space, and a link ending in a control character, which the browser drops), attributes whose text reads
-  // like a url(), or a cursor attribute (left out of the copy). A drawing's own rule that a script added is drawn too, as are a drawing whose own style sheet
+  // no-break space), a bare # link, attributes whose text reads like a url(), or a cursor attribute (left out of the
+  // copy). A drawing's own rule that a script added is drawn too, as are a drawing whose own style sheet
   // names its namespace, text in a shown element's attributes that reads like a var(), and all of these on a page with
   // an @import whose condition is false.
   for (const id of faithful) {
@@ -855,6 +862,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   expect(outside).toEqual([]);
   const shownRule = (element: string) => `the page has a style rule for the <${element}> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet`;
   const text = "the drawing has text, whose font a screenshot cannot check yet";
+  const dropped = (name: string) => `the drawing's ${name} attribute has a character its image would drop, which a screenshot cannot keep yet`;
   const animated = (element: string) => `the drawing is animated (<${element}>), which a screenshot cannot check yet`;
   for (const [id, reason] of [
     // A page rule on what a <use> shows, plain, as currentColor, important, on a definition in the drawing, under a
@@ -910,10 +918,11 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // A <use> of a percent-encoded #id, which the browser decodes.
     ["escaped-id", "the drawing refers to #esc%2Dtile, an escaped #id a screenshot cannot resolve yet"],
     ["newline-id", "the drawing refers to #nl tile, an escaped #id a screenshot cannot resolve yet"],  // its newline, as a reason has it
-    // An id, or a link inside, with a control character, which the image's markup drops: the page draws nothing for
-    // either (no element is ct or ci\u0001-tile), the image would draw each one's tile.
-    ["control-own", "the drawing has an id with a control character, which a screenshot cannot keep yet"],
-    ["control-inside", "the drawing refers to #ci\u0001-tile, an escaped #id a screenshot cannot resolve yet"],
+    // An attribute with a character the image's markup drops, so it means something else there: an id or a link
+    // (ending in one, or with one inside), a class the drawing's rule matches only without it, a fill whose url() is
+    // invalid with it, any attribute with a lone surrogate.
+    ...([["control-own", "id"], ["control-id", "href"], ["control-inside", "href"], ["control-class", "class"], ["control-fill", "fill"],
+      ["lone-surrogate", "data-k"]] as const).map(([id, name]) => [id, dropped(name)] as const),
     // One that names the drawing's root by the page's URL and its #id.
     ["frozen-abs", animated("set")],
   ] as const) {

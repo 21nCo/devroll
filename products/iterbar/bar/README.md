@@ -111,19 +111,18 @@ element is described when it is picked:
   are matched widened: `&` as its parent's selector, `:scope` and a
   namespace prefix as anything, and a `:not()`, `:nth-child(… of …)` or
   other non-monotone pseudo-class holding one (or under a default
-  namespace) as anything. A drawing with text is unavailable: an image
-  cannot be shown to use the page's font or rasterise it alike, and so
-  is a `#id` link the URL parser changes (a `%` escape, a tab or newline
-  inside it, a lone surrogate) or an id or link with a control character
-  the image's markup drops. A drawing holding an SVG animation element,
-  or whose root, shapes or definitions one elsewhere
-  targets, is unavailable, as is `<use>` content a CSS animation moves. Otherwise transitions and
-  animations are drawn as they are at that moment. Pointing, selection
-  and list-marker properties (`cursor`, `pointer-events`, `user-select`,
-  `-webkit-user-select`, `list-style-image`) are left out of the copy, as
-  is a custom property that refers to an image. The size and scale
-  are measured once its images and fonts have loaded, so an element that
-  grows meanwhile
+  namespace) as anything. A drawing with text is unavailable (an image
+  cannot be shown to use the page's font or rasterise it alike), as are a
+  `#id` link the URL parser changes (a `%` escape, a tab or newline inside
+  it), an attribute or own style sheet with a character the image's markup
+  drops (a control character, a lone surrogate, U+FFFE, U+FFFF), an SVG
+  animation element in the drawing or one elsewhere targeting it, and
+  `<use>` content a CSS animation moves. Otherwise transitions and
+  animations are drawn as they are at that moment. Pointing, selection and
+  list-marker properties (`cursor`, `pointer-events`, `user-select`,
+  `-webkit-user-select`, `list-style-image`) are left out of the copy, as is
+  a custom property that refers to an image. The size and scale are measured
+  once its images and fonts have loaded, so an element that grows meanwhile
   stays within the cap, and the image produced is checked again: one over
   4 MP is not sent. One capture at a time reads, copies, checks and draws
   the element; a capture waiting for its turn holds no copy. A capture

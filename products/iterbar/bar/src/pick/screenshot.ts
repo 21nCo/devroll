@@ -69,13 +69,16 @@ const XLINK = "http://www.w3.org/1999/xlink";
 function reference(url: string, ids: Set<string>): string | null {
   const value = linkText(url);
   if (!value.startsWith("#")) return /^data:/iu.test(value) ? null : `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
-  const id = markupDrops(value) ? null : fragmentId(value);
+  const id = fragmentId(value);
   if (id === null) return `the drawing refers to ${value.slice(0, 100)}, an escaped #id a screenshot cannot resolve yet`;
   ids.add(id);
   return null;
 }
 
-/** Whether the image's markup loses a character of `text`: modern-screenshot deletes those XML forbids. */
+/**
+ * Whether the image's markup loses a character of `text`: modern-screenshot deletes those XML forbids (C0 controls but
+ * tab, LF and CR; lone surrogates; U+FFFE, U+FFFF), which changes what an attribute or a style sheet means there.
+ */
 function markupDrops(text: string): boolean {
   return /[\uD800-\uDFFF\uFFFE\uFFFF]/u.test(text) || [...text].some((char) => char < " " && !"\t\n\r".includes(char));
 }
@@ -496,9 +499,11 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     if (source.localName === "foreignObject") return "the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet";
     if (!(source instanceof SVGElement)) return `the drawing holds a <${source.localName}> element, which a screenshot cannot copy`;
     if (ANIMATIONS.has(source.localName)) return `the drawing is animated (<${source.localName}>), which a screenshot cannot check yet`;
+    for (const { name, value } of source.attributes) {
+      if (markupDrops(value)) return `the drawing's ${name.slice(0, 100)} attribute has a character its image would drop, which a screenshot cannot keep yet`;
+    }
     const refused = attributeReferences(source, ids);
     if (refused !== null) return refused;
-    if (ownsId && markupDrops(source.id)) return "the drawing has an id with a control character, which a screenshot cannot keep yet";
     if (source.id && ownsId) own.add(source.id);
     const copy = source.cloneNode(false) as SVGElement;
     plainHref(copy);
@@ -520,6 +525,7 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
       const sheet = (source as SVGStyleElement).sheet;
       const rules = !sheet || sheet.disabled ? [] : [...sheet.cssRules];
       const text = !sheet ? source.textContent ?? "" : rules.map((rule) => rule.cssText).join("\n");
+      if (markupDrops(text)) return "the drawing's style sheet has a character its image would drop, which a screenshot cannot keep yet";
       // A namespace's url() names it, and loads nothing.
       const refused = references(!sheet ? text : rules.filter((rule) => !(rule instanceof CSSNamespaceRule)).map((rule) => rule.cssText).join("\n"), ids);
       if (refused !== null) return refused;
