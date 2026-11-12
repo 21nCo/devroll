@@ -107,19 +107,19 @@ element is described when it is picked:
   condition (a universal reset such as Tailwind's matches every element),
   one of the drawing's own rules that is nested, conditional or matches
   the copy differently, or a custom property the page registers
-  (`@property` or `CSS.registerProperty`) that shown content uses. A
-  selector with a namespace prefix is matched as if any namespace, less a
-  `:not()` that holds one. Text in
-  a font the page has a face for is drawn by the image without it, so it
-  is unavailable too, unless the drawing's own `<style>` declares the face
-  from a `data:` URL, unconditionally; shown text whose font a `var()`
-  gives, which each `<use>` may set, is unavailable as well. Content a `<use>` shows that is
-  animated, and a `<use>` link an animation changes, are unavailable too.
-  Otherwise transitions and animations are drawn as they are at that
-  moment. Pointing, selection and list-marker properties (`cursor`,
-  `pointer-events`, `user-select`, `-webkit-user-select`,
-  `list-style-image`) and a custom
-  property that refers to an image are not carried. The size and scale
+  (`@property` or `CSS.registerProperty`) that shown content uses. Rules
+  are matched widened: `&` as its parent's selector, `:scope` and a
+  namespace prefix as anything, and a `:not()` holding any of them as
+  anything. Text in a family with any font face (the page's, loaded or
+  not, or one the drawing's own `<style>` declares) is unavailable, since
+  the image cannot be shown to use it; so is text a `<use>` shows when the
+  page has any font face. A drawing holding an SVG animation element
+  (`<set>`, `<animate>` and the like) is unavailable, as is content a
+  `<use>` shows that a CSS animation moves. Otherwise transitions and
+  animations are drawn as they are at that moment. Pointing, selection
+  and list-marker properties (`cursor`, `pointer-events`, `user-select`,
+  `-webkit-user-select`, `list-style-image`) are left out of the copy, as
+  is a custom property that refers to an image. The size and scale
   are measured once its images and fonts have loaded, so an element that
   grows meanwhile
   stays within the cap, and the image produced is checked again: one over
@@ -136,10 +136,10 @@ element is described when it is picked:
   image, an element with no area, a scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
-  `href`, a link an animation sets, or a `url()` or `src()` in a style or
+  `href`, or a `url()` or `src()` in a style or
   presentation attribute, an inherited value or its own `<style>` text,
   that is neither a `#fragment` nor a `data:` URL; an `@import`; an
-  `image-set()`; text in a page font), holds HTML in a `<foreignObject>`, has
+  `image-set()`; text in a font face), holds HTML in a `<foreignObject>`, has
   padding or a border, or that the page styles in a way its copy cannot reproduce,
   an inline element inside a scaled or rotated box, or a capture over 10
   seconds) the comment is still sent, without a screenshot and with the

@@ -2,7 +2,6 @@ import type { Locator, Page } from "@playwright/test";
 import type { FeedbackDraft } from "iterbar";
 import { fakeDaemon, type FakeDaemon } from "./support/fake-daemon.js";
 import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
-import { blockFontUrl } from "./support/font.js";
 import { darkPixels, pngPixels, pngSize, quadrantColourCounts } from "./support/png.js";
 
 // Comment mode against a fake daemon that records each POST /feedback: picking, the selector's closed set, the
@@ -611,12 +610,13 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   expect(await page.evaluate(() => document.querySelector("iterbar-bar")!.shadowRoot!.querySelectorAll("iframe").length)).toBe(0);
 });
 
-test("draws what a <use> shows only when nothing on the page but the <use> styles it, and text only in its own fonts", async ({ page, openFixture, fixtureServer }) => {
+test("draws what a <use> shows only when nothing on the page but the <use> styles it, and text only in no font face", async ({ page, openFixture, fixtureServer }) => {
   // Many drawings, each picked, sent and decoded in turn.
   test.setTimeout(90_000);
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openFixture();
-  const block = blockFontUrl("Block");
+  // A font face (which fails to load: nothing is drawn in it either way).
+  const block = "data:font/ttf;base64,AAAA";
   const green = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="rgb(0,255,0)"/></svg>')}`;
   await page.evaluate(({ block, green }) => {
     // A page whose rules reach a <use> or a definition's ancestor, but none of what a <use> shows, except where named.
@@ -626,12 +626,14 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       .wrap { .nested-r { fill: rgb(255, 0, 0) } } .sprite-wrap { .nested-in { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
       @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
       @property --reg-green { syntax: "<color>"; inherits: false; initial-value: rgb(0, 255, 0) }
-      @font-face { font-family: page-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
+      @font-face { font-family: page-face; src: url(${block}) } @font-face { font-family: masked-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
       .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }
       .scope-amp { @scope (.amp-root) { & > .amp-child { fill: currentColor } &.amp-self { fill: currentColor } } }
       @media (min-width: 0px) { [data-kind="a&b"] { fill: currentColor } [data-kind=":scope"] { fill: currentColor } }
       .scope-media { @scope (.media-root) { @media all { & > .media-child { fill: currentColor } } } }
-      .scope-bare { @scope (.bare-root) { @media all { & { fill: currentColor } } } }</style>
+      .scope-bare { @scope (.bare-root) { @media all { & { fill: currentColor } } } }
+      .neg-twice { :not(:is(:not(&))) .neg-twice-tile { fill: currentColor } }</style>
+    <style>@namespace svg url("http://www.w3.org/2000/svg"); .ns-twice-tile:not(:is(:not(svg|rect))) { fill: currentColor }</style>
     <style>@import url(/never.css) supports(display: nonexistent);</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
@@ -764,7 +766,22 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <style>@namespace svg url("http://www.w3.org/2000/svg"); svg|text.font-var { font-family: var(--face, monospace) }</style>
       <defs><text id="font-var-text" class="font-var" x="0" y="40" font-size="40">WW</text></defs><use href="#font-var-text" style="--face: page-face"/></svg>
     <svg data-testid="scripted-font" tabindex="0" width="120" height="50" style="display: block">
-      <style id="scripted-face"></style><text x="0" y="40" font-family="scripted-face" font-size="40">WW</text></svg>`);
+      <style id="scripted-face"></style><text x="0" y="40" font-family="scripted-face" font-size="40">WW</text></svg>
+    <svg data-testid="neg-twice" tabindex="0" width="40" height="40" style="display: block">
+      <defs><g id="neg-twice-shape" class="neg-twice"><rect class="neg-twice-tile" width="40" height="40"/></g></defs><use href="#neg-twice-shape" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="ns-twice" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="ns-twice-tile" class="ns-twice-tile" width="40" height="40"/></defs><use href="#ns-twice-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
+      <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
+    <svg width="0" height="0" style="position: absolute"><animate href="#from-afar" attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></svg>
+    <svg data-testid="frozen-afar" tabindex="0" width="40" height="40" style="display: block">
+      <polygon id="from-afar" points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="srcless-face" tabindex="0" width="120" height="50" style="display: block">
+      <style>@font-face { font-family: masked-face }</style><text x="0" y="40" font-family="masked-face" font-size="40">WW</text></svg>
+    <svg data-testid="srcless-own" tabindex="0" width="120" height="50" style="display: block">
+      <style>@font-face { font-family: lone-face }</style><text x="0" y="40" font-family="lone-face, monospace" font-size="40">WW</text></svg>
+    <svg data-testid="cursor-url" tabindex="0" width="100" height="50" style="display: block">
+      <rect cursor="url(http://example.invalid/c), auto" width="100" height="50" fill="rgb(0, 255, 0)"/></svg>`);
     // Rules a script adds to a drawing's own style sheets, which its text does not have.
     const scripted = (document.getElementById("scripted-sheet") as unknown as { sheet: CSSStyleSheet }).sheet;
     scripted.insertRule(".scripted { fill: rgb(255, 0, 0) }");
@@ -772,32 +789,41 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     CSS.registerProperty({ name: "--js-tone", syntax: "<color>", inherits: false, initialValue: "rgb(255, 0, 0)" });
   }, { block, green });
   await page.evaluate(async (block) => {
-    const face = new FontFace("script-face", await (await fetch(block)).arrayBuffer());
+    const face = new FontFace("script-face", `url(${block})`);
     document.fonts.add(face);
-    await face.load();
+    await face.load().catch(() => undefined);
     await document.fonts.ready;
   }, block);
   const faithful = [
     "plain", "instances", "literal", "referring", "variable", "red-use", "nested-ids", "themed", "copied-twice", "root-current", "empty-var",
-    "noted", "own-font", "generic-font", "scripted-rule", "scripted-font", "nested", "namespaced", "hinted",
+    "noted", "generic-font", "scripted-rule", "nested", "namespaced", "hinted", "cursor-url",
   ] as const;
   const live = new Map<string, Buffer>();
   for (const id of faithful) live.set(id, await page.getByTestId(id).screenshot());
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  // What the captures request from outside the page (the cursor's image), from here on.
+  const outside: string[] = [];
+  await page.route("http://example.invalid/**", (route) => {
+    outside.push(route.request().url());
+    return route.abort();
+  });
 
   // What a <use> shows, styled by nothing on the page but the <use> (its colour, a custom property inline or by a
   // rule on the <use>, a rule on the definition's ancestor, the drawing's root, a nested page rule whose parent does
   // not match), drawn per quadrant as the page shows it;
-  // and drawings with text in a font of their own or a generic family, or attributes whose text reads like a url(). A
-  // drawing's own rule or font face that a script added is drawn too, as are a drawing whose own style sheet names its
-  // namespace, text in a shown element's attributes that reads like a var(), and all of these on a page with an
-  // @import whose condition is false.
+  // and drawings with text in a generic family, attributes whose text reads like a url(), or a cursor attribute (left
+  // out of the copy). A drawing's own rule that a script added is drawn too, as are a drawing whose own style sheet
+  // names its namespace, text in a shown element's attributes that reads like a var(), and all of these on a page with
+  // an @import whose condition is false.
   for (const id of faithful) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
     await expectLike(page, screenshot!, live.get(id)!, id);
   }
+  expect(outside).toEqual([]);
   const shownRule = (element: string) => `the page has a style rule for the <${element}> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet`;
+  const fontFace = (family: string) => `the drawing's text uses a font face (${family}), which a screenshot cannot embed yet`;
+  const animated = (element: string) => `the drawing is animated (<${element}>), which a screenshot cannot check yet`;
   for (const [id, reason] of [
     // A page rule on what a <use> shows, plain, as currentColor, important, on a definition in the drawing, under a
     // condition, nested, on a source shown twice, or declaring an empty custom property.
@@ -822,26 +848,28 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // namespace, taken to match what a <use> shows, whose registered custom property is then seen.
     ["piped", shownRule("rect")],
     ["ns-negated", "what a <use> in the drawing shows uses --reg-green, which the page registers, and a screenshot cannot reproduce yet"],
-    // Shown text whose font a var() gives, which each <use> may set to a page font.
-    ["font-var", "what a <use> in the drawing shows has text whose font comes from a var(), which a screenshot cannot check for each <use> yet"],
+    // A page rule under two negations, the inner one of its parent; and one under a negation of a negation of a
+    // namespace, each of which matches at most what the outer negation, read as anything, does.
+    ["neg-twice", shownRule("rect")],
+    ["ns-twice", shownRule("rect")],
+    // Shown text, whose font each <use> may set (here by a var()) to a page font.
+    ["font-var", "a <use> in the drawing shows text, which it may set in a font face, which a screenshot cannot check yet"],
     // What a <use> shows that the drawing's own keyframes animate.
     ["spun", "what a <use> in the drawing shows is animated, which a screenshot cannot check yet"],
     ["script-registered", "what a <use> in the drawing shows uses --js-tone, which the page registers, and a screenshot cannot reproduce yet"],
-    // Text in a font the page has a face for, from a style sheet or a script.
-    ["page-font", "the drawing's text uses the page's font page-face, which a screenshot cannot embed yet"],
-    ["script-font", "the drawing's text uses the page's font script-face, which a screenshot cannot embed yet"],
-    // Text in a link in the text, and a face of the drawing's own that only applies under a media query.
-    ["linked-text", "the drawing's text uses the page's font page-face, which a screenshot cannot embed yet"],
-    ["media-font", "the drawing's text uses the page's font media-face, which a screenshot cannot embed yet"],
-    ["narrow-face", "the drawing's text uses the page's font narrow-face, which a screenshot cannot embed yet"],
-    // A face of the drawing's own that failed does not stand for the page's face of the same name.
-    ["failed-face", "the drawing's text uses the page's font page-face, which a screenshot cannot embed yet"],
-    // A link an animation sets.
-    ["linked-set", "the drawing loads /elsewhere.svg#b, which a screenshot cannot embed yet"],
-    ["xlinked-set", "the drawing loads /far.svg#c, which a screenshot cannot embed yet"],
-    ["animated-paint", "the drawing loads /paint.svg#p, which a screenshot cannot embed yet"],
-    // Even to a #fragment.
-    ["fragment-set", "the drawing animates a link, which a screenshot cannot check yet"],
+    // Text in a family with a font face: the page's, from a style sheet or a script, the drawing's own (from a data:
+    // URL, added by a script, or without a src, which masks no page face), in a link in the text, under a condition.
+    ...([["page-font", "page-face"], ["script-font", "script-face"], ["own-font", "own-face"], ["scripted-font", "scripted-face"],
+      ["srcless-face", "masked-face"], ["srcless-own", "lone-face"], ["linked-text", "page-face"], ["media-font", "media-face"],
+      ["narrow-face", "narrow-face"], ["failed-face", "page-face"]] as const).map(([id, family]) => [id, fontFace(family)] as const),
+    // An SVG animation: of a link, outside the page or to a #fragment, of a paint, or of a polygon's points, frozen
+    // where it ended, which the copy would draw from its start, whether it is in the drawing or targets it from outside.
+    ["linked-set", animated("set")],
+    ["xlinked-set", animated("animate")],
+    ["animated-paint", animated("animate")],
+    ["fragment-set", animated("set")],
+    ["frozen", animated("animate")],
+    ["frozen-afar", animated("animate")],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(screenshot, id).toBeNull();
@@ -867,7 +895,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   }, elsewhere);
   for (const [id, reason] of [
     ["plain", "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet"],
-    ["far-font", "the drawing's text uses the page's font far-face, which a screenshot cannot embed yet"],
+    ["far-font", fontFace("far-face")],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(screenshot, id).toBeNull();

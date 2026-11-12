@@ -105,34 +105,25 @@ function hrefOf(element: Element): string | null {
 }
 
 /**
- * The attributes, other than links, that can load something: style and presentation attributes that take a `url()`,
- * and the values an animation sets. Others (`data-*`, `aria-*`, a title) are only text.
+ * The attributes, other than links, that can load something: style and presentation attributes that take a `url()`.
+ * Others (`data-*`, `aria-*`, a title) are only text; those of {@link NOT_DRAWN} are left out of the copy.
  */
-const RESOURCE_ATTRIBUTES = new Set(["style", "fill", "stroke", "filter", "clip-path", "mask", "marker-start", "marker-mid", "marker-end", "src", "from", "to", "by", "values"]);
+const RESOURCE_ATTRIBUTES = new Set(["style", "fill", "stroke", "filter", "clip-path", "mask", "marker-start", "marker-mid", "marker-end", "src"]);
 
-/** The SVG animation elements, whose `from`, `to`, `by` and `values` an animated link is drawn with. */
-const ANIMATIONS = new Set(["set", "animate", "animateTransform", "animateMotion", "animateColor"]);
+/** SVG animation elements: what they animate (a polygon's points, a link) is not in the computed values compared. */
+const ANIMATIONS = new Set(["set", "animate", "animateTransform", "animateMotion", "animateColor", "discard"]);
 
 /**
  * Says why `element`'s attributes cannot be drawn, if they cannot: a link (`href`, `xlink:href`) or a `url()` in an
  * attribute that can load something ({@link RESOURCE_ATTRIBUTES}) that is neither a `#fragment` (recorded in `ids`) nor
- * `data:`, or an animation of a link.
+ * `data:`.
  */
 function attributeReferences(element: Element, ids: Set<string>): string | null {
   let refused: string | null = null;
   if (element.localName !== "a") {
     for (const link of [element.getAttribute("href"), element.getAttributeNS(XLINK, "href")]) if (link !== null) refused ??= reference(link, ids);
   }
-  const animatesLink = ANIMATIONS.has(element.localName) && /^(?:xlink:)?href$/u.test(element.getAttribute("attributeName")?.trim() ?? "");
-  for (const { name, value } of element.attributes) {
-    if (animatesLink && /^(?:from|to|by|values)$/u.test(name)) {
-      for (const link of value.split(";")) if (link.trim()) refused ??= reference(link, ids);
-    } else if (RESOURCE_ATTRIBUTES.has(name)) {
-      refused ??= references(value, ids);
-    }
-  }
-  // Even to a #fragment: what it shows then is not what a <use> is checked to show.
-  if (refused === null && animatesLink) refused = "the drawing animates a link, which a screenshot cannot check yet";
+  for (const { name, value } of element.attributes) if (RESOURCE_ATTRIBUTES.has(name)) refused ??= references(value, ids);
   return refused;
 }
 
@@ -146,8 +137,8 @@ function plainHref(element: Element): void {
 
 /**
  * Properties that never change how an SVG image is drawn (pointing, selecting, a list item's marker): a drawing's
- * copy neither carries nor compares them, so an inherited `cursor: url(…)` does not stop a screenshot. Nor does it
- * carry transitions and animations: the copy is drawn as it computes now, still.
+ * copy neither carries nor compares them (nor keeps their attributes, so a `cursor="url(…)"` loads nothing). Nor does
+ * it carry transitions and animations: the copy is drawn as it computes now, still.
  */
 const NOT_DRAWN = new Set(["cursor", "pointer-events", "user-select", "-webkit-user-select", "list-style-image"]);
 
@@ -281,15 +272,9 @@ async function shownRefusal(
   const noteVariables = (text: string): void => {
     for (const [, name = ""] of decodedCss(text.replaceAll(/\/\*[\s\S]*?\*\//gu, "")).matchAll(VARIABLE)) variables.add(name);
   };
-  // Whether a font of what a <use> shows comes from a var(), which each <use> may set to another font.
-  let fontVariable = false;
-  const notesFontVariable = (style: CSSStyleDeclaration | undefined, attribute = ""): void => {
-    fontVariable ||= /var\(/iu.test(decodedCss(`${attribute} ${style?.getPropertyValue("font-family") ?? ""} ${style?.getPropertyValue("font") ?? ""}`));
-  };
   // Only attributes parsed as CSS: style and presentation attributes, not text (`data-*`, `aria-*`, a title).
   for (const element of shown) {
     for (const { name, value } of element.attributes) if (!/^(?:data-|aria-)|^(?:id|class|title|role|lang|tabindex)$/u.test(name)) noteVariables(value);
-    notesFontVariable((element as SVGElement).style, element.getAttribute("font-family") ?? "");
   }
   const unreadable = "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet";
   // Each list of rules; whether it is the drawing's own; whether it is nested or under a condition; and, inside a
@@ -320,27 +305,14 @@ async function shownRefusal(
       // A style rule, or the declarations a style rule (or @scope, for its root and what is in it) has among its rules.
       if (rule instanceof CSSStyleRule || ("style" in rule && (parent !== null || rule.constructor.name === "CSSNestedDeclarations"))) {
         const exact = !next.nested && rule instanceof CSSStyleRule;
-        // Declarations in @scope (but not in a style rule in it) apply to its root.
+        // In @scope (but not in a style rule in it), `&` is the scope's root, and declarations apply to it.
         const root = scopeRoot(rule, parent);
         const selector = rule instanceof CSSStyleRule ? rule.selectorText : root ?? parent ?? "*";
-        // A nested selector matches as with its parent's in place of `&` (and any element for `:scope`), less any negation
-        // of them, which that could narrow; one it cannot take apart matches any element.
-        if (rule instanceof CSSStyleRule && exact) {
-          parent = selector;
-        } else if (rule instanceof CSSStyleRule) {
-          const relative = /&|:scope\b/u;
-          // In @scope (but not in a style rule in it), `&` is the scope's root.
-          const ampersand = outsideStrings(root ?? parent ?? "*", (text) => text.replaceAll(/:scope\b/gu, "*"));
-          parent = outsideStrings(selector, (text) => {
-            const loose = text.replaceAll(/:not\((?:[^()]|\([^()]*\))*\)/giu, (negation) => (relative.test(negation) ? ":is(*)" : negation));
-            return /:not\([^)]*(?:&|:scope\b)/iu.test(loose) ? "*" : loose.replaceAll(/:scope\b/gu, "*").replaceAll("&", `:is(${ampersand})`);
-          });
-        } else {
-          parent = selector;
-        }
+        // What it matches at least (see widen), which its nested rules' `&` stands for in turn.
+        const matching = rule instanceof CSSStyleRule ? widen(selector, root ?? parent) : selector;
+        if (matching === null) return `the page has a style rule (${selector.slice(0, 100)}) that a screenshot cannot match against what a <use> in the drawing shows yet`;
+        parent = matching;
         const style = (rule as CSSStyleRule).style;
-        // matches() knows no namespace prefixes; any namespace matches more. Quoted strings are left as they are.
-        const matching = widenNamespaces(parent!);
         for (const element of style.length > 0 ? shown : []) {
           await eachNode();
           let matches: boolean;
@@ -356,7 +328,6 @@ async function shownRefusal(
             return `the page has a style rule for the <${element.localName}> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet`;
           }
           noteVariables(style.cssText);
-          notesFontVariable(style);
         }
       }
       if ("cssRules" in rule) stack.push({ rules: rule.cssRules as CSSRuleList, own: next.own, nested: true, parent });
@@ -366,12 +337,9 @@ async function shownRefusal(
     if (given.has(element)) return `the page styles the <${element.localName}> that a <use> in the drawing shows, which its copy cannot reproduce yet`;
     // The copy is drawn still, as its original computes now, which is not how each <use> shows it moving.
     await eachNode();
-    if (ANIMATIONS.has(element.localName) || getComputedStyle(element).animationName.split(",").some((name) => name.trim() !== "none")) {
+    if (getComputedStyle(element).animationName.split(",").some((name) => name.trim() !== "none")) {
       return "what a <use> in the drawing shows is animated, which a screenshot cannot check yet";
     }
-  }
-  if (fontVariable && [...shown].some((element) => element.closest("text") !== null)) {
-    return "what a <use> in the drawing shows has text whose font comes from a var(), which a screenshot cannot check for each <use> yet";
   }
   for (const name of variables) {
     await eachNode();
@@ -383,111 +351,133 @@ async function shownRefusal(
 
 /**
  * The selector of the root of the @scope that `rule` is in, through any grouping or conditional rules but not through
- * a style rule (where `&` is that rule): its start selector, with `parent` (the selector of the style rule the @scope
- * is in) for `&`, or any element without one. Undefined when `rule` is not in an @scope that way.
+ * a style rule (where `&` is that rule): its start selector, widened with `parent` (the selector of the style rule the
+ * @scope is in) for `&`. Undefined when `rule` is not in an @scope that way.
  */
 function scopeRoot(rule: CSSRule, parent: string | null): string | undefined {
   for (let outer = rule.parentRule; outer; outer = outer.parentRule) {
     if (outer instanceof CSSStyleRule) return undefined;
     if ("start" in outer) {
       const start = (outer as { start?: string | null }).start;
-      return start ? outsideStrings(start, (text) => text.replaceAll("&", `:is(${parent ?? "*"})`)) : "*";
+      return (start && widen(start, parent)) || "*";
     }
   }
   return undefined;
 }
 
-/** `selector` as `edit` changes it, leaving its quoted strings and escapes (which are not selector syntax) as they are. */
-function outsideStrings(selector: string, edit: (text: string) => string): string {
-  const kept: string[] = [];
-  const masked = selector.replaceAll(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\\[\s\S]/gu, (token) => `\uE000${kept.push(token) - 1}\uE000`);
-  return edit(masked).replaceAll(/\uE000(\d+)\uE000/gu, (_, index: string) => kept[Number(index)]!);
+/** Where the escape at `at` in `text` (a backslash and a character, or up to 6 hex digits and a space) ends. */
+function escapeEnd(text: string, at: number): number {
+  let end = at + 1;
+  while (end < at + 7 && /[0-9a-f]/iu.test(text[end] ?? "")) end++;
+  return end === at + 1 ? end + 1 : end + Number(/[ \t\n]/u.test(text[end] ?? ""));
+}
+
+/** Whether `char` continues a name (or a namespace prefix) in a selector. */
+function inName(char: string): boolean {
+  return char === "*" || char === "-" || char === "_" || /[\p{L}\p{N}]/u.test(char) || char > "\u007f";
 }
 
 /**
- * `selector` matching at least what it does, for `matches()`, which knows no namespace prefixes: each prefix becomes
- * `*|` (any namespace), and a `:not()` that holds one, where a wider namespace would match less, is dropped. Quoted
- * strings are left as they are.
+ * `selector` widened for `matches()`, so that it matches at least every element it can on the page, in one pass over
+ * it: `&` becomes `:is(parent)` (any element without a parent), `:scope` any element, and a namespace prefix (which
+ * `matches()` does not know) any namespace, `*|`; each matches more where it stands. Then each outermost `:not()` that
+ * holds one of them, at any depth, where matching more would match less, becomes `:is(*)`; a `:not()` that holds none
+ * is matched as it is. Quoted strings and escapes are kept as they are. `null` when its parentheses do not balance.
  */
-function widenNamespaces(selector: string): string {
-  const prefix = /(?:\*|[\w-]+)\|(?!=)/u;
-  const token = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\\.|:not\(|[()]|(?:\*|[\w-]+)\|(?!=)/giu;
+function widen(selector: string, parent: string | null): string | null {
   let out = "";
-  let at = 0;
-  // Each open :not() (where it starts, in `out`, and how deep its parentheses are), and whether it holds a prefix.
-  const negations: { start: number; depth: number; prefixed: boolean }[] = [];
-  let depth = 0;
-  for (const match of selector.matchAll(token)) {
-    const [text] = match;
-    out += selector.slice(at, match.index);
-    at = match.index + text.length;
-    if (/^:not\($/iu.test(text)) {
-      negations.push({ start: out.length, depth: ++depth, prefixed: false });
-      out += text;
-    } else if (text === "(") {
-      depth++;
-      out += text;
-    } else if (text === ")") {
-      const negation = negations.at(-1);
-      out += text;
-      if (negation?.depth === depth) {
-        negations.pop();
-        if (negation.prefixed) out = `${out.slice(0, negation.start)}:is(*)`;
+  // Each open parenthesis: where it starts in `out`, whether it opens a :not(), and whether something in it was widened.
+  const open: { start: number; negation: boolean; widened: boolean }[] = [];
+  // Where the name `out` ends with starts: a namespace prefix there is replaced.
+  let name = 0;
+  const emit = (text: string, widened = false): void => {
+    out += text;
+    name = out.length;
+    if (widened) for (const group of open) group.widened = true;
+  };
+  for (let at = 0; at < selector.length;) {
+    const char = selector[at]!;
+    const next = selector[at + 1] ?? "";
+    if (char === '"' || char === "'") {
+      let end = at + 1;
+      while (end < selector.length && selector[end] !== char) end += selector[end] === "\\" ? 2 : 1;
+      emit(selector.slice(at, end + 1));
+      at = end + 1;
+    } else if (char === "\\") {
+      // Part of a name.
+      const end = escapeEnd(selector, at);
+      out += selector.slice(at, end);
+      at = end;
+    } else if (char === ":" && selector.slice(at, at + 5).toLowerCase() === ":not(") {
+      open.push({ start: out.length, negation: true, widened: false });
+      emit(":not(");
+      at += 5;
+    } else if (char === ":" && selector.slice(at, at + 6).toLowerCase() === ":scope" && !inName(selector[at + 6] ?? "")) {
+      emit("*", true);
+      at += 6;
+    } else if (char === "&") {
+      emit(parent === null ? "*" : `:is(${parent})`, true);
+      at++;
+    } else if (char === "|" && next !== "=" && next !== "|" && selector[at - 1] !== "|") {
+      out = out.slice(0, name);
+      emit("*|", true);
+      at++;
+    } else if (char === "(") {
+      open.push({ start: out.length, negation: false, widened: false });
+      emit(char);
+      at++;
+    } else if (char === ")") {
+      const group = open.pop();
+      if (!group) return null;
+      emit(char);
+      if (group.negation && group.widened) {
+        out = out.slice(0, group.start);
+        emit(":is(*)");
       }
-      depth--;
-    } else if (prefix.test(text) && !/^["'\\]/u.test(text)) {
-      for (const open of negations) open.prefixed = true;
-      out += "*|";
+      at++;
     } else {
-      out += text;
+      out += char;
+      if (!inName(char)) name = out.length;
+      at++;
     }
   }
-  return out + selector.slice(at);
-}
-
-/** The font families a computed `font-family` lists, unquoted and in lower case. */
-function families(value: string): string[] {
-  return [...value.matchAll(/\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^,]+))\s*(?:,|$)/gu)]
-    .map(([, double, single, bare]) => (double ?? single ?? bare ?? "").trim().toLowerCase())
-    .filter((family) => family !== "");
+  return open.length === 0 ? out : null;
 }
 
 /**
- * Says why text in the drawing would be drawn in another font, if it would: the copy is drawn as an image, which has
- * none of the page's fonts. Text (`texts`, the computed `font-family` of each element in a `<text>`, and of each
- * `<use>` that shows text) in a family the page has a font face for (from any style sheet, another origin's too, or
- * added from a script) is refused, unless the page's faces of it (failed ones too) are all declared unconditionally
- * in the drawing's own style sheets (whose `url()`s are checked to be `data:` ones), which the copy has. A face the
- * drawing declares under a condition, which the image evaluates at its own size, is refused too.
+ * The font families a `font-family` value lists, unquoted and in lower case. A family whose name holds a comma is
+ * split in two, the same way wherever it is named, so a face of it is still found (and others' with its parts' names).
  */
-function fontRefusal(texts: readonly string[], lookup: Document | ShadowRoot, copies: ReadonlyMap<Node, SVGElement>): string | null {
-  if (texts.length === 0) return null;
-  const count = (counts: Map<string, number>, family: string | undefined): void => {
-    if (family) counts.set(family, (counts.get(family) ?? 0) + 1);
-  };
-  // The faces the page has, usable or not (a failed one may be the drawing's own).
-  const page = new Map<string, number>();
-  for (const face of (lookup.ownerDocument ?? (lookup as Document)).fonts) count(page, families(face.family)[0]);
-  const own = new Map<string, number>();
-  // Faces the drawing declares under a condition, which the image (not the page) evaluates.
-  const conditional = new Set<string>();
+function families(value: string): string[] {
+  return value.split(",").map((family) => family.trim().replaceAll(/^["']|["']$/gu, "").toLowerCase()).filter((family) => family !== "");
+}
+
+/**
+ * Says why text in the drawing would be drawn in another font, if it would: the copy is drawn as an image, which
+ * cannot be shown to use the faces the page does. Text (`texts`, the computed `font-family` of each element in a
+ * `<text>`) that lists a family with any font face is refused: one the page has (from any style sheet, another
+ * origin's too, or added from a script, loaded or not), or one the drawing's own style sheets declare, under any
+ * condition, valid or not. Text a `<use>` shows (`showsText`), which each `<use>` may set in another font (by a
+ * `var()`), is refused when there is any face at all.
+ */
+function fontRefusal(texts: readonly string[], showsText: boolean, lookup: Document | ShadowRoot, copies: ReadonlyMap<Node, SVGElement>): string | null {
+  if (texts.length === 0 && !showsText) return null;
+  const faces = new Set<string>();
+  for (const face of (lookup.ownerDocument ?? (lookup as Document)).fonts) for (const family of families(face.family)) faces.add(family);
   for (const sheet of lookup.styleSheets) {
-    if (!sheet.ownerNode || !copies.has(sheet.ownerNode) || sheet.disabled) continue;
-    const stack = [{ rules: sheet.cssRules, conditional: Boolean(sheet.media.mediaText) }];
-    for (let next = stack.pop(); next; next = stack.pop()) {
-      for (const rule of next.rules) {
-        const family = rule instanceof CSSFontFaceRule ? families(rule.style.getPropertyValue("font-family"))[0] : undefined;
-        if (family !== undefined && next.conditional) conditional.add(family);
-        else if (family !== undefined) count(own, family);
-        else if ("cssRules" in rule) stack.push({ rules: rule.cssRules as CSSRuleList, conditional: true });
+    if (!sheet.ownerNode || !copies.has(sheet.ownerNode)) continue;
+    const stack = [sheet.cssRules];
+    for (let rules = stack.pop(); rules; rules = stack.pop()) {
+      for (const rule of rules) {
+        if (rule instanceof CSSFontFaceRule) for (const family of families(rule.style.getPropertyValue("font-family"))) faces.add(family);
+        else if ("cssRules" in rule) stack.push(rule.cssRules as CSSRuleList);
       }
     }
   }
+  if (showsText && faces.size > 0) return "a <use> in the drawing shows text, which it may set in a font face, which a screenshot cannot check yet";
   for (const value of texts) {
     for (const family of families(value)) {
-      if (conditional.has(family) || (page.get(family) ?? 0) > (own.get(family) ?? 0)) {
-        return `the drawing's text uses the page's font ${family.slice(0, 100)}, which a screenshot cannot embed yet`;
-      }
+      if (faces.has(family)) return `the drawing's text uses a font face (${family.slice(0, 100)}), which a screenshot cannot embed yet`;
     }
   }
   return null;
@@ -523,11 +513,13 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
   const shallow = (source: Element, ownsId = true): SVGElement | string => {
     if (source.localName === "foreignObject") return "the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet";
     if (!(source instanceof SVGElement)) return `the drawing holds a <${source.localName}> element, which a screenshot cannot copy`;
+    if (ANIMATIONS.has(source.localName)) return `the drawing is animated (<${source.localName}>), which a screenshot cannot check yet`;
     const refused = attributeReferences(source, ids);
     if (refused !== null) return refused;
     if (source.id && ownsId) own.add(source.id);
     const copy = source.cloneNode(false) as SVGElement;
     plainHref(copy);
+    for (const name of NOT_DRAWN) copy.removeAttribute(name);
     return copy;
   };
   const copyInto = async (parent: Element, source: Element): Promise<string | null> => {
@@ -641,6 +633,13 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     }
     // What <use>s show, which must have nothing from the page; then every element again, now that all are given values.
     const copies = new Map<Node, SVGElement>(pairs);
+    // One elsewhere on the page that animates a copied element (by its href) changes it too.
+    for (const animation of lookup.querySelectorAll([...ANIMATIONS].join(","))) {
+      await eachNode();
+      const href = hrefOf(animation)?.trim();
+      const target = href?.startsWith("#") ? lookup.getElementById(href.slice(1)) : animation.parentElement;
+      if (target && copies.has(target)) return `the drawing is animated (<${animation.localName}>), which a screenshot cannot check yet`;
+    }
     const shown = new Set<Element>();
     for (const [live] of pairs) {
       const href = live.localName === "use" ? hrefOf(live)?.trim() : undefined;
@@ -653,10 +652,10 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     }
     const shownRefused = await shownRefusal(shown, copies, given, lookup, scratch, eachNode);
     if (shownRefused !== null) return shownRefused;
-    // The fonts its text is drawn in: a text element's, and a <use>'s that shows text.
+    // The fonts its text is drawn in.
     const showsText = [...shown].some((element) => element.closest("text") !== null);
-    const texts = pairs.filter(([live]) => live.closest("text") !== null || (showsText && live.localName === "use")).map(([live]) => snapshot(live).get("font-family") ?? "");
-    const fonts = fontRefusal(texts, lookup, copies);
+    const texts = pairs.filter(([live]) => live.closest("text") !== null).map(([live]) => snapshot(live).get("font-family") ?? "");
+    const fonts = fontRefusal(texts, showsText, lookup, copies);
     if (fonts !== null) return fonts;
     // Its own selectors may match the root differently now that it has its children: given its values again, it
     // must match as it did.
