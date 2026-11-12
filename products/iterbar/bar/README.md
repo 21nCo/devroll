@@ -95,11 +95,15 @@ element is described when it is picked:
   The copy is first checked in a hidden, sandboxed frame inside the bar
   that has none of the page's style sheets: each copied element must
   compute every style property (custom properties too) as its original
-  does. What the page sets that is not inherited (a rule's opacity,
-  transform, `d` or box-sizing) is given to the copied element as
-  computed. A drawing whose inherited properties the page sets inside it
-  (a rule's fill on a shape, for example) is not drawn, since what a
-  `<use>` shows inherits those from the `<use>`. The size and scale are measured once
+  does. What the page's rules give an element (a fill, opacity,
+  transform, `d`, box-sizing or custom property) is given to its copy as
+  computed, and then every element is compared again. What a `<use>`
+  shows inherits from the `<use>`, so a page rule that gives a shown
+  element an inherited or custom property the `<use>` does not have is
+  not drawn (rules in another origin's style sheet, which the page cannot
+  read, cannot be checked). Pointing and selection properties (`cursor`,
+  `pointer-events`, `user-select`) and a custom property that refers to
+  an image are not carried. The size and scale are measured once
   its images and fonts have loaded, so an element that grows meanwhile
   stays within the cap, and the image produced is checked again: one over
   4 MP is not sent. One capture at a time reads, copies, checks and draws
@@ -118,7 +122,7 @@ element is described when it is picked:
   `href`, or a `url()` or `src()` in an attribute, an inherited value or
   its own `<style>` text, that is neither a `#fragment` nor a `data:` URL;
   an `@import`; an `image-set()`), holds HTML in a `<foreignObject>`, has
-  padding or a border, or whose inherited properties the page sets inside it,
+  padding or a border, or that the page styles in a way its copy cannot reproduce,
   an inline element inside a scaled or rotated box, or a capture over 10
   seconds) the comment is still sent, without a screenshot and with the
   reason in `screenshotUnavailableReason`.

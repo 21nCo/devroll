@@ -451,13 +451,19 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   await page.evaluate(({ green, elsewhere }) => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
     <style>@import url("${elsewhere}"); .imported rect { fill: rgb(255, 0, 0) }</style>
     <style>.icon rect { fill: rgb(255, 0, 0) } .dcss { d: path("M0 0H100V50H0Z") } .dnone { d: none } .vis { opacity: 1 } .shift { translate: 50px 0 }
-      .reset, .reset * { box-sizing: border-box; border: 0 solid rgb(229, 231, 235) }
+      .reset, .reset * { box-sizing: border-box; border: 0 solid rgb(229, 231, 235) } .tw * { --spin: 0deg } .tw.flip { --spin: 180deg }
+      .sprite-blue { fill: rgb(0, 0, 255) } .r { fill: rgb(0, 0, 0) } .sizing circle { box-sizing: border-box }
+      body { cursor: url(/pointer.png), auto } :root { --logo: url(/logo.svg) }
       .nest { & .inner { fill: rgb(255, 0, 0) } } .nest-miss { & .absent { fill: rgb(255, 0, 0) } }
       @media (max-width: 1px) { .media rect { fill: rgb(255, 0, 0) } } .red-use { --tone: rgb(255, 0, 0) } .backed { background: rgb(0, 0, 255) }</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
       <symbol id="two-tone" viewBox="0 0 100 50" preserveAspectRatio="none"><rect width="50" height="50" fill="#000"/><rect x="50" width="50" height="50" fill="currentColor"/></symbol>
       <symbol id="toned" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" style="fill: var(--tone, rgb(0, 0, 255))"/></symbol>
+      <symbol id="ruled" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="sprite-blue" width="10" height="10"/></symbol>
+      <symbol id="outer-icon" viewBox="0 0 10 10" preserveAspectRatio="none">
+        <linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient>
+        <rect width="10" height="10" fill="url(#inner-green)"/></symbol>
       <linearGradient id="blue"><stop offset="0" stop-color="rgb(0, 0, 255)"/><stop offset="1" stop-color="rgb(0, 0, 255)"/></linearGradient></svg>
     <svg style="display: none"><linearGradient id="hidden-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></svg>
     <div style="color: rgb(0, 0, 255)">
@@ -472,8 +478,8 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     <svg data-testid="literal" tabindex="0" width="150" height="50" style="display: block; color: rgb(0, 0, 0); fill: rgb(0, 255, 0)">
       <use href="#two-tone" width="100" height="50" style="color: rgb(255, 0, 0)"/><use href="#dot" x="100" width="50" height="50"/></svg>
     <svg data-testid="referring" tabindex="0" width="125" height="50" style="display: block">
-      <defs><linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></defs>
-      <rect width="25" height="50" fill="url(#inner-green)"/><rect x="25" width="25" height="50" fill="url(#blue)"/>
+      <defs><linearGradient id="local-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></defs>
+      <rect width="25" height="50" fill="url(#local-green)"/><rect x="25" width="25" height="50" fill="url(#blue)"/>
       <image x="50" width="25" height="50" preserveAspectRatio="none" href="${green}"/><rect x="75" width="25" height="50" fill="url(#hidden-green)"/>
       <use href="#toned" x="100" width="25" height="50" style="--tone: rgb(255, 0, 0)"/></svg>
     <svg data-testid="variable" tabindex="0" width="20" height="20" color="rgb(255, 0, 0)" style="display: block; --paint: currentColor">
@@ -488,9 +494,17 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     <svg data-testid="shift" tabindex="0" width="100" height="50" style="display: block"><rect class="shift" width="50" height="50" fill="rgb(0, 255, 0)"/></svg>
     <svg data-testid="reset" class="reset" tabindex="0" width="100" height="50" fill="none" stroke="rgb(0, 0, 255)" stroke-width="4"
       shape-rendering="crispEdges" style="display: block"><rect x="2" y="2" width="46" height="46"/><path d="M60 10H90V40H60Z"/></svg>
-    <svg data-testid="nest" class="nest" tabindex="0" width="20" height="20"><rect class="inner" width="20" height="20"/></svg>
-    <svg data-testid="imported" class="imported" tabindex="0" width="20" height="20"><rect width="20" height="20"/></svg>
-    <svg data-testid="red-use" tabindex="0" width="20" height="20"><use class="red-use" href="#toned" width="20" height="20"/></svg>
+    <svg data-testid="nest" class="nest" tabindex="0" width="20" height="20" style="display: block"><rect class="inner" width="20" height="20"/></svg>
+    <svg data-testid="imported" class="imported" tabindex="0" width="20" height="20" style="display: block"><rect width="20" height="20"/></svg>
+    <svg data-testid="red-use" tabindex="0" width="20" height="20" style="display: block"><use class="red-use" href="#toned" width="20" height="20"/></svg>
+    <svg data-testid="tokens" class="tw flip" tabindex="0" width="20" height="20" style="display: block"><rect width="20" height="20" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="nested-ids" tabindex="0" width="100" height="50" style="display: block">
+      <rect width="50" height="50" fill="url(#inner-green)"/><use href="#outer-icon" x="50" width="50" height="50"/></svg>
+    <svg data-testid="ruled" tabindex="0" width="20" height="20" style="fill: rgb(0, 255, 0)"><use href="#ruled" width="20" height="20"/></svg>
+    <svg data-testid="local-ruled" tabindex="0" width="20" height="20">
+      <defs><g id="local-shape"><rect class="r" width="20" height="20"/></g></defs><use href="#local-shape" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="has" id="has-drawing" class="sizing" tabindex="0" width="100" height="50">
+      <style>#has-drawing rect:has(+ circle[style]) { opacity: 0 }</style><rect width="100" height="50"/><circle cx="25" cy="25" r="10"/></svg>
     <svg data-testid="padded" tabindex="0" width="20" height="20" style="padding: 5px; border: 1px solid #000"><rect width="20" height="20"/></svg>
     <svg data-testid="html" tabindex="0" width="20" height="20"><foreignObject width="20" height="20"><div>Hi</div></foreignObject></svg>
     <svg data-testid="sprite" tabindex="0" width="20" height="20"><use href="/sprite.svg#x"/></svg>
@@ -501,9 +515,15 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
       <style>@font-face { font-family: outside-face; src: url(/face.woff2) }</style><text y="15" font-family="outside-face">Hi</text></svg>
     <svg data-testid="import" tabindex="0" width="20" height="20"><style>@import url(/drawing.css);</style><rect width="20" height="20"/></svg>
     <svg data-testid="upper" tabindex="0" width="20" height="20"><style>#upper-shape { fill: URL(/upper.svg#p) }</style><rect id="upper-shape" width="20" height="20"/></svg>
-    <svg data-testid="escaped" tabindex="0" width="20" height="20"><style>#escaped-shape { fill: u\\72l(/escaped.svg#p) }</style><rect id="escaped-shape" width="20" height="20"/></svg>`),
+    <svg data-testid="escaped" tabindex="0" width="20" height="20"><style>#escaped-shape { fill: u\\72l(/escaped.svg#p) }</style><rect id="escaped-shape" width="20" height="20"/></svg>
+    <svg data-testid="split" tabindex="0" width="40" height="20"><style id="split-sheet"></style><text y="15" font-family="split-face">Hi</text></svg>`),
   { green, elsewhere });
-  const faithful = ["plain", "instances", "literal", "referring", "variable", "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset"] as const;
+  // A style sheet whose text is split across two nodes, neither of which refers to anything alone.
+  await page.evaluate(() => document.getElementById("split-sheet")!.append("@font-face { font-family: split-face; src: u", "rl(/split.woff2) }"));
+  const faithful = [
+    "plain", "instances", "literal", "referring", "variable", "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset",
+    "styled", "nest", "imported", "red-use", "tokens", "nested-ids",
+  ] as const;
   const colours = [[0, 255, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]] as const;
   // What the page shows of each drawing, before the bar is on it.
   const live = new Map<string, number[]>();
@@ -512,11 +532,13 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   const markup = () => page.evaluate(() => [...document.querySelectorAll("svg, svg *")].map((element) => element.outerHTML));
   const before = await markup();
 
-  // Drawings are drawn as the page shows them: a page colour inherited as currentColor, a symbol with a relative
-  // size, <use>s of different colours, a symbol and gradients from elsewhere (one in a hidden drawing), a data: image
-  // and font, a custom property set on a <use>, the page's background on the drawing, page rules that do not apply,
-  // and page rules on its shapes' own (not inherited) properties: CSS d and d: none over the d attribute, an opacity
-  // attribute reset, an individual transform, and a CSS reset's box-sizing and borders.
+  // Drawings are drawn as the page shows them, on a page whose cursor and a custom property refer to images: a page
+  // colour inherited as currentColor, a symbol with a relative size, <use>s of different colours, a symbol and
+  // gradients from elsewhere (one in a hidden drawing, one inside a symbol named before the symbol), a data: image and
+  // font, a custom property set on a <use> (inline or by a rule), the page's background on the drawing, page rules that
+  // do not apply, and page rules on its shapes: CSS d and d: none over the d attribute, an opacity attribute reset, an
+  // individual transform, a CSS reset's box-sizing and borders, a custom property a rule resets, and a fill from a
+  // rule, a nested rule and a rule after a style sheet the page cannot read.
   for (const id of faithful) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
@@ -525,16 +547,17 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     expect(sent.reduce((sum, count) => sum + count, 0), id).toBeGreaterThan(0);
   }
 
-  // A drawing whose inherited properties the page restyles inside, which what a <use> shows would inherit from the
-  // <use> instead, is sent without a screenshot: a page rule's fill on a shape, a nested rule's, a rule's after a
-  // style sheet the page cannot read, and a custom property a rule sets on a <use>.
-  for (const [id, element, property] of [
-    ["styled", "rect", "fill"], ["nest", "rect", "fill"], ["imported", "rect", "fill"], ["red-use", "use", "--tone"],
+  // What a <use> shows inherits from the <use>, so a page rule giving it an inherited value is not drawn, even when
+  // the value equals what it inherits where it is defined (a sprite's fill, or the default black). Nor is a drawing
+  // whose own selectors would match differently once its copy's shapes carry their values.
+  for (const [id, reason] of [
+    ["ruled", "the page styles the <rect> that a <use> in the drawing shows (its fill), which its copy cannot reproduce yet"],
+    ["local-ruled", "the page styles the <rect> that a <use> in the drawing shows (its fill), which its copy cannot reproduce yet"],
+    ["has", "the page styles the drawing's <rect> (its opacity) in a way its copy cannot reproduce yet"],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(screenshot, id).toBeNull();
-    expect(draft.screenshotUnavailableReason, id)
-      .toBe(`The screenshot failed: the page styles the drawing's <${element}> (its ${property}) in a way its copy cannot reproduce yet`);
+    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
   }
 
   // What the copy cannot hold, and what would load from outside the page, in markup or in its style sheet text.
@@ -543,7 +566,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     ["padded", "the drawing has padding or a border, which its copy cannot frame yet"],
     ["import", "the drawing imports a style sheet, which a screenshot cannot embed yet"],
     ...([["sprite", "/sprite.svg#x"], ["linked-sprite", "/sprite.svg#x"], ["image", "/missing.png"], ["fill-url", "/paint.svg#p"],
-      ["font", "/face.woff2"], ["upper", "/upper.svg#p"], ["escaped", "/escaped.svg#p"]] as const)
+      ["font", "/face.woff2"], ["upper", "/upper.svg#p"], ["escaped", "/escaped.svg#p"], ["split", "/split.woff2"]] as const)
       .map(([id, url]) => [id, `the drawing loads ${url}, which a screenshot cannot embed yet`] as const),
   ]) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
@@ -769,6 +792,33 @@ test("a drawing's copy is checked only while its capture is current: a withdrawa
   expect(timedOut.work.t!.reads).toBeLessThan(4_000);
   expect(timedOut.frames).toBe(0);
   expect(timedOut.blobs).toBe(0);
+});
+
+test("a drawing whose style sheet is in many pieces is copied without holding up the page", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => {
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+      '<svg data-testid="pieces" tabindex="0" width="100" height="20" style="display: block"><style id="pieces-sheet"></style><rect width="100" height="20" fill="rgb(0, 255, 0)"/></svg>');
+    const sheet = document.getElementById("pieces-sheet")!;
+    for (let index = 0; index < 5_000; index++) sheet.append(`#pieces-sheet ~ .piece-${index} { fill: rgb(255, 0, 0) }\n`);
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await page.evaluate(() => {
+    const state = window as unknown as { longestStall: number };
+    state.longestStall = 0;
+    let last = performance.now();
+    window.setInterval(() => {
+      state.longestStall = Math.max(state.longestStall, performance.now() - last);
+      last = performance.now();
+    }, 5);
+  });
+  const { draft, screenshot } = await commentFromKeyboard(page, daemon, "pieces");
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  expect(screenshot).not.toBeNull();
+  // The sheet is parsed once (taking it a piece at a time held the page up for seconds); drawing and encoding are in
+  // this window too.
+  expect(await page.evaluate(() => (window as unknown as { longestStall: number }).longestStall)).toBeLessThan(500);
 });
 
 test("rapid re-picks of drawings copy and check one at a time and draw only the last", async ({ page, openFixture, fixtureServer }) => {
