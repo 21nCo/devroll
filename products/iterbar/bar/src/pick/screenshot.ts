@@ -153,18 +153,22 @@ function snapshots(): Snapshot {
 const MATCH_ROUNDS = 3;
 
 /**
- * Gives `target` (in the isolated document) the values `live` computes (`want`) that it differs in, inline, after
- * checking what each refers to, comparing again up to {@link MATCH_ROUNDS} times; its transitions and animations are
- * stopped first, so what it computes is what is drawn. `strict` requires them to match then (a document's root does
+ * Gives `target` (in the isolated document) the values `live` computes (`want`) that it differs in, inline (but not
+ * over what it has as important, the frame), after checking what each refers to, comparing again up to
+ * {@link MATCH_ROUNDS} times; its transitions and animations, if any, are stopped first, so what it computes is what
+ * is drawn. `strict` requires them to match then (a document's root does
  * not need to: it is always a block). A string says why a value cannot be given or does not match.
  */
 function carry(target: SVGElement, live: Element, want: ReadonlyMap<string, string>, view: Window, ids: Set<string>, strict: boolean): string | null {
-  target.style.setProperty("transition", "none", "important");
-  target.style.setProperty("animation", "none", "important");
   const have = view.getComputedStyle(target);
+  if (have.animationName.split(",").some((name) => name.trim() !== "none")) target.style.setProperty("animation", "none", "important");
+  if (have.transitionDuration.split(",").some((duration) => Number.parseFloat(duration) > 0)) target.style.setProperty("transition", "none", "important");
   for (let round = 0; ; round++) {
     const values: [string, string][] = [];
-    for (const [name, value] of want) if (value !== have.getPropertyValue(name)) values.push([name, value]);
+    for (const [name, value] of want) {
+      // What the frame sets (important) stays.
+      if (value !== have.getPropertyValue(name) && target.style.getPropertyPriority(name) !== "important") values.push([name, value]);
+    }
     if (values.length === 0 || (round === MATCH_ROUNDS && !strict)) return null;
     if (round === MATCH_ROUNDS) return cannotReproduce(live, values[0]![0]);
     for (const [name, value] of values) {
@@ -271,8 +275,10 @@ async function rulesOnShown(
     const inline = element instanceof SVGElement ? element.style : null;
     for (const [name, { values, important }] of properties) {
       if (inline?.getPropertyValue(name) && (inline.getPropertyPriority(name) === "important" || !important)) continue;
-      const shownBy = [...values].some((value) => value === "" || WHERE_SHOWN.test(value));
-      if (shownBy && (values.size > 1 || values.has(""))) {
+      // An empty longhand is one a shorthand with a variable sets; an empty custom property is just empty.
+      const pending = values.has("") && !name.startsWith("--");
+      const shownBy = pending || [...values].some((value) => WHERE_SHOWN.test(value));
+      if (shownBy && (values.size > 1 || pending)) {
         return `the page gives the <${element.localName}> that a <use> in the drawing shows its ${name} by where it is shown, in a way its copy cannot reproduce yet`;
       }
       const value = shownBy ? [...values][0]! : snapshot(element).get(name) ?? "";
@@ -368,6 +374,9 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     const carried = carry(copy, svg, snapshot(svg), view, ids, false);
     if (carried !== null) return carried;
     frameSvgCopy(copy, frame);
+    // What the root differs in now, being the frame's root (it is a block), may differ at the end too; nothing else.
+    const rootStyle = view.getComputedStyle(copy);
+    const rootResidual = new Set([...snapshot(svg)].filter(([name, value]) => value !== rootStyle.getPropertyValue(name)).map(([name]) => name));
     const children = await childrenInto(copy, svg);
     if (children !== null) return children;
     // What it refers to by #id outside itself (a sprite's symbol, a gradient), with what the definitions refer to.
@@ -438,6 +447,11 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     for (const id of ids) {
       if (!defined.has(id) && !own.has(id) && lookup.getElementById(id)) return "the page's rules for what a <use> in the drawing shows refer to more than its copy holds";
     }
+    // Its own selectors may match the root differently now that it has its children: given its values again, it
+    // must match as it did.
+    const recarried = carry(copy, svg, snapshot(svg), view, ids, false);
+    if (recarried !== null) return recarried;
+    for (const [name, value] of snapshot(svg)) if (!rootResidual.has(name) && value !== rootStyle.getPropertyValue(name)) return cannotReproduce(svg, name);
     for (const [live, copied] of pairs) {
       await eachNode();
       const have = view.getComputedStyle(copied);
@@ -542,6 +556,7 @@ function frameSvgCopy(copy: SVGSVGElement, frame: Frame): void {
   const style: Record<string, string> = {
     transform: "none", translate: "none", rotate: "none", scale: "none", margin: "0", zoom: "1", position: "static",
     inset: "auto", "box-sizing": "border-box", width: frame.style.width!, height: frame.style.height!,
+    "min-width": "0", "max-width": "none", "min-height": "0", "max-height": "none",
   };
   for (const [name, value] of Object.entries(style)) copy.style.setProperty(name, value, "important");
   copy.setAttribute("width", frame.style.width!.slice(0, -2));

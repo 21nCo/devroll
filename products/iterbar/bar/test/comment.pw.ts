@@ -454,7 +454,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
       .reset, .reset * { box-sizing: border-box; border: 0 solid rgb(229, 231, 235) } .tw * { --spin: 0deg } .tw.flip { --spin: 180deg }
       .sprite-blue { fill: rgb(0, 0, 255) } .r { fill: rgb(0, 0, 0) } .sizing circle { box-sizing: border-box }
       body { cursor: url(/pointer.png), auto } :root { --logo: url(/logo.svg) } .themed { fill: rgb(255, 0, 0) } .ico rect { fill: currentColor }
-      html { box-sizing: border-box } *, *::before, *::after { box-sizing: inherit } @media (max-width: 1px) { #dot rect { fill: rgb(255, 0, 0) } }
+      html { box-sizing: border-box } *, *::before, *::after { box-sizing: inherit; --tw-pan-x: ; } @media (max-width: 1px) { #dot rect { fill: rgb(255, 0, 0) } }
       .tile { fill: rgb(255, 0, 0) !important } .trans rect { fill: rgb(0, 0, 255) } @keyframes spin { to { transform: rotate(360deg) } }
       .spin { animation: spin 1s linear infinite; transform-origin: 50px 50px } @container (min-width: 1px) { .contained-shape { fill: rgb(255, 0, 0) } }
       .nest { & .inner { fill: rgb(255, 0, 0) } } .nest-miss { & .absent { fill: rgb(255, 0, 0) } }
@@ -515,6 +515,10 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
       <style>#trans-drawing rect { transition: fill 0.2s }</style><rect width="20" height="20"/></svg>
     <svg data-testid="spin" tabindex="0" width="100" height="100" style="display: block"><g class="spin"><circle cx="50" cy="50" r="45" fill="rgb(0, 255, 0)"/></g></svg>
     <svg data-testid="contained" tabindex="0" width="20" height="20"><use href="#contained" width="20" height="20"/></svg>
+    <svg data-testid="root-has" id="root-has" tabindex="0" width="20" height="20" style="display: block">
+      <style>#root-has:has(rect[style]) { opacity: 0 }</style><rect width="20" height="20" fill="rgb(0, 255, 0)"/></svg>
+    <div style="width: 400px"><svg data-testid="capped" tabindex="0" viewBox="0 0 300 100" preserveAspectRatio="none" width="300" height="100"
+      style="display: block; max-width: 50%"><rect width="300" height="100" fill="rgb(0, 255, 0)"/></svg></div>
     <svg data-testid="local-ruled" tabindex="0" width="20" height="20" style="display: block">
       <defs><g id="local-shape"><rect class="r" width="20" height="20"/></g></defs><use href="#local-shape" fill="rgb(0, 255, 0)"/></svg>
     <svg data-testid="has" id="has-drawing" class="sizing" tabindex="0" width="100" height="50">
@@ -537,6 +541,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   const faithful = [
     "plain", "instances", "literal", "referring", "variable", "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset",
     "styled", "nest", "imported", "red-use", "tokens", "nested-ids", "ruled", "local-ruled", "themed", "ico", "important", "trans", "spin",
+    "root-has", "capped",
   ] as const;
   const colours = [[0, 255, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]] as const;
   // What the page shows of each drawing, before the bar is on it.
@@ -557,7 +562,9 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   // from the <use> what a rule on an ancestor where it is defined gives it there. A page rule's currentColor on it
   // follows the <use>'s colour; an important rule wins over its inline style; a rule under a media query that does
   // not hold is left out; a universal box-sizing: inherit reset changes nothing. A shape with a transition, and one
-  // a running animation turns (a circle, which looks the same at every turn), are drawn as they are now.
+  // a running animation turns (a circle, which looks the same at every turn), are drawn as they are now. A page whose
+  // universal rule declares an empty custom property, a drawing whose own rule on its root depends on its shapes' style
+  // attributes, and one whose maximum width is a share of its parent's are drawn as the page shows them too.
   for (const id of faithful) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
