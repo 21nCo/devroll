@@ -113,8 +113,9 @@ element is described when it is picked:
   other non-monotone pseudo-class holding one (or under a default
   namespace) as anything. A drawing with text is unavailable: an image
   cannot be shown to use the page's font or rasterise it alike, and so
-  is a `#id` link with a `%` escape, tab or newline. A drawing holding an
-  SVG animation element, or whose root, shapes or definitions one elsewhere
+  is a `#id` link the URL parser changes (a `%` escape, a tab or newline
+  inside it, a lone surrogate). A drawing holding an SVG animation
+  element, or whose root, shapes or definitions one elsewhere
   targets, is unavailable, as is `<use>` content a CSS animation moves. Otherwise transitions and
   animations are drawn as they are at that moment. Pointing, selection
   and list-marker properties (`cursor`, `pointer-events`, `user-select`,

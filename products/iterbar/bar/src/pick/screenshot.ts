@@ -67,12 +67,34 @@ const XLINK = "http://www.w3.org/1999/xlink";
  * outside the page.
  */
 function reference(url: string, ids: Set<string>): string | null {
-  const value = url.trim();
-  // The browser URL-parses a #fragment, decoding escapes and dropping tabs and newlines, before it looks the id up.
-  if (value.startsWith("#") && /[%\t\n\r]/u.test(value)) return `the drawing refers to ${value.slice(0, 100)}, an escaped #id a screenshot cannot resolve yet`;
-  if (value.startsWith("#")) ids.add(value.slice(1));
-  else if (!/^data:/iu.test(value)) return `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
+  const value = linkText(url);
+  if (!value.startsWith("#")) return /^data:/iu.test(value) ? null : `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
+  const id = fragmentId(value);
+  if (id === null) return `the drawing refers to ${value.slice(0, 100)}, an escaped #id a screenshot cannot resolve yet`;
+  ids.add(id);
   return null;
+}
+
+/** `url` without the C0 controls and spaces at its ends, which the URL parser strips (and nothing else). */
+function linkText(url: string): string {
+  let [start, end] = [0, url.length];
+  while (start < end && url.charCodeAt(start) <= 0x20) start++;
+  while (end > start && url.charCodeAt(end - 1) <= 0x20) end--;
+  return url.slice(start, end);
+}
+
+/**
+ * The id a `#fragment` link (from {@link linkText}) names as the browser looks it up: its URL-parsed fragment,
+ * decoded. null when that is not the link's own text (an escape decoded, a tab or newline dropped, a lone surrogate
+ * replaced), which is refused rather than resolved.
+ */
+function fragmentId(link: string): string | null {
+  try {
+    const id = decodeURIComponent(new URL(link, "about:blank").hash.slice(1));
+    return id === link.slice(1) ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** CSS text with its escapes decoded, so that `u\72l(` reads as the `url(` it is. */
@@ -592,7 +614,7 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     // changes it too.
     for (const animation of lookup.querySelectorAll([...ANIMATIONS].join(","))) {
       await eachNode();
-      const href = hrefOf(animation)?.trim() ?? "";
+      const href = linkText(hrefOf(animation) ?? "");
       // Its link names its target by #id, alone or after this page's URL (another page's targets nothing); none, its parent.
       let target: Element | null = animation.parentElement;
       if (href) {
@@ -609,8 +631,9 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     }
     const shown = new Set<Element>();
     for (const [live] of pairs) {
-      const href = live.localName === "use" ? hrefOf(live)?.trim() : undefined;
-      const target = href?.startsWith("#") ? lookup.getElementById(href.slice(1)) : null;
+      const href = live.localName === "use" ? linkText(hrefOf(live) ?? "") : "";
+      const id = href.startsWith("#") ? fragmentId(href) : null;
+      const target = id === null ? null : lookup.getElementById(id);
       if (!target || !copies.has(target) || shown.has(target)) continue;
       for (const element of [target, ...target.querySelectorAll("*")]) {
         await eachNode();

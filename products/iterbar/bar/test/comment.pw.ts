@@ -793,6 +793,9 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <defs><rect id="nltile" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#nl&#10;tile"/></svg>
     <svg data-testid="accented-id" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect id="café" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#café"/><rect x="20" width="20" height="40" fill="rgb(0, 0, 255)"/></svg>
+    <svg width="0" height="0" style="position: absolute"><rect id="nb-tile&#160;" width="20" height="40" fill="rgb(0, 255, 0)"/><rect id="c0-tile" width="20" height="40" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="nbsp-id" tabindex="0" width="40" height="40" style="display: block"><use href="#nb-tile&#160;"/><rect x="20" width="20" height="40" fill="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="control-id" tabindex="0" width="40" height="40" style="display: block"><use href="#c0-tile&#1;"/><rect x="20" width="20" height="40" fill="rgb(0, 0, 255)"/></svg>
     <svg data-testid="padded-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="'pad '" font-size="40">WW</text></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
@@ -819,7 +822,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   }, block);
   const faithful = [
     "plain", "instances", "literal", "referring", "variable", "red-use", "nested-ids", "themed", "copied-twice", "root-current", "empty-var",
-    "noted", "accented-id", "scripted-rule", "nested", "namespaced", "hinted", "cursor-url",
+    "noted", "accented-id", "nbsp-id", "control-id", "scripted-rule", "nested", "namespaced", "hinted", "cursor-url",
   ] as const;
   const live = new Map<string, Buffer>();
   for (const id of faithful) live.set(id, await page.getByTestId(id).screenshot());
@@ -835,8 +838,9 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   // What a <use> shows, styled by nothing on the page but the <use> (its colour, a custom property inline or by a
   // rule on the <use>, a rule on the definition's ancestor, the drawing's root, a nested page rule whose parent does
   // not match), drawn per quadrant as the page shows it;
-  // and drawings with a #id the browser percent-encodes and decodes back, attributes whose text reads like a url(), or
-  // a cursor attribute (left out of the copy). A drawing's own rule that a script added is drawn too, as are a drawing whose own style sheet
+  // and drawings with a #id the browser percent-encodes and decodes back (one outside the drawing ending in a
+  // no-break space, and a link ending in a control character, which the browser drops), attributes whose text reads
+  // like a url(), or a cursor attribute (left out of the copy). A drawing's own rule that a script added is drawn too, as are a drawing whose own style sheet
   // names its namespace, text in a shown element's attributes that reads like a var(), and all of these on a page with
   // an @import whose condition is false.
   for (const id of faithful) {
