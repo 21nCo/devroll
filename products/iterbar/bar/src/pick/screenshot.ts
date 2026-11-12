@@ -281,7 +281,10 @@ async function shownRefusal(
   const noteVariables = (text: string): void => {
     for (const [, name = ""] of decodedCss(text.replaceAll(/\/\*[\s\S]*?\*\//gu, "")).matchAll(VARIABLE)) variables.add(name);
   };
-  for (const element of shown) for (const { value } of element.attributes) noteVariables(value);
+  // Only attributes parsed as CSS: style and presentation attributes, not text (`data-*`, `aria-*`, a title).
+  for (const element of shown) {
+    for (const { name, value } of element.attributes) if (!/^(?:data-|aria-)|^(?:id|class|title|role|lang|tabindex)$/u.test(name)) noteVariables(value);
+  }
   const unreadable = "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet";
   // Each list of rules; whether it is the drawing's own; whether it is nested or under a condition; and, inside a
   // style rule, the selector its declarations after nested rules have (relative ones match more: `&` stands for any).
@@ -303,7 +306,8 @@ async function shownRefusal(
     for (const rule of next.rules) {
       await eachNode();
       if (rule instanceof CSSImportRule) {
-        if (!push(rule.styleSheet, next.own)) return unreadable;
+        // One never fetched (its condition is false) applies nothing.
+        if (rule.styleSheet && !push(rule.styleSheet, next.own)) return unreadable;
         continue;
       }
       let { parent } = next;
@@ -311,7 +315,9 @@ async function shownRefusal(
       if (rule instanceof CSSStyleRule || ("style" in rule && (parent !== null || rule.constructor.name === "CSSNestedDeclarations"))) {
         const exact = !next.nested && rule instanceof CSSStyleRule;
         // Declarations directly in @scope apply to its root, which its start selector matches.
-        const selector = rule instanceof CSSStyleRule ? rule.selectorText : parent ?? (rule.parentRule as { start?: string | null } | null)?.start ?? "*";
+        const scope = rule.parentRule as { start?: string | null } | null;
+        const start = !(rule instanceof CSSStyleRule) && scope && "start" in scope ? scope.start?.replaceAll("&", `:is(${parent ?? "*"})`) : undefined;
+        const selector = rule instanceof CSSStyleRule ? rule.selectorText : start ?? parent ?? "*";
         // A nested selector matches as with its parent's in place of `&` (and any element for `:scope`), less any negation
         // of them, which that could narrow; one it cannot take apart matches any element.
         if (rule instanceof CSSStyleRule && exact) {
@@ -324,13 +330,15 @@ async function shownRefusal(
           parent = selector;
         }
         const style = (rule as CSSStyleRule).style;
+        // matches() knows no namespace prefixes; any namespace matches more.
+        const matching = parent!.replaceAll(/(?:\*|[\w-]+)\|(?!=)/gu, "*|");
         for (const element of style.length > 0 ? shown : []) {
           await eachNode();
           let matches: boolean;
           let copyMatches = false;
           try {
-            matches = element.matches(parent!);
-            if (next.own) copyMatches = copies.get(element)!.matches(parent!);
+            matches = element.matches(matching);
+            if (next.own) copyMatches = copies.get(element)!.matches(matching);
           } catch {
             return `the page has a style rule (${selector.slice(0, 100)}) that a screenshot cannot match against what a <use> in the drawing shows yet`;
           }
@@ -346,10 +354,16 @@ async function shownRefusal(
   }
   for (const element of shown) {
     if (given.has(element)) return `the page styles the <${element.localName}> that a <use> in the drawing shows, which its copy cannot reproduce yet`;
+    // The copy is drawn still, as its original computes now, which is not how each <use> shows it moving.
+    await eachNode();
+    if (ANIMATIONS.has(element.localName) || getComputedStyle(element).animationName.split(",").some((name) => name.trim() !== "none")) {
+      return "what a <use> in the drawing shows is animated, which a screenshot cannot check yet";
+    }
   }
   for (const name of variables) {
     await eachNode();
-    if (name === "" || registered(name, scratch)) return `what a <use> in the drawing shows uses ${name}, which the page registers, and a screenshot cannot reproduce yet`;
+    if (name === "") return "what a <use> in the drawing shows uses a var() a screenshot cannot read yet";
+    if (registered(name, scratch)) return `what a <use> in the drawing shows uses ${name}, which the page registers, and a screenshot cannot reproduce yet`;
   }
   return null;
 }
@@ -365,25 +379,38 @@ function families(value: string): string[] {
  * Says why text in the drawing would be drawn in another font, if it would: the copy is drawn as an image, which has
  * none of the page's fonts. Text (`texts`, the computed `font-family` of each element in a `<text>`, and of each
  * `<use>` that shows text) in a family the page has a font face for (from any style sheet, another origin's too, or
- * added from a script) is refused, unless as many faces of it are declared unconditionally in the drawing's own style
- * sheets (whose `url()`s are checked to be `data:` ones), which the copy has.
+ * added from a script) is refused, unless the page's faces of it (failed ones too) are all declared unconditionally
+ * in the drawing's own style sheets (whose `url()`s are checked to be `data:` ones), which the copy has. A face the
+ * drawing declares under a condition, which the image evaluates at its own size, is refused too.
  */
 function fontRefusal(texts: readonly string[], lookup: Document | ShadowRoot, copies: ReadonlyMap<Node, SVGElement>): string | null {
   if (texts.length === 0) return null;
   const count = (counts: Map<string, number>, family: string | undefined): void => {
     if (family) counts.set(family, (counts.get(family) ?? 0) + 1);
   };
+  // The faces the page has, usable or not (a failed one may be the drawing's own).
   const page = new Map<string, number>();
-  for (const face of (lookup.ownerDocument ?? (lookup as Document)).fonts) if (face.status !== "error") count(page, families(face.family)[0]);
+  for (const face of (lookup.ownerDocument ?? (lookup as Document)).fonts) count(page, families(face.family)[0]);
   const own = new Map<string, number>();
-  // Only faces declared unconditionally: the image is not the page, and its media may not match where the page's do.
+  // Faces the drawing declares under a condition, which the image (not the page) evaluates.
+  const conditional = new Set<string>();
   for (const sheet of lookup.styleSheets) {
-    if (!sheet.ownerNode || !copies.has(sheet.ownerNode) || sheet.disabled || sheet.media.mediaText) continue;
-    for (const rule of sheet.cssRules) if (rule instanceof CSSFontFaceRule) count(own, families(rule.style.getPropertyValue("font-family"))[0]);
+    if (!sheet.ownerNode || !copies.has(sheet.ownerNode) || sheet.disabled) continue;
+    const stack = [{ rules: sheet.cssRules, conditional: Boolean(sheet.media.mediaText) }];
+    for (let next = stack.pop(); next; next = stack.pop()) {
+      for (const rule of next.rules) {
+        const family = rule instanceof CSSFontFaceRule ? families(rule.style.getPropertyValue("font-family"))[0] : undefined;
+        if (family !== undefined && next.conditional) conditional.add(family);
+        else if (family !== undefined) count(own, family);
+        else if ("cssRules" in rule) stack.push({ rules: rule.cssRules as CSSRuleList, conditional: true });
+      }
+    }
   }
   for (const value of texts) {
     for (const family of families(value)) {
-      if ((page.get(family) ?? 0) > (own.get(family) ?? 0)) return `the drawing's text uses the page's font ${family.slice(0, 100)}, which a screenshot cannot embed yet`;
+      if (conditional.has(family) || (page.get(family) ?? 0) > (own.get(family) ?? 0)) {
+        return `the drawing's text uses the page's font ${family.slice(0, 100)}, which a screenshot cannot embed yet`;
+      }
     }
   }
   return null;
@@ -439,8 +466,10 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
       // Its rules as the page has them (a script may have changed them since its text), checked, and then given at
       // once, so the copy (which is in a document) parses them once. A disabled one has none.
       const sheet = (source as SVGStyleElement).sheet;
-      const text = !sheet ? source.textContent ?? "" : sheet.disabled ? "" : [...sheet.cssRules].map((rule) => rule.cssText).join("\n");
-      const refused = references(text, ids);
+      const rules = !sheet || sheet.disabled ? [] : [...sheet.cssRules];
+      const text = !sheet ? source.textContent ?? "" : rules.map((rule) => rule.cssText).join("\n");
+      // A namespace's url() names it, and loads nothing.
+      const refused = references(!sheet ? text : rules.filter((rule) => !(rule instanceof CSSNamespaceRule)).map((rule) => rule.cssText).join("\n"), ids);
       if (refused !== null) return refused;
       copy.textContent = text;
       return null;

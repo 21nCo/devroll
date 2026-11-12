@@ -110,9 +110,12 @@ element is described when it is picked:
   (`@property` or `CSS.registerProperty`) that shown content uses. Text in
   a font the page has a face for is drawn by the image without it, so it
   is unavailable too, unless the drawing's own `<style>` declares the face
-  from a `data:` URL. Transitions and animations are drawn as they are at
-  that moment. Pointing, selection and list-marker properties (`cursor`,
-  `pointer-events`, `user-select`, `list-style-image`) and a custom
+  from a `data:` URL, unconditionally. Content a `<use>` shows that is
+  animated, and a `<use>` link an animation changes, are unavailable too.
+  Otherwise transitions and animations are drawn as they are at that
+  moment. Pointing, selection and list-marker properties (`cursor`,
+  `pointer-events`, `user-select`, `-webkit-user-select`,
+  `list-style-image`) and a custom
   property that refers to an image are not carried. The size and scale
   are measured once its images and fonts have loaded, so an element that
   grows meanwhile
