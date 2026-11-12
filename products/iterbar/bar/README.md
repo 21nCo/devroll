@@ -111,8 +111,9 @@ element is described when it is picked:
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
   `href` or `url()` that is neither a `#fragment` nor a `data:` URL) or
-  holds HTML in a `<foreignObject>`, or whose rules give a paint both
-  as `currentColor` and as a colour equal to it, an
+  holds HTML in a `<foreignObject>`, has padding or a border, or has a
+  paint that may be `currentColor` or a colour equal to it (rules that
+  disagree, or a custom property), an
   inline element inside a scaled or rotated box, or a capture over 10
   seconds) the comment is still sent, without a screenshot and with the
   reason in `screenshotUnavailableReason`.

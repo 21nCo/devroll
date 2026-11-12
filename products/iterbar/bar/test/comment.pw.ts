@@ -470,6 +470,9 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
       <rect width="25" height="50" fill="url(#inner-green)"/><use href="#dot" x="25" width="25" height="50" preserveAspectRatio="none"/>
       <rect x="50" width="25" height="50" fill="url(#blue)"/><image x="75" width="25" height="50" preserveAspectRatio="none" href="${green}"/>
       <use href="#accented" x="100" width="25" height="50"/></svg>
+    <svg data-testid="variable" tabindex="0" width="20" height="20" color="rgb(255, 0, 0)" style="--paint: currentColor">
+      <defs><rect id="var-tile" width="20" height="20" style="fill: var(--paint)"/></defs><use href="#var-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="padded" tabindex="0" width="20" height="20" style="padding: 5px; border: 1px solid #000"><rect width="20" height="20"/></svg>
     <svg data-testid="html" tabindex="0" width="20" height="20"><foreignObject width="20" height="20"><div>Hi</div></foreignObject></svg>
     <svg data-testid="sprite" tabindex="0" width="20" height="20"><use href="/sprite.svg#x"/></svg>
     <svg data-testid="linked-sprite" tabindex="0" width="20" height="20"><use xlink:href="/sprite.svg#x"/></svg>
@@ -510,9 +513,16 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
     at: [[0, 255, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1,
   });
 
-  const html = await commentFromKeyboard(page, daemon, "html");
-  expect(html.screenshot).toBeNull();
-  expect(html.draft.screenshotUnavailableReason).toBe("The screenshot failed: the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet");
+  // What the copy cannot reproduce: HTML inside it, a custom property that may be currentColor, its own box.
+  for (const [id, reason] of [
+    ["html", "the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet"],
+    ["variable", "the drawing's fill may be currentColor or a colour equal to it, which cannot be told apart"],
+    ["padded", "the drawing has padding or a border, which its copy cannot frame yet"],
+  ] as const) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
+  }
 
   for (const [id, url] of [["sprite", "/sprite.svg#x"], ["linked-sprite", "/sprite.svg#x"], ["image", "/missing.png"], ["fill-url", "/paint.svg#p"]] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
@@ -520,6 +530,24 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
     expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: the drawing loads ${url}, which a screenshot cannot embed yet`);
   }
   expect(await styles()).toEqual(before);
+});
+
+test("a large drawing on a page with many style rules is copied well within the time limit", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => {
+    const style = document.createElement("style");
+    style.textContent = Array.from({ length: 2_000 }, (_, index) => `.rule-${index} { color: rgb(1, 2, 3); font-size: 13px; letter-spacing: 1px }`).join("\n");
+    document.head.append(style);
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+      `<svg data-testid="chart" tabindex="0" width="300" height="40" style="display: block">${'<rect width="1" height="1"/>'.repeat(5_000)}</svg>`);
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const started = Date.now();
+  const { draft, screenshot } = await commentFromKeyboard(page, daemon, "chart");
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  expect(screenshot).not.toBeNull();
+  expect(Date.now() - started).toBeLessThan(5_000);
 });
 
 test("a drawing is copied only while its capture holds the render slot, and not at all once withdrawn", async ({ page, openFixture, fixtureServer }) => {
