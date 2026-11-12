@@ -165,5 +165,4 @@ jobs:
           fi
           npm publish "${tarballs[0]}" --access public --tag "${NPM_TAG}"
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ needs.build.outputs.npm_tag }}
