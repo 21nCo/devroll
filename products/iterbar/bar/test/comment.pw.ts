@@ -398,6 +398,9 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
     <div>${chips[2]}</div>
     <svg data-testid="svg" tabindex="0" width="100" height="50" style="display: block; transform: translateX(120px)">
       <rect data-testid="shape" width="100" height="50" fill="rgb(0, 255, 0)"/></svg>
+    <div style="position: relative; height: 60px">
+      <svg data-testid="svg-offset" tabindex="0" width="100" height="50" style="position: absolute; left: 10px; top: 5px">
+        <rect width="100" height="50" fill="rgb(0, 255, 0)"/></svg></div>
     <div data-testid="zoomed" style="zoom: 2; width: 50px; height: 25px; background: rgb(0, 255, 0); transform: translateX(80px)"></div>
     <div style="transform: scale(0.5)"><span data-testid="inline" style="background: #fff">Inline</span></div>`),
   [chip("plain"), chip("in-transformed"), chip("transformed", "transform: translateX(5px)")]);
@@ -421,17 +424,21 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
     expect(Math.abs(await darkPixels(page, png) - text) / text, id).toBeLessThan(0.05);
   }
 
-  // A translated <svg> drawing (which its shape covers, so it is picked from the keyboard) fills its image.
-  await enterCommentMode(page);
-  await page.getByTestId("svg").focus();
-  await page.keyboard.press("Enter");
-  await inBar(page, "[data-role=composer-text]").fill("Drawing");
-  await inBar(page, "[data-role=composer-send]").click();
-  await expect.poll(() => daemon.posts.length).toBe(4);
-  expect(daemon.posts[3]!.draft.target?.selector).toBe('[data-testid="svg"]');
-  const svg = daemon.posts[3]!.screenshot!;
-  expect(pngSize(svg)).toEqual({ width: 100, height: 50 });
-  expect(await pngPixels(page, svg, [[2, 2], [50, 25], [97, 47]])).toEqual({ at: [[0, 255, 0, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1 });
+  // A translated <svg> drawing, and one placed by offsets (which their shapes cover, so they are picked from the
+  // keyboard), fill their images.
+  for (const id of ["svg", "svg-offset"]) {
+    const index = daemon.posts.length;
+    await enterCommentMode(page);
+    await page.getByTestId(id).focus();
+    await page.keyboard.press("Enter");
+    await inBar(page, "[data-role=composer-text]").fill(id);
+    await inBar(page, "[data-role=composer-send]").click();
+    await expect.poll(() => daemon.posts.length).toBe(index + 1);
+    expect(daemon.posts[index]!.draft.target?.selector).toBe(`[data-testid="${id}"]`);
+    const svg = daemon.posts[index]!.screenshot!;
+    expect(pngSize(svg), id).toEqual({ width: 100, height: 50 });
+    expect(await pngPixels(page, svg, [[2, 2], [50, 25], [97, 47]]), id).toEqual({ at: [[0, 255, 0, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1 });
+  }
 
   // Its own zoom and a transform: drawn at its zoomed size, filled.
   const zoomed = (await comment(page, daemon, page.getByTestId("zoomed"), "Zoomed")).screenshot!;
@@ -497,6 +504,29 @@ test("rapid re-picks copy one element at a time and draw only the last", async (
   expect(await page.evaluate(() => window.canvasBlobs)).toBe(1);
   expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-testid="big-e"]');
   expect(daemon.posts[0]!.screenshot).not.toBeNull();
+});
+
+test("a withdrawn capture still waiting inside its render holds up no later capture", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  // The background image is fetched while the copy is embedded, inside the render; it never arrives in time.
+  const release = await heldImage(page, `${fixtureServer.origin}/stalled.svg`, 40, 40);
+  await openCases(page, openFixture, daemon);
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+    '<div data-testid="stalled" style="width: 80px; height: 40px; background: url(/stalled.svg)"></div>'));
+  await enterCommentMode(page);
+  await page.getByTestId("stalled").click();
+  await page.waitForTimeout(500);
+  const started = Date.now();
+  await page.locator('[data-case="testid"]').click();
+  await inBar(page, "[data-role=composer-text]").fill("Not held up");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  const { draft, screenshot } = daemon.posts[0]!;
+  expect(draft.target?.selector).toBe('[data-testid="save"]');
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  expect(screenshot).not.toBeNull();
+  expect(Date.now() - started).toBeLessThan(5_000);
+  release();
 });
 
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
@@ -782,6 +812,8 @@ test("a send that gets no answer says the comment may already be stored", async 
   await expect(inBar(page, "[data-role=composer-error]")).toHaveText(
     /^The daemon did not answer \(.+\), so the comment may already be stored\. Check the threads before sending it again\.$/u);
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Stored, unanswered");
+  // The bar lists the threads again, so the stored comment is there to check.
+  await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("Stored, unanswered");
   expect(daemon.posts).toHaveLength(1);
 });
 
@@ -794,6 +826,9 @@ test("a send the daemon fails with a 5xx after storing it says the comment may a
   await expect(inBar(page, "[data-role=composer-error]")).toHaveText(
     "The daemon failed (500): The store is unavailable, so the comment may already be stored. Check the threads before sending it again.");
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Stored, then failed");
+  // The daemon announced nothing; the bar lists the threads again, so the stored comment is there to check.
+  await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("Stored, then failed");
+  expect(daemon.sockets).toHaveLength(1);
   expect(daemon.posts).toHaveLength(1);
 });
 

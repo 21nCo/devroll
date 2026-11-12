@@ -157,6 +157,8 @@ export class DaemonConnection {
   #reportGeneration = 0;
   /** Ids of current events since the in-flight listing was requested; `null` when no listing is in flight. */
   #touched: Set<string> | null = null;
+  /** A listing was asked for while one was in flight; it runs once that one ends. */
+  #listAgain = false;
 
   constructor(config: DaemonConfig, callbacks: ConnectionCallbacks) {
     this.#config = config;
@@ -222,19 +224,27 @@ export class DaemonConnection {
         // after one the comment may be stored.
         if (error.status === null || error.status < 500) throw error;
         const why = `The daemon failed (${error.status})${error.reason === null ? "" : `: ${error.reason}`}`;
+        this.#refreshThreads();
         throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, error.status, error.reason);
       }
       // No answer (a lost connection or the deadline): the daemon stores a comment before it answers, so the outcome
       // is unknown and sending again could file it twice.
       // A success whose body cannot be read was stored.
-      if (error instanceof SyntaxError) throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+      if (error instanceof SyntaxError) {
+        this.#refreshThreads();
+        throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+      }
       let why = `The daemon did not answer (${(error as Error).message})`;
       if (error instanceof DeadlineError) why = `The daemon did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds`;
       if (this.#stopped) why = "The bar was disconnected from the daemon before it answered";
+      this.#refreshThreads();
       throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`);
     }
     const feedback = feedbackSchema.safeParse(response);
-    if (!feedback.success) throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.");
+    if (!feedback.success) {
+      this.#refreshThreads();
+      throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.");
+    }
     return feedback.data;
   }
 
@@ -313,8 +323,27 @@ export class DaemonConnection {
       if (error instanceof UnauthorizedError) this.#reject();
       else socket.close();
     } finally {
-      if (this.#touched === touched) this.#touched = null;
+      if (this.#touched === touched) {
+        this.#touched = null;
+        if (this.#listAgain) this.#refreshThreads();
+      }
     }
+  }
+
+  /**
+   * Lists the threads again, now or once the listing in flight ends: a send whose outcome is unknown may have stored
+   * a comment the daemon never announced (it publishes only after its last step), and the user is told to look for it
+   * there. A lost connection lists them again when it reopens.
+   */
+  #refreshThreads(): void {
+    const socket = this.#socket;
+    this.#listAgain = false;
+    if (this.#stopped || !this.#connected || !socket) return;
+    if (this.#touched !== null) {
+      this.#listAgain = true;
+      return;
+    }
+    void this.#list(socket);
   }
 
   async #diagnose(): Promise<void> {

@@ -94,6 +94,9 @@ export async function fakeDaemon(
       }
       const post = await readFeedbackPost(request);
       daemon.posts.push(post);
+      const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);
+      // Stored, but neither answered nor announced: only a listing shows it.
+      if (daemon.failFeedbackAfterStore !== null || daemon.dropFeedbackAnswer) daemon.items = [stored, ...daemon.items];
       if (daemon.failFeedbackAfterStore !== null) {
         await fail(daemon.failFeedbackAfterStore);
         return;
@@ -102,7 +105,6 @@ export async function fakeDaemon(
         await route.abort("connectionreset");
         return;
       }
-      const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);
       await route.fulfill({ status: 201, headers: cors, contentType: "application/json", body: JSON.stringify(stored) });
       return;
     }

@@ -112,9 +112,11 @@ function frameOf(element: Element): Frame | string {
   };
 }
 
-/** Frames a detached copy of an `<svg>`, which is drawn from its markup: without its placement, at the frame's size. */
+/** Frames a detached copy of an `<svg>`, which is drawn from its markup: without its placement or offsets, at the frame's size. */
 function frameSvgCopy(copy: SVGSVGElement, frame: Frame): void {
-  for (const name of ["transform", "translate", "rotate", "scale", "margin", "zoom"]) copy.style.removeProperty(name);
+  for (const name of ["transform", "translate", "rotate", "scale", "margin", "zoom", "position", "inset", "top", "right", "bottom", "left"]) {
+    copy.style.removeProperty(name);
+  }
   copy.removeAttribute("transform");
   copy.style.width = frame.style.width!;
   copy.style.height = frame.style.height!;
@@ -147,8 +149,9 @@ function yieldToPage(): Promise<void> {
 /**
  * Lets one capture at a time do the heavy part of a render: copying the element, embedding its resources, drawing and
  * encoding. Waiting for images and fonts to load is outside it. The holder is always withdrawn before another capture
- * starts (a new pick replaces the old one), and a withdrawn render stops at its next copied node, so the wait is short
- * and the work in flight stays bounded however fast the user re-picks.
+ * starts (a new pick replaces the old one) and frees the slot when it is withdrawn: its copy stops at the next node,
+ * and what it may still be waiting for (a resource fetch, a video, decoding or encoding) holds up no other capture. So
+ * the copying in flight stays bounded however fast the user re-picks.
  */
 export class RenderSlot {
   #tail: Promise<void> = Promise.resolve();
@@ -198,6 +201,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
   try {
     check();
     release = await slot.acquire();
+    signal.addEventListener("abort", release, { once: true });
     check();
     worked = performance.now();
     const frame = frameOf(element);
@@ -215,7 +219,10 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     destroyContext(context);
     throw error;
   } finally {
-    release?.();
+    if (release) {
+      signal.removeEventListener("abort", release);
+      release();
+    }
   }
 }
 
@@ -224,7 +231,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
  * {@link MAX_SCREENSHOT_PIXELS} and the daemon's attachment size limit, doing its heavy work only while it holds
  * `slot`. Never rejects: a failure resolves with the reason, so the comment can still be sent without a screenshot.
  * Aborting `signal` (or the time limit, counted from this call, when its render starts: it is queued behind nothing,
- * and waits for the slot only while a withdrawn holder stops) withdraws the capture: it resolves at once, and its
+ * as the slot's holder frees it once withdrawn) withdraws the capture: it resolves at once and frees the slot, and its
  * render stops at its next copied node or step and its context is destroyed.
  */
 export async function captureScreenshot(element: Element, exclude: Node, slot: RenderSlot, signal?: AbortSignal): Promise<ScreenshotResult> {
