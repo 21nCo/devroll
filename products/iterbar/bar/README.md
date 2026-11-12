@@ -85,22 +85,33 @@ element is described when it is picked:
 - **Active variants**: the version each slot on the page shows.
 - **Screenshot**: a PNG of the element rendered in the page with
   `modern-screenshot` from the pick, at the device pixel ratio, scaled down
-  to stay within 4 MP. Every element, an `<svg>` drawing included, is drawn
-  alone at the image origin, upright at its exact (fractional) layout size
-  times its zoom: its own transform, margins and offsets and its ancestors'
-  transforms are left out, while transforms inside it are kept. The size
-  and scale are measured once its images and fonts have loaded, so an
-  element that grows meanwhile stays within the cap, and the image produced
-  is checked again: one over 4 MP is not sent. One capture at a time copies
-  and draws; a capture withdrawn by another pick, Cancel, Escape, the bar's
-  removal or its time limit stops at the next node it copies, or its next
-  step, and holds up no other capture.
+  to stay within 4 MP. Every element is drawn alone at the image origin,
+  upright at its exact (fractional) border box, scrollbars included, times
+  its zoom; a non-replaced inline element at its box on screen. Its own
+  transform, margins and offsets and its ancestors' transforms are left out,
+  while transforms inside it are kept. An `<svg>` drawing is drawn from a
+  copy that carries the SVG styles the page gives it (paint, stroke, text,
+  opacity and transforms, from style sheet rules or inherited,
+  `currentColor` included) and the definitions it uses by `#id` from
+  elsewhere on the page. The size and scale are measured once
+  its images and fonts have loaded, so an element that grows meanwhile
+  stays within the cap, and the image produced is checked again: one over
+  4 MP is not sent. One capture at a time reads, copies and draws the
+  element; a capture waiting for its turn holds no copy. A capture withdrawn
+  by another pick, Cancel, Escape, the bar's removal or its time limit
+  while it copies the element stops at the next node it copies, or its next
+  step, and lets the next capture start at once. One withdrawn while it is
+  drawn and encoded (which waits on nothing outside the page) finishes
+  that first, so the next capture may wait for it, within its own
+  10-second limit.
   When the capture fails (for example a canvas tainted by a cross-origin
   image, an element with no area, a scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
-  drawing, an inline element inside a scaled or rotated box, or a capture
-  over 10 seconds) the comment is still sent, without a screenshot and with
-  the reason in `screenshotUnavailableReason`.
+  drawing, a drawing that loads a resource from outside the page (an
+  `href` or `url()` that is neither a `#fragment` nor a `data:` URL), an
+  inline element inside a scaled or rotated box, or a capture over 10
+  seconds) the comment is still sent, without a screenshot and with the
+  reason in `screenshotUnavailableReason`.
 
   `modern-screenshot` is bundled into `dist/` (its licence is in
   `THIRD-PARTY-NOTICES.md`) rather than imported, so a Vite dev server has no

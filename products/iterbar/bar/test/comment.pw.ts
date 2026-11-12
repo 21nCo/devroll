@@ -2,7 +2,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { FeedbackDraft } from "iterbar";
 import { fakeDaemon, type FakeDaemon } from "./support/fake-daemon.js";
 import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
-import { pngSize } from "./support/png.js";
+import { darkPixels, pngPixels, pngSize } from "./support/png.js";
 
 // Comment mode against a fake daemon that records each POST /feedback: picking, the selector's closed set, the
 // target description, the screenshot and its failure path, and what the page receives while picking.
@@ -89,37 +89,6 @@ async function countCanvasBlobs(page: Page): Promise<void> {
   });
 }
 
-/** The RGBA of `png` at each CSS-pixel `[x, y]` point, and the share of its pixels that are opaque, decoded in the page. */
-function pngPixels(page: Page, png: Buffer, points: readonly (readonly [number, number])[]): Promise<{ at: number[][]; opaque: number }> {
-  return page.evaluate(async ({ base64, points }) => {
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const context = canvas.getContext("2d")!;
-    context.drawImage(bitmap, 0, 0);
-    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
-    let opaque = 0;
-    for (let index = 3; index < data.length; index += 4) if (data[index] === 255) opaque += 1;
-    const at = points.map(([x, y]) => [...data.subarray((y * bitmap.width + x) * 4, (y * bitmap.width + x) * 4 + 4)]);
-    return { at, opaque: opaque / (bitmap.width * bitmap.height) };
-  }, { base64: png.toString("base64"), points });
-}
-
-/** How many pixels of `png` are opaque and dark (text drawn in black), decoded in the page. */
-function darkPixels(page: Page, png: Buffer): Promise<number> {
-  return page.evaluate(async (base64) => {
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const context = canvas.getContext("2d")!;
-    context.drawImage(bitmap, 0, 0);
-    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
-    let dark = 0;
-    for (let index = 0; index < data.length; index += 4) if (data[index + 3] === 255 && data[index]! + data[index + 1]! + data[index + 2]! < 300) dark += 1;
-    return dark;
-  }, png.toString("base64"));
-}
-
 /**
  * Counts, in `window.cloned`, the nodes copied (`cloneNode`) inside each `[data-big]` subtree, by its value, and
  * records in `window.clonedRuns` the order in which the subtrees were copied, one entry per run.
@@ -151,6 +120,19 @@ async function addBigBox(page: Page, name: string, count: number): Promise<void>
     box.innerHTML = "<i></i>".repeat(count);
     document.querySelector("main")!.prepend(box);
   }, { name, count });
+}
+
+/** Picks `id` from the keyboard (an `<svg>` whose shapes cover it), sends it, and resolves with what the daemon received. */
+async function commentFromKeyboard(page: Page, daemon: FakeDaemon, id: string): Promise<FakeDaemon["posts"][number]> {
+  const index = daemon.posts.length;
+  await enterCommentMode(page);
+  await page.getByTestId(id).focus();
+  await page.keyboard.press("Enter");
+  await inBar(page, "[data-role=composer-text]").fill(id);
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(index + 1);
+  expect(daemon.posts[index]!.draft.target?.selector).toBe(`[data-testid="${id}"]`);
+  return daemon.posts[index]!;
 }
 
 /** What `selector` matches in the page, by `data-case`. */
@@ -435,15 +417,7 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
   // A translated <svg> drawing, one placed by offsets and one placed by its own style sheet (which their shapes cover,
   // so they are picked from the keyboard) fill their images.
   for (const id of ["svg", "svg-offset", "svg-styled"]) {
-    const index = daemon.posts.length;
-    await enterCommentMode(page);
-    await page.getByTestId(id).focus();
-    await page.keyboard.press("Enter");
-    await inBar(page, "[data-role=composer-text]").fill(id);
-    await inBar(page, "[data-role=composer-send]").click();
-    await expect.poll(() => daemon.posts.length).toBe(index + 1);
-    expect(daemon.posts[index]!.draft.target?.selector).toBe(`[data-testid="${id}"]`);
-    const svg = daemon.posts[index]!.screenshot!;
+    const svg = (await commentFromKeyboard(page, daemon, id)).screenshot!;
     expect(pngSize(svg), id).toEqual({ width: 100, height: 50 });
     expect(await pngPixels(page, svg, [[2, 2], [50, 25], [97, 47]]), id).toEqual({ at: [[0, 255, 0, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1 });
   }
@@ -465,6 +439,131 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
   }
   // The live elements were never changed.
   expect(await styles()).toEqual(before);
+});
+
+test("draws an <svg> with what the page styles it with, and sends none, saying why, when it loads an outside resource", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  const green = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="rgb(0,255,0)"/></svg>')}`;
+  await page.evaluate((green) => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+    <style>.icon rect { fill: rgb(255, 0, 0) } .icon .hidden { display: none }</style>
+    <svg width="0" height="0" style="position: absolute"><symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
+      <linearGradient id="blue"><stop offset="0" stop-color="rgb(0, 0, 255)"/><stop offset="1" stop-color="rgb(0, 0, 255)"/></linearGradient></svg>
+    <div style="color: rgb(0, 0, 255)">
+      <svg data-testid="styled" class="icon" tabindex="0" width="100" height="50" style="display: block">
+        <rect width="50" height="50"/><circle cx="75" cy="25" r="20" fill="currentColor"/><rect class="hidden" x="70" y="20" width="10" height="10"/></svg>
+    </div>
+    <svg data-testid="referring" tabindex="0" width="100" height="50" style="display: block; fill: rgb(255, 0, 0)">
+      <defs><linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></defs>
+      <rect width="25" height="50" fill="url(#inner-green)"/><use href="#dot" x="25" width="25" height="50" preserveAspectRatio="none"/>
+      <rect x="50" width="25" height="50" fill="url(#blue)"/><image x="75" width="25" height="50" preserveAspectRatio="none" href="${green}"/></svg>
+    <svg data-testid="sprite" tabindex="0" width="20" height="20"><use href="/sprite.svg#x"/></svg>
+    <svg data-testid="linked-sprite" tabindex="0" width="20" height="20"><use xlink:href="/sprite.svg#x"/></svg>
+    <svg data-testid="image" tabindex="0" width="20" height="20"><image href="/missing.png" width="20" height="20"/></svg>
+    <svg data-testid="fill-url" tabindex="0" width="20" height="20"><rect width="20" height="20" style="fill: url(/paint.svg#p)"/></svg>`), green);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const styles = () => page.evaluate(() => [...document.querySelectorAll("svg, svg *")].map((element) => element.outerHTML));
+  const before = await styles();
+
+  // A page style sheet rule and an inherited currentColor, and a shape the page hides.
+  const styled = await commentFromKeyboard(page, daemon, "styled");
+  expect(styled.draft.screenshotUnavailableReason).toBeNull();
+  expect((await pngPixels(page, styled.screenshot!, [[25, 25], [75, 10], [75, 25]])).at).toEqual([[255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
+
+  // A gradient inside it and one elsewhere on the page, a symbol from elsewhere that inherits its fill through the
+  // <use>, and a data: image.
+  const referring = await commentFromKeyboard(page, daemon, "referring");
+  expect(referring.draft.screenshotUnavailableReason).toBeNull();
+  expect(await pngPixels(page, referring.screenshot!, [[12, 25], [37, 25], [62, 25], [87, 25]])).toEqual({
+    at: [[0, 255, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 255, 0, 255]], opaque: 1,
+  });
+
+  for (const [id, url] of [["sprite", "/sprite.svg#x"], ["linked-sprite", "/sprite.svg#x"], ["image", "/missing.png"], ["fill-url", "/paint.svg#p"]] as const) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: the drawing loads ${url}, which a screenshot cannot embed yet`);
+  }
+  expect(await styles()).toEqual(before);
+});
+
+test("a drawing is copied only while its capture holds the render slot, and not at all once withdrawn", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  await page.evaluate(() => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.dataset.big = "s";
+    svg.dataset.testid = "big-svg";
+    svg.setAttribute("tabindex", "0");
+    svg.setAttribute("width", "300");
+    svg.setAttribute("height", "40");
+    svg.innerHTML = '<rect width="1" height="1"/>'.repeat(20_000);
+    document.querySelector("main")!.prepend(svg);
+    // Encodes wait for the test; their count and the reads of the drawing's markup are recorded.
+    const state = window as unknown as { encodes: number; releaseEncodes: () => void; markupReads: number };
+    state.encodes = 0;
+    state.markupReads = 0;
+    let released = false;
+    const waiting: (() => void)[] = [];
+    state.releaseEncodes = () => {
+      released = true;
+      for (const resume of waiting.splice(0)) resume();
+    };
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) {
+      state.encodes += 1;
+      const encode = () => toBlob.call(this, callback, ...rest);
+      if (released) encode();
+      else waiting.push(encode);
+    };
+    const markup = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!;
+    Object.defineProperty(Element.prototype, "innerHTML", {
+      ...markup,
+      get(this: Element) {
+        if (this.isConnected && this.closest("[data-big]")) state.markupReads += 1;
+        return markup.get!.call(this);
+      },
+    });
+  });
+  await countClones(page);
+  // Each of the drawing's nodes takes 0.1 ms to copy, so the copy lasts long enough to be withdrawn midway.
+  await page.evaluate(() => {
+    const cloneNode = Node.prototype.cloneNode;
+    Node.prototype.cloneNode = function (this: Node, deep?: boolean) {
+      if (this instanceof SVGElement && this.closest("[data-big]")) for (const start = performance.now(); performance.now() - start < 0.1;);
+      return cloneNode.call(this, deep);
+    };
+  });
+  const counts = () => page.evaluate(() => {
+    const state = window as unknown as { encodes: number; markupReads: number; cloned: Record<string, number> };
+    return { clones: state.cloned.s ?? 0, encodes: state.encodes, markupReads: state.markupReads };
+  });
+  const pickDrawing = async () => {
+    await page.getByTestId("big-svg").focus();
+    await page.keyboard.press("Enter");
+  };
+  await enterCommentMode(page);
+  // A capture that reaches drawing keeps the slot when the drawing is picked instead: the drawing's capture waits.
+  await page.locator('[data-case="testid"]').click();
+  await expect.poll(async () => (await counts()).encodes).toBe(1);
+  await pickDrawing();
+  await page.waitForTimeout(500);
+  expect(await counts()).toEqual({ clones: 0, encodes: 1, markupReads: 0 });
+  // Withdrawn while it waits, it never copies the drawing.
+  await inBar(page, "[data-role=composer-cancel]").click();
+  await page.evaluate(() => (window as unknown as { releaseEncodes: () => void }).releaseEncodes());
+  await page.waitForTimeout(500);
+  expect(await counts()).toEqual({ clones: 0, encodes: 1, markupReads: 0 });
+  // Withdrawn while copying it, it stops there and draws nothing.
+  await pickDrawing();
+  await expect.poll(async () => (await counts()).clones).toBeGreaterThan(0);
+  await inBar(page, "[data-role=composer-cancel]").click();
+  const atCancel = (await counts()).clones;
+  await page.waitForTimeout(1000);
+  const after = await counts();
+  expect(after.clones).toBeLessThan(atCancel + 50);
+  expect(after.clones).toBeLessThan(10_000);
+  expect(after.encodes).toBe(1);
+  expect(after.markupReads).toBe(0);
 });
 
 test("a capture withdrawn while its element is being copied stops there, and draws nothing", async ({ page, openFixture, fixtureServer }) => {

@@ -31,6 +31,13 @@ export interface FakeDaemon {
 }
 
 /** A daemon answered by Playwright routes: `GET /feedback`, `POST /feedback`, `POST /slots` and the `/events` WebSocket. */
+/** The error body the fake daemon refuses or fails a `POST /feedback` with, by status. */
+const FEEDBACK_ERRORS: Readonly<Record<number, { code: string; message: string }>> = {
+  409: { code: "store_locked", message: "The store is locked" },
+  500: { code: "internal", message: "The store is unavailable" },
+  503: { code: "internal", message: "The store is unavailable" },
+};
+
 export async function fakeDaemon(
   page: Page,
   origin: string,
@@ -85,7 +92,7 @@ export async function fakeDaemon(
     if (request.method() === "POST" && path === "/feedback") {
       if (daemon.holdFeedback) await daemon.holdFeedback;
       const fail = async (status: number): Promise<void> => {
-        const error = status < 500 ? { code: "store_locked", message: "The store is locked" } : { code: "internal", message: "The store is unavailable" };
+        const error = FEEDBACK_ERRORS[status] ?? { code: status < 500 ? "invalid_request" : "internal", message: `Failed with ${status}` };
         await route.fulfill({ status, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error }) });
       };
       if (daemon.failFeedback !== null) {

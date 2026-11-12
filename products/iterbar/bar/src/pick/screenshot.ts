@@ -53,10 +53,124 @@ const PLACEMENT = { translate: "none", rotate: "none", scale: "none", margin: "0
 const YIELD_EVERY_MS = 10;
 
 /**
- * modern-screenshot 4.7.0 draws an `<svg>` without external references from its markup as it stands, rather than
- * from a styled copy; this is its own test for those references.
+ * modern-screenshot 4.7.0 draws an `<svg>` whose markup does not match this as the markup stands, and copies any other
+ * one as an HTML element would be; the drawing's copy is built not to match it.
  */
 const SVG_EXTERNAL_RESOURCE = /\bx?link:?href\s*=\s*["'](?!data:)[^"']+["']/i;
+
+/** Inherited properties a drawing's copy carries on each element where they differ from its parent's. */
+const SVG_INHERITED = [
+  "color", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-dasharray",
+  "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "paint-order", "clip-rule",
+  "marker-start", "marker-mid", "marker-end", "visibility", "font-family", "font-size", "font-style", "font-weight",
+  "letter-spacing", "text-anchor", "dominant-baseline",
+] as const;
+
+/** Properties that are not inherited, which the copy carries where they are not their initial value. */
+const SVG_OWN: Readonly<Record<string, string>> = {
+  opacity: "1", transform: "none", "clip-path": "none", mask: "none", filter: "none", "mix-blend-mode": "normal",
+  "stop-color": "rgb(0, 0, 0)", "stop-opacity": "1", "vector-effect": "none",
+};
+
+const XLINK = "http://www.w3.org/1999/xlink";
+
+/** Records in `ids` the `#id` that `url` names, or says why it cannot be drawn: it loads something from outside the page. */
+function reference(url: string, ids: Set<string>): string | null {
+  const value = url.trim();
+  if (value.startsWith("#")) ids.add(value.slice(1));
+  else if (!/^data:/iu.test(value)) return `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
+  return null;
+}
+
+/** {@link reference} for each `url(…)` in a style value. */
+function urlReferences(value: string, ids: Set<string>): string | null {
+  for (const [, url = ""] of value.matchAll(/url\(\s*["']?([^"')]*)/gu)) {
+    const refused = reference(url, ids);
+    if (refused !== null) return refused;
+  }
+  return null;
+}
+
+/** What an element's `href` points to, which it loads unless it is a link. */
+function hrefOf(element: Element): string | null {
+  if (element.localName === "a") return null;
+  return element.getAttribute("href") ?? element.getAttributeNS(XLINK, "href");
+}
+
+/** Replaces an element's `xlink:href` with an `href`, which the copy is drawn with alike. */
+function plainHref(element: Element): void {
+  const href = element.getAttributeNS(XLINK, "href");
+  if (href === null) return;
+  element.removeAttributeNS(XLINK, "href");
+  if (!element.hasAttribute("href")) element.setAttribute("href", href);
+}
+
+/**
+ * Copies an `<svg>` drawing with the computed styles it takes from the page (its style sheets, and what it inherits,
+ * `currentColor` included) inlined, since it is drawn from its markup. Its `xlink:href`s become `href`s, and what it
+ * refers to by `#id` outside itself (a sprite's symbols, gradients) is copied into it as it stands there (a symbol
+ * inherits from the `<use>` that shows it). A string says why it cannot be drawn: it loads a resource from outside the
+ * page. `eachNode` runs before each element is copied and may end the copy.
+ */
+async function copyDrawing(svg: SVGSVGElement, eachNode: () => Promise<void>): Promise<SVGSVGElement | string> {
+  const own = new Set<string>();
+  const wanted = new Set<string>();
+  const copyOf = async (source: Element, parent: CSSStyleDeclaration | null, styled: boolean): Promise<Element | string> => {
+    await eachNode();
+    if (source.id) own.add(source.id);
+    const href = hrefOf(source);
+    const refused = (href === null ? null : reference(href, wanted))
+      ?? [...source.attributes].reduce<string | null>((found, { value }) => found ?? urlReferences(value, wanted), null);
+    if (refused !== null) return refused;
+    const copy = source.cloneNode(false) as Element;
+    plainHref(copy);
+    const style = getComputedStyle(source);
+    if (styled && (copy instanceof SVGElement || copy instanceof HTMLElement)) {
+      const carry = (name: string, value: string): string | null => {
+        copy.style.setProperty(name, value);
+        return urlReferences(value, wanted);
+      };
+      for (const name of SVG_INHERITED) {
+        const value = style.getPropertyValue(name);
+        const external = value && value !== parent?.getPropertyValue(name) ? carry(name, value) : null;
+        if (external !== null) return external;
+      }
+      for (const [name, initial] of Object.entries(SVG_OWN)) {
+        const value = style.getPropertyValue(name);
+        const external = value && value !== initial ? carry(name, value) : null;
+        if (external !== null) return external;
+      }
+      if (style.transform !== "none") {
+        carry("transform-origin", style.transformOrigin);
+        carry("transform-box", style.transformBox);
+      }
+      if (style.display === "none") carry("display", "none");
+    }
+    for (let child = source.firstChild; child; child = child.nextSibling) {
+      if (child instanceof Text) copy.appendChild(child.cloneNode(false));
+      else if (child instanceof Element && child.localName !== "script") {
+        const childCopy = await copyOf(child, style, styled);
+        if (typeof childCopy === "string") return childCopy;
+        copy.appendChild(childCopy);
+      }
+    }
+    return copy;
+  };
+  const copy = await copyOf(svg, null, true);
+  if (typeof copy === "string") return copy;
+  const defs = svg.ownerDocument.createElementNS(svg.namespaceURI, "defs");
+  for (const id of wanted) {
+    const definition = own.has(id) ? null : svg.ownerDocument.getElementById(id);
+    if (!(definition instanceof SVGElement)) continue;
+    const definitionCopy = await copyOf(definition, null, false);
+    if (typeof definitionCopy === "string") return definitionCopy;
+    defs.appendChild(definitionCopy);
+  }
+  if (defs.firstChild) copy.prepend(defs);
+  // modern-screenshot would copy a drawing whose markup matches its test for links as an HTML element instead.
+  if (SVG_EXTERNAL_RESOURCE.test(copy.innerHTML)) return "the drawing's text looks like a link to the screenshot library";
+  return copy as SVGSVGElement;
+}
 
 /** How the copy is framed: its size in the image in CSS pixels, and the style its root is laid out with. */
 interface Frame {
@@ -75,33 +189,57 @@ function sumPx(style: CSSStyleDeclaration, names: readonly string[]): number {
   return names.reduce((sum, name) => sum + (px(style.getPropertyValue(name)) ?? 0), 0);
 }
 
+/** Elements laid out at their own size even when `display: inline`. */
+const REPLACED = new Set(["img", "video", "canvas", "iframe", "embed", "object", "input", "select", "textarea", "button", "audio", "meter", "progress"]);
+
+/**
+ * What a scrollbar takes from `element`'s box across (`"x"`) or down, in the element's CSS pixels: its integer layout
+ * box less its integer inner box and borders, so less than 2 pixels is rounding, not a scrollbar.
+ */
+function gutter(element: HTMLElement, style: CSSStyleDeclaration, axis: "x" | "y"): number {
+  if (/^(?:visible|clip)$/u.test(axis === "x" ? style.overflowY : style.overflowX)) return 0;
+  const gap = axis === "x"
+    ? element.offsetWidth - element.clientWidth - sumPx(style, ["border-left-width", "border-right-width"])
+    : element.offsetHeight - element.clientHeight - sumPx(style, ["border-top-width", "border-bottom-width"]);
+  return gap >= 2 ? Math.round(gap) : 0;
+}
+
 /**
  * One framing rule for every element that can be captured: the copy is drawn alone at the image origin, upright, at
- * the element's exact layout size (fractional, never rounded, so its text wraps as on the page) times its effective
- * zoom. What places it on the page (its transform, margins and offsets, and its ancestors' transforms) is left out;
- * transforms inside it are kept. A transformed element keeps an identity transform, so it still contains its fixed
+ * the element's exact border box (fractional, never rounded, so its text wraps as on the page; its scrollbars
+ * included) times its effective zoom. A non-replaced inline element has no box size of its own: its box on screen is
+ * its size. What places it on the page (its transform, margins and offsets, and its ancestors' transforms) is left
+ * out; transforms inside it are kept. A transformed element keeps an identity transform, so it still contains its fixed
  * descendants. A string says why the element cannot be framed. Measured when called, so call it once the element's
  * images and fonts have loaded.
  */
 function frameOf(element: Element): Frame | string {
   const style = getComputedStyle(element);
   const zoom = element.currentCSSZoom || 1;
-  let width = px(style.width);
-  let height = px(style.height);
-  if (width !== null && height !== null) {
-    // Computed sizes are in the element's own CSS pixels, before zoom and transforms.
-    if (style.boxSizing !== "border-box") {
-      width += sumPx(style, ["padding-left", "padding-right", "border-left-width", "border-right-width"]);
-      height += sumPx(style, ["padding-top", "padding-bottom", "border-top-width", "border-bottom-width"]);
-    }
-  } else {
-    // An inline box has no size of its own: its box on screen is its size, unless a transform around it scales or
-    // turns it, which its (rounded) layout size then shows.
+  let width: number | null;
+  let height: number | null;
+  if (style.display === "inline" && element instanceof HTMLElement && !REPLACED.has(element.localName)) {
+    // Its width and height do not apply; unless a transform around it scales or turns it, which its (rounded) layout
+    // size then shows, its box on screen is its size.
     const rect = element.getBoundingClientRect();
     width = rect.width / zoom;
     height = rect.height / zoom;
-    if (!(element instanceof HTMLElement) || Math.abs(width - element.offsetWidth) > 1 || Math.abs(height - element.offsetHeight) > 1) {
+    if (Math.abs(width - element.offsetWidth) > 1 || Math.abs(height - element.offsetHeight) > 1) {
       return "the element is an inline box inside a scaled or turned one; pick a box around it";
+    }
+  } else {
+    // Computed sizes are in the element's own CSS pixels, before zoom and transforms; a content-box size leaves out
+    // the padding, borders and scrollbars.
+    width = px(style.width);
+    height = px(style.height);
+    if (width === null || height === null) return `the element's size cannot be measured (${style.width} x ${style.height})`;
+    if (style.boxSizing !== "border-box") {
+      width += sumPx(style, ["padding-left", "padding-right", "border-left-width", "border-right-width"]);
+      height += sumPx(style, ["padding-top", "padding-bottom", "border-top-width", "border-bottom-width"]);
+      if (element instanceof HTMLElement) {
+        width += gutter(element, style, "x");
+        height += gutter(element, style, "y");
+      }
     }
   }
   const own = [style.transform, style.translate, style.rotate, style.scale].some((value) => value && value !== "none");
@@ -192,9 +330,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     worked = performance.now();
     check();
   };
-  // Drawn from its markup, so the copy is what gets framed; the live element is never changed.
-  const svgCopy = element instanceof SVGSVGElement && !SVG_EXTERNAL_RESOURCE.test(element.innerHTML) ? element.cloneNode(true) as SVGSVGElement : null;
-  const context = await createContext(svgCopy ?? element, {
+  const context = await createContext(element, {
     type: "image/png",
     timeout: SCREENSHOT_TIMEOUT_MS,
     filter: (node) => node !== exclude,
@@ -218,14 +354,21 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     signal.addEventListener("abort", freeUnlessDrawing, { once: true });
     check();
     worked = performance.now();
+    // Everything that reads or copies the element happens from here on, holding the slot.
+    if (hasScrolledBox(element)) throw new Error("a box in the element is scrolled, which a screenshot cannot show yet");
     const frame = frameOf(element);
     if (typeof frame === "string") throw new Error(frame);
     context.width = frame.width;
     context.height = frame.height;
     context.style = frame.style as Partial<CSSStyleDeclaration>;
-    if (svgCopy) frameSvgCopy(svgCopy, frame);
-    // A drawing's markup copy goes straight to drawing.
-    drawing = svgCopy !== null;
+    if (element instanceof SVGSVGElement) {
+      // Drawn from the markup of a styled copy, which is what gets framed; the live element is never changed.
+      const copy = await copyDrawing(element, eachNode);
+      if (typeof copy === "string") throw new Error(copy);
+      frameSvgCopy(copy, frame);
+      context.node = copy;
+      drawing = true;
+    }
     const scale = screenshotScale(context.width, context.height, deviceScale);
     if (scale === null) throw new Error("the element has no visible area");
     context.scale = scale;
@@ -255,7 +398,6 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
   }
   const rect = element.getBoundingClientRect();
   if (screenshotScale(rect.width, rect.height, 1) === null) return { ok: false, reason: unavailableReason("the element has no visible area") };
-  if (hasScrolledBox(element)) return { ok: false, reason: unavailableReason("a box in the element is scrolled, which a screenshot cannot show yet") };
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
   const withdraw = new AbortController();
   const onAbort = (): void => withdraw.abort();
