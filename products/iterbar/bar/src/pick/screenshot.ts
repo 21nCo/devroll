@@ -77,6 +77,97 @@ const SVG_OWN: Readonly<Record<string, string>> = {
 /** Colours that `currentColor` can give; the copy keeps the keyword, so a `<use>` showing the element still sets it. */
 const PAINT = new Set(["fill", "stroke", "stop-color", "flood-color", "lighting-color"]);
 
+/** A page style rule that declares a property the copy may carry. */
+interface CarriedRule {
+  readonly selector: string;
+  readonly style: CSSStyleDeclaration;
+}
+
+/**
+ * The style rules of `root` (its style sheets, adopted ones included) that apply now and declare a property the copy
+ * carries. Rules in a style sheet the page may not read (another origin's) are left out.
+ */
+function carriedRules(root: Node): CarriedRule[] {
+  const rules: CarriedRule[] = [];
+  const names = [...SVG_INHERITED, ...PAINT];
+  const visit = (list: CSSRuleList): void => {
+    for (const rule of list) {
+      if (rule instanceof CSSStyleRule) {
+        if (names.some((name) => rule.style.getPropertyValue(name) !== "")) rules.push({ selector: rule.selectorText, style: rule.style });
+      } else if (rule instanceof CSSMediaRule) {
+        if (matchMedia(rule.conditionText).matches) visit(rule.cssRules);
+      } else if (rule instanceof CSSSupportsRule) {
+        if (CSS.supports(rule.conditionText)) visit(rule.cssRules);
+      } else if (rule instanceof CSSImportRule) {
+        if (rule.styleSheet && (!rule.media.mediaText || matchMedia(rule.media.mediaText).matches)) visit(rule.styleSheet.cssRules);
+      } else if ("cssRules" in rule) {
+        visit(rule.cssRules as CSSRuleList);
+      }
+    }
+  };
+  const owner = root instanceof Document || root instanceof ShadowRoot ? root : null;
+  for (const sheet of owner ? [...owner.styleSheets, ...owner.adoptedStyleSheets] : []) {
+    if (sheet.disabled || (sheet.media.mediaText && !matchMedia(sheet.media.mediaText).matches)) continue;
+    try {
+      visit(sheet.cssRules);
+    } catch {
+      // Another origin's style sheet, which the page may not read.
+    }
+  }
+  return rules;
+}
+
+/**
+ * Whether `element` itself specifies `name` (by its attribute, a page rule or its inline style), and if so whether as
+ * `currentColor`: from the declarations that win (an important inline one, then important rules, then the inline one,
+ * then rules, then the attribute), `"either"` when rules that tie disagree and the value it ends up with cannot tell.
+ */
+function specified(element: Element, name: string, rules: readonly CarriedRule[]): boolean | "either" | null {
+  // Whether a declared value is currentColor; "inherit" when it only inherits; null when there is none.
+  const keyword = (value: string): boolean | "inherit" | null => {
+    const normal = value.trim().toLowerCase();
+    if (normal === "") return null;
+    return normal === "inherit" || normal === "unset" ? "inherit" : normal === "currentcolor";
+  };
+  const inline = element instanceof SVGElement || element instanceof HTMLElement ? element.style : null;
+  const matched: { keyword: boolean | "inherit"; important: boolean }[] = [];
+  for (const rule of rules) {
+    const value = keyword(rule.style.getPropertyValue(name));
+    if (value === null) continue;
+    try {
+      if (element.matches(rule.selector)) matched.push({ keyword: value, important: rule.style.getPropertyPriority(name) === "important" });
+    } catch {
+      // A selector matches() does not take (a pseudo-element's).
+    }
+  }
+  const inlineValue = inline ? keyword(inline.getPropertyValue(name)) : null;
+  const important = matched.filter((rule) => rule.important);
+  let tie: (boolean | "inherit")[];
+  if (inlineValue !== null && inline?.getPropertyPriority(name) === "important") tie = [inlineValue];
+  else if (important.length > 0) tie = important.map((rule) => rule.keyword);
+  else if (inlineValue !== null) tie = [inlineValue];
+  else if (matched.length > 0) tie = matched.map((rule) => rule.keyword);
+  else {
+    const attribute = keyword(element.getAttribute(name) ?? "");
+    if (attribute === null) return null;
+    tie = [attribute];
+  }
+  if (tie.every((value) => value === "inherit")) return null;
+  if (tie.every((value) => value === true)) return true;
+  if (!tie.includes(true)) return false;
+  const style = getComputedStyle(element);
+  return style.getPropertyValue(name) === style.color ? "either" : false;
+}
+
+/** {@link specified} for `element` or, where it only inherits `name`, for the nearest ancestor that specifies it. */
+function inheritedKeyword(element: Element, name: string, rules: readonly CarriedRule[]): boolean | "either" {
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const found = specified(node, name, rules);
+    if (found !== null) return found;
+  }
+  return false;
+}
+
 /** Geometry properties that page CSS can set, by the elements they apply to. */
 const GEOMETRY: Readonly<Record<string, readonly string[]>> = {
   circle: ["cx", "cy", "r"], ellipse: ["cx", "cy", "rx", "ry"], rect: ["x", "y", "width", "height", "rx", "ry"],
@@ -143,6 +234,7 @@ function geometryOverridden(name: string, value: string, attribute: string | nul
 async function copyDrawing(svg: SVGSVGElement, eachNode: () => Promise<void>): Promise<SVGSVGElement | string> {
   const own = new Set<string>();
   const wanted = new Map<string, boolean>();
+  const rules = carriedRules(svg.getRootNode());
   const copyOf = async (source: Element, parent: CSSStyleDeclaration | null, carryAll: boolean): Promise<Element | string> => {
     await eachNode();
     if (source.localName === "foreignObject") return "the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet";
@@ -155,22 +247,30 @@ async function copyDrawing(svg: SVGSVGElement, eachNode: () => Promise<void>): P
     const copy = source.cloneNode(false) as SVGElement;
     plainHref(copy);
     const style = getComputedStyle(source);
-    const carry = (name: string, value: string): string | null => {
-      copy.style.setProperty(name, PAINT.has(name) && value === style.color ? "currentcolor" : value);
-      return urlReferences(value, wanted);
-    };
-    const specifies = (name: string, value: string): boolean =>
-      value !== parent?.getPropertyValue(name) || source.hasAttribute(name) || source.style.getPropertyValue(name) !== "";
-    const carried = [
-      ...SVG_INHERITED.filter((name) => carryAll || specifies(name, style.getPropertyValue(name))),
-      ...Object.keys(SVG_OWN).filter((name) => style.getPropertyValue(name) !== SVG_OWN[name]),
-      ...(source === svg ? [] : GEOMETRY[source.localName] ?? []).filter((name) => geometryOverridden(name, style.getPropertyValue(name), source.getAttribute(name))),
-    ];
-    if (style.transform !== "none") carried.push("transform-origin", "transform-box");
-    if (style.display === "none") carried.push("display");
-    for (const name of carried) {
+    // Each property it specifies, or (at a root) inherits from the page, keeping currentColor as the keyword; what it
+    // only inherits otherwise comes from where it is shown. One differing from its parent's is specified, by a rule
+    // the page may not read if by nothing found here.
+    const carried = new Map<string, boolean | "either">();
+    for (const name of SVG_INHERITED) {
+      const mine = specified(source, name, rules);
+      if (carryAll) carried.set(name, PAINT.has(name) ? inheritedKeyword(source, name, rules) : false);
+      else if (mine !== null) carried.set(name, PAINT.has(name) && mine);
+      else if (style.getPropertyValue(name) !== parent?.getPropertyValue(name)) carried.set(name, false);
+    }
+    for (const name of Object.keys(SVG_OWN)) {
+      if (style.getPropertyValue(name) !== SVG_OWN[name]) carried.set(name, PAINT.has(name) && (specified(source, name, rules) ?? false));
+    }
+    for (const name of source === svg ? [] : GEOMETRY[source.localName] ?? []) {
+      if (geometryOverridden(name, style.getPropertyValue(name), source.getAttribute(name))) carried.set(name, false);
+    }
+    if (style.transform !== "none") carried.set("transform-origin", false).set("transform-box", false);
+    if (style.display === "none") carried.set("display", false);
+    for (const [name, keyword] of carried) {
+      if (keyword === "either") return `the drawing's ${name} is given both as currentColor and as a colour, and which one applies cannot be told`;
       const value = style.getPropertyValue(name);
-      const external = value ? carry(name, value) : null;
+      if (!value) continue;
+      copy.style.setProperty(name, keyword ? "currentcolor" : value);
+      const external = urlReferences(value, wanted);
       if (external !== null) return external;
     }
     for (let child = source.firstChild; child; child = child.nextSibling) {

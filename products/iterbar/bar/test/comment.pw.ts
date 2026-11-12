@@ -447,10 +447,12 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
   const green = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="rgb(0,255,0)"/></svg>')}`;
   await page.evaluate((green) => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
     <style>.icon rect { fill: rgb(255, 0, 0) } .icon .hidden { display: none } .big { r: 20px } .mono * { fill: currentColor }
-      .brand stop { stop-color: rgb(0, 0, 255) } .accent { fill: rgb(0, 255, 0) }</style>
+      .brand stop { stop-color: rgb(0, 0, 255) } .accent { fill: rgb(0, 255, 0) } .sprite-blue { fill: rgb(0, 0, 255) }</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
       <symbol id="accented" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="accent" width="10" height="10"/></symbol>
+      <symbol id="two-tone" viewBox="0 0 100 50" preserveAspectRatio="none"><rect width="50" height="50" fill="#000"/><rect x="50" width="50" height="50" fill="currentColor"/></symbol>
+      <symbol id="ruled" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="sprite-blue" width="10" height="10"/></symbol>
       <linearGradient id="blue" class="brand"><stop offset="0"/><stop offset="1"/></linearGradient></svg>
     <div style="color: rgb(0, 0, 255)">
       <svg data-testid="styled" class="icon" tabindex="0" width="100" height="50" style="display: block">
@@ -461,6 +463,8 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
     <svg data-testid="instances" tabindex="0" width="100" height="50" color="rgb(255, 0, 0)" style="display: block">
       <defs><g id="shape"><rect width="50" height="50" fill="currentColor"/></g></defs>
       <use href="#shape" color="rgb(0, 0, 255)"/><use href="#shape" x="50" color="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="literal" tabindex="0" width="150" height="50" style="display: block; color: rgb(0, 0, 0); fill: rgb(0, 255, 0)">
+      <use href="#two-tone" width="100" height="50" style="color: rgb(255, 0, 0)"/><use href="#ruled" x="100" width="50" height="50"/></svg>
     <svg data-testid="referring" tabindex="0" width="125" height="50" style="display: block; fill: rgb(255, 0, 0)">
       <defs><linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></defs>
       <rect width="25" height="50" fill="url(#inner-green)"/><use href="#dot" x="25" width="25" height="50" preserveAspectRatio="none"/>
@@ -478,15 +482,24 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
   // A page style sheet rule, an inherited currentColor, a radius from a page rule, and a shape the page hides.
   const styled = await commentFromKeyboard(page, daemon, "styled");
   expect(styled.draft.screenshotUnavailableReason).toBeNull();
+  expect(styled.draft.screenshotUnavailableReason).toBeNull();
   expect((await pngPixels(page, styled.screenshot!, [[25, 25], [75, 10], [75, 25]])).at).toEqual([[255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
 
   // A page rule that sets a shape's fill attribute aside for the value its parent has.
   const mono = await commentFromKeyboard(page, daemon, "mono");
+  expect(mono.draft.screenshotUnavailableReason).toBeNull();
   expect((await pngPixels(page, mono.screenshot!, [[25, 25]])).at).toEqual([[0, 0, 255, 255]]);
 
   // A definition with currentColor, shown by two <use>s of different colours: each shows its own.
   const instances = await commentFromKeyboard(page, daemon, "instances");
+  expect(instances.draft.screenshotUnavailableReason).toBeNull();
   expect((await pngPixels(page, instances.screenshot!, [[25, 25], [75, 25]])).at).toEqual([[0, 0, 255, 255], [0, 255, 0, 255]]);
+
+  // A literal paint equal to the colour where it is defined keeps it under a <use> of another colour, while
+  // currentColor beside it follows the <use>; and a page rule that gives a symbol's shape the value its parent has.
+  const literal = await commentFromKeyboard(page, daemon, "literal");
+  expect(literal.draft.screenshotUnavailableReason).toBeNull();
+  expect((await pngPixels(page, literal.screenshot!, [[25, 25], [75, 25], [125, 25]])).at).toEqual([[0, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255]]);
 
   // A gradient inside it, a symbol from elsewhere that inherits its fill through the <use> (not from where it is
   // defined), a gradient elsewhere whose stops a page rule colours, a data: image, and a symbol from elsewhere whose
