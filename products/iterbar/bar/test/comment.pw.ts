@@ -764,7 +764,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <style>@namespace html url("http://www.w3.org/1999/xhtml"); .ns-tile:not(html|rect) { fill: var(--reg-green, rgb(0, 255, 0)) }</style>
       <defs><rect id="ns-tile" class="ns-tile" width="40" height="40"/></defs><use href="#ns-tile" style="--reg-green: rgb(0, 0, 255)"/></svg>
     <svg data-testid="font-var" tabindex="0" width="120" height="50" style="display: block; font-family: serif">
-      <style>@namespace svg url("http://www.w3.org/2000/svg"); svg|text.font-var { font-family: var(--face, monospace) }</style>
+      <style>text.font-var { font-family: var(--face, monospace) }</style>
       <defs><text id="font-var-text" class="font-var" x="0" y="40" font-size="40">WW</text></defs><use href="#font-var-text" style="--face: page-face"/></svg>
     <svg data-testid="scripted-font" tabindex="0" width="120" height="50" style="display: block">
       <style id="scripted-face"></style><text x="0" y="40" font-family="scripted-face" font-size="40">WW</text></svg>
@@ -774,7 +774,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <defs><rect id="ns-twice-tile" class="ns-twice-tile" width="40" height="40"/></defs><use href="#ns-twice-tile" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="nth-of" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect class="nth-wrap" width="0" height="0"/><rect id="nth-tile" class="nth-tile" width="40" height="40"/></defs><use href="#nth-tile" color="rgb(0, 0, 255)"/></svg>
-    <svg width="0" height="0" style="position: absolute"><set href="#zoomed-root" attributeName="viewBox" to="0 0 20 20" fill="freeze"/></svg>
+    <svg width="0" height="0" style="position: absolute"><set href="#zoomed%2Droot" attributeName="viewBox" to="0 0 20 20" fill="freeze"/></svg>
     <svg data-testid="frozen-root" id="zoomed-root" tabindex="0" width="40" height="40" viewBox="0 0 40 40" style="display: block">
       <rect width="20" height="20" fill="rgb(0, 255, 0)"/><rect x="20" width="20" height="40" fill="rgb(255, 0, 0)"/></svg>
     <svg data-testid="default-ns" tabindex="0" width="40" height="40" style="display: block">
@@ -783,6 +783,10 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg data-testid="frozen-abs" id="abs-root" tabindex="0" width="40" height="40" viewBox="0 0 40 40" style="display: block">
       <rect width="20" height="20" fill="rgb(0, 255, 0)"/><rect x="20" width="20" height="40" fill="rgb(255, 0, 0)"/></svg>
     <svg data-testid="comma-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="','" font-size="40">WW</text></svg>
+    <svg class="own-nth-sprite" width="0" height="0" style="position: absolute"><rect/><rect id="own-nth-tile" width="40" height="40"/></svg>
+    <svg data-testid="own-nth" tabindex="0" width="40" height="40" style="display: block">
+      <style>@namespace url("http://www.w3.org/2000/svg"); .own-nth-sprite rect:nth-child(2) { fill: currentColor }</style>
+      <use href="#own-nth-tile" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
     <svg width="0" height="0" style="position: absolute"><animate href="#from-afar" attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></svg>
@@ -858,9 +862,9 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["media-scope-child", shownRule("rect")],
     ["media-scope-bare", shownRule("symbol")],
     // A rule whose attribute value holds a "|", which is not a namespace; and the drawing's own rule that negates a
-    // namespace, taken to match what a <use> shows, whose registered custom property is then seen.
+    // namespace, which matches what a <use> shows only widened, so its copy cannot be compared with it exactly.
     ["piped", shownRule("rect")],
-    ["ns-negated", "what a <use> in the drawing shows uses --reg-green, which the page registers, and a screenshot cannot reproduce yet"],
+    ["ns-negated", shownRule("rect")],
     // A page rule under two negations, the inner one of its parent; and one under a negation of a negation of a
     // namespace, each of which matches at most what the outer negation, read as anything, does.
     ["neg-twice", shownRule("rect")],
@@ -869,6 +873,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["nth-of", shownRule("rect")],
     // One whose :not(rect) means an XHTML rect, under a style sheet's default namespace, which an SVG rect is not.
     ["default-ns", shownRule("rect")],
+    // The drawing's own rule under a default namespace, whose :nth-child() the copied definition (an only child) fails.
+    ["own-nth", shownRule("rect")],
     // Shown text, whose font each <use> may set (here by a var()) to a page font.
     ["font-var", "a <use> in the drawing shows text, which it may set in a font face, which a screenshot cannot check yet"],
     // What a <use> shows that the drawing's own keyframes animate.
@@ -887,7 +893,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["fragment-set", animated("set")],
     ["frozen", animated("animate")],
     ["frozen-afar", animated("animate")],
-    ["frozen-root", animated("set")],
+    ["frozen-root", animated("set")],  // by a percent-encoded #id
     // One that names the drawing's root by the page's URL and its #id.
     ["frozen-abs", animated("set")],
   ] as const) {

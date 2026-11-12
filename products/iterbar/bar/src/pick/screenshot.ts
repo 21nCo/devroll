@@ -320,7 +320,8 @@ async function shownRefusal(
             return `the page has a style rule (${selector.slice(0, 100)}) that a screenshot cannot match against what a <use> in the drawing shows yet`;
           }
           if (!matches && !copyMatches) continue;
-          if (!next.own || !exact || matches !== copyMatches) {
+          // An own rule is compared on original and copy only as it stands: widened, both may match where it does not.
+          if (!next.own || !exact || matching !== selector || matches !== copyMatches) {
             return `the page has a style rule for the <${element.localName}> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet`;
           }
           noteVariables(style.cssText);
@@ -625,13 +626,13 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
       await eachNode();
       const href = hrefOf(animation)?.trim() ?? "";
       // Its link names its target by #id, alone or after this page's URL (another page's targets nothing); none, its parent.
-      let target: Element | null = href.startsWith("#") ? lookup.getElementById(href.slice(1)) : animation.parentElement;
-      if (href && !href.startsWith("#")) {
+      let target: Element | null = animation.parentElement;
+      if (href) {
         try {
           const [url, here] = [new URL(href, animation.baseURI), new URL(animation.ownerDocument.URL)];
           const id = decodeURIComponent(url.hash.slice(1));
           [url.hash, here.hash] = ["", ""];
-          target = url.href === here.href ? lookup.getElementById(id) : null;
+          target = href.startsWith("#") || url.href === here.href ? lookup.getElementById(id) : null;
         } catch {
           target = svg; // A link it cannot read is taken to target the drawing.
         }
