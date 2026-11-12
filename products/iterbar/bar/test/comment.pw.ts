@@ -626,7 +626,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       .wrap { .nested-r { fill: rgb(255, 0, 0) } } .sprite-wrap { .nested-in { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
       @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
       @property --reg-green { syntax: "<color>"; inherits: false; initial-value: rgb(0, 255, 0) }
-      @font-face { font-family: page-face; src: url(${block}) } @font-face { font-family: masked-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
+      @font-face { font-family: page-face; src: url(${block}) } @font-face { font-family: masked-face; src: url(${block}) } @font-face { font-family: ","; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
       .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }
       .scope-amp { @scope (.amp-root) { & > .amp-child { fill: currentColor } &.amp-self { fill: currentColor } } }
       @media (min-width: 0px) { [data-kind="a&b"] { fill: currentColor } [data-kind=":scope"] { fill: currentColor } }
@@ -779,6 +779,10 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <rect width="20" height="20" fill="rgb(0, 255, 0)"/><rect x="20" width="20" height="40" fill="rgb(255, 0, 0)"/></svg>
     <svg data-testid="default-ns" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect id="default-ns-tile" class="default-ns-tile" width="40" height="40"/></defs><use href="#default-ns-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg width="0" height="0" style="position: absolute"><set href="${location.href.split("#")[0]}#abs-root" attributeName="viewBox" to="0 0 20 20" fill="freeze"/></svg>
+    <svg data-testid="frozen-abs" id="abs-root" tabindex="0" width="40" height="40" viewBox="0 0 40 40" style="display: block">
+      <rect width="20" height="20" fill="rgb(0, 255, 0)"/><rect x="20" width="20" height="40" fill="rgb(255, 0, 0)"/></svg>
+    <svg data-testid="comma-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="','" font-size="40">WW</text></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
     <svg width="0" height="0" style="position: absolute"><animate href="#from-afar" attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></svg>
@@ -874,7 +878,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // URL, added by a script, or without a src, which masks no page face), in a link in the text, under a condition.
     ...([["page-font", "page-face"], ["script-font", "script-face"], ["own-font", "own-face"], ["scripted-font", "scripted-face"],
       ["srcless-face", "masked-face"], ["srcless-own", "lone-face"], ["linked-text", "page-face"], ["media-font", "media-face"],
-      ["narrow-face", "narrow-face"], ["failed-face", "page-face"]] as const).map(([id, family]) => [id, fontFace(family)] as const),
+      ["narrow-face", "narrow-face"], ["failed-face", "page-face"], ["comma-font", '","']] as const).map(([id, family]) => [id, fontFace(family)] as const),
     // An SVG animation: of a link, outside the page or to a #fragment, of a paint, or of a polygon's points, frozen
     // where it ended, which the copy would draw from its start, whether it is in the drawing or targets it from outside.
     ["linked-set", animated("set")],
@@ -884,6 +888,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["frozen", animated("animate")],
     ["frozen-afar", animated("animate")],
     ["frozen-root", animated("set")],
+    // One that names the drawing's root by the page's URL and its #id.
+    ["frozen-abs", animated("set")],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(screenshot, id).toBeNull();

@@ -104,10 +104,7 @@ function hrefOf(element: Element): string | null {
   return element.getAttribute("href") ?? element.getAttributeNS(XLINK, "href");
 }
 
-/**
- * The attributes, other than links, that can load something: style and presentation attributes that take a `url()`.
- * Others (`data-*`, `aria-*`, a title) are only text; those of {@link NOT_DRAWN} are left out of the copy.
- */
+/** Attributes, other than links, that can load something (by a `url()`); others (`data-*`, `aria-*`) are only text. */
 const RESOURCE_ATTRIBUTES = new Set(["style", "fill", "stroke", "filter", "clip-path", "mask", "marker-start", "marker-mid", "marker-end", "src"]);
 
 /** SVG animation elements: what they animate (a polygon's points, a link) is not in the computed values compared. */
@@ -252,16 +249,12 @@ function registered(name: string, scratch: Node): boolean {
 }
 
 /**
- * Says why what the drawing's `<use>`s show (`shown`) may not be drawn as on the page, if it may not. On the page, a
- * `<use>`'s instance of a shown element gets every page rule that matches the element, resolved where it is shown; in
- * the copy, it gets only the element's attributes and inline style, the drawing's own rules, and what it inherits
- * from the `<use>`. That cannot be checked by comparing elements, so instead nothing else may reach a shown element:
- * the drawing is refused when a page style sheet (an `@import`ed one too) cannot be read; when a page rule, at any
- * nesting and under any condition, which is not evaluated, matches a shown element; when one of the drawing's own rules
- * matches a shown element differently in its copy, or is nested or conditional and matches it; when a shown element
- * had to be given values to match its original (they are as computed where it is defined, not where it is shown,
- * `given`); or when a shown element, or a rule of the drawing's for it, uses a custom property the page registers.
- * `eachNode` runs before each rule and each element it is matched against.
+ * Says why what the drawing's `<use>`s show (`shown`) may not be drawn as on the page, if it may not. A `<use>`'s
+ * instance gets every page rule matching the element, resolved where shown; its copy only the element's attributes,
+ * the drawing's own rules and what the `<use>` passes down. So nothing else may reach a shown element: refused are an
+ * unreadable page sheet; a page rule (any nesting or condition, matched widened) matching one; an own rule nested,
+ * conditional or matching its copy differently; one given values to match (`given`); a page-registered custom property
+ * used. `eachNode` runs before each rule and each element it is matched against.
  */
 async function shownRefusal(
   shown: ReadonlySet<Element>, copies: ReadonlyMap<Node, SVGElement>, given: ReadonlySet<Element>, lookup: Document | ShadowRoot,
@@ -446,9 +439,9 @@ function widen(selector: string, parent: string | null, namespaced = false): str
   return open.length === 0 ? out : null;
 }
 
-/** The families a `font-family` lists, unquoted, in lower case; a name with a comma splits alike wherever it is named. */
+/** The families a `font-family` lists, unquoted, in lower case; a name with a comma splits alike (empty parts kept). */
 function families(value: string): string[] {
-  return value.split(",").map((family) => family.trim().replaceAll(/^["']|["']$/gu, "").toLowerCase()).filter((family) => family !== "");
+  return value.split(",").map((family) => family.trim().replaceAll(/^["']|["']$/gu, "").toLowerCase());
 }
 
 /**
@@ -474,28 +467,24 @@ function fontRefusal(texts: readonly string[], showsText: boolean, lookup: Docum
   if (showsText && faces.size > 0) return "a <use> in the drawing shows text, which it may set in a font face, which a screenshot cannot check yet";
   for (const value of texts) {
     for (const family of families(value)) {
-      if (faces.has(family)) return `the drawing's text uses a font face (${family.slice(0, 100)}), which a screenshot cannot embed yet`;
+      if (faces.has(family)) return `the drawing's text uses a font face (${(family || value).slice(0, 100)}), which a screenshot cannot embed yet`;
     }
   }
   return null;
 }
 
 /**
- * Copies an `<svg>` drawing, which is drawn from its markup, as its markup stands, and checks that the copy computes
- * its styles as the drawing does. Built inside a hidden, sandboxed `about:blank` frame in `scratch` that has none of
- * the page's style sheets, with the copy as its root, as the image has it: the copy's root carries every computed
- * value of the drawing that it lacks there (so what the drawing inherits from the page reaches its shapes by
- * inheritance), and each definition it uses by `#id` from elsewhere on the page is copied in under copies (without
- * their ids or other children) of its ancestors up to its own `<svg>`, each carrying its values the same way, so it
- * keeps its viewport and inherits what it does on the page. Then each copied element is compared with its original,
- * property by property, custom properties included, and given the values it differs in (what the page's rules give
- * it) as computed (an empty custom property kept empty, not absent). What a `<use>` shows must have nothing from the
- * page that its copy lacks (see {@link shownRefusal}), the drawing's text no font face (see {@link fontRefusal}),
- * and no SVG animation may hold or target what is copied. Once all are given, every element is compared again, since
- * a value given can change how another matches the copy's own selectors. What the copy refers to (links, `url()`s in
- * attributes that can load something, given values and its `<style>` text) is checked before the copy
- * holds it, so nothing is loaded from outside the page. A string says why it cannot be drawn. `eachNode` runs before
- * each element or rule is copied or compared, and may end the copy; the frame is removed however it ends.
+ * Copies an `<svg>` drawing (drawn from its markup) and checks that the copy computes its styles as the drawing does,
+ * in a hidden, sandboxed `about:blank` frame in `scratch` without the page's style sheets, the copy as its root. The
+ * root carries the drawing's computed values it lacks there (what it inherits reaches its shapes); each definition it
+ * uses by `#id` from elsewhere is copied under copies (without ids or other children) of its ancestors up to its own
+ * `<svg>`, carrying values the same way. Each copied element is compared with its original, property by property
+ * (custom properties too, an empty one kept empty), given the values it differs in as computed, and compared again
+ * once all are given. What a `<use>` shows must have nothing from the page its copy lacks (see {@link shownRefusal}),
+ * text no font face (see {@link fontRefusal}), and no SVG animation may hold or target what is copied. What the copy
+ * refers to (links, `url()`s in attributes that can load something, given values, `<style>` text) is checked before
+ * it holds it. A string says why it cannot be drawn. `eachNode` runs before each element or rule is copied or
+ * compared, and may end the copy; the frame is removed however it ends.
  */
 async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, eachNode: () => Promise<void>): Promise<SVGSVGElement | string> {
   const box = getComputedStyle(svg);
@@ -634,8 +623,19 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     // changes it too.
     for (const animation of lookup.querySelectorAll([...ANIMATIONS].join(","))) {
       await eachNode();
-      const href = hrefOf(animation)?.trim();
-      const target: Element | null = href?.startsWith("#") ? lookup.getElementById(href.slice(1)) : animation.parentElement;
+      const href = hrefOf(animation)?.trim() ?? "";
+      // Its link names its target by #id, alone or after this page's URL (another page's targets nothing); none, its parent.
+      let target: Element | null = href.startsWith("#") ? lookup.getElementById(href.slice(1)) : animation.parentElement;
+      if (href && !href.startsWith("#")) {
+        try {
+          const [url, here] = [new URL(href, animation.baseURI), new URL(animation.ownerDocument.URL)];
+          const id = decodeURIComponent(url.hash.slice(1));
+          [url.hash, here.hash] = ["", ""];
+          target = url.href === here.href ? lookup.getElementById(id) : null;
+        } catch {
+          target = svg; // A link it cannot read is taken to target the drawing.
+        }
+      }
       if (target && (target === svg || copies.has(target) || ancestors.has(target))) return `the drawing is animated (<${animation.localName}>), which a screenshot cannot check yet`;
     }
     const shown = new Set<Element>();
