@@ -620,9 +620,9 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
     <style>.red-use { --tone: rgb(255, 0, 0) } .themed { fill: rgb(255, 0, 0) } .sprite-blue { fill: rgb(0, 0, 255) } .ico rect { fill: currentColor }
       .tile { fill: rgb(255, 0, 0) !important } .r { fill: rgb(0, 0, 0) } @container (min-width: 1px) { .contained-shape { fill: rgb(255, 0, 0) } }
-      .wrap { .nested-r { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
+      .wrap { .nested-r { fill: rgb(255, 0, 0) } } .sprite-wrap { .nested-in { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
       @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
-      @font-face { font-family: page-face; src: url(${block}) }</style>
+      @font-face { font-family: page-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
       <symbol id="two-tone" viewBox="0 0 100 50" preserveAspectRatio="none"><rect width="50" height="50" fill="#000"/><rect x="50" width="50" height="50" fill="currentColor"/></symbol>
@@ -681,6 +681,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <defs><g id="local-shape"><rect class="r" width="20" height="20"/></g></defs><use href="#local-shape" fill="rgb(0, 255, 0)"/></svg>
     <svg data-testid="contained" tabindex="0" width="20" height="20" style="display: block"><use href="#contained" width="20" height="20"/></svg>
     <svg data-testid="nested" tabindex="0" width="100" height="50" style="display: block"><use href="#nested-rect"/></svg>
+    <svg class="sprite-wrap" width="0" height="0" style="position: absolute"><rect id="nested-in-rect" class="nested-in" width="100" height="50"/></svg>
+    <svg data-testid="nested-applies" tabindex="0" width="100" height="50" style="display: block; fill: rgb(0, 255, 0)"><use href="#nested-in-rect"/></svg>
     <svg data-testid="copied-twice-ruled" tabindex="0" width="100" height="50" style="display: block"><use href="#inner-ruled"/><use href="#inner-ruled" x="50"/></svg>
     <svg data-testid="empty-use" tabindex="0" width="100" height="50" style="display: block; fill: rgb(0, 255, 0)"><use href="#empty-tile"/></svg>
     <svg data-testid="registered" tabindex="0" width="40" height="40" style="display: block">
@@ -692,10 +694,33 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg data-testid="linked-set" tabindex="0" width="20" height="20" style="display: block">
       <defs><rect id="set-a" width="20" height="20" fill="rgb(0, 255, 0)"/></defs><use href="#set-a"><set attributeName="href" to="/elsewhere.svg#b"/></use></svg>
     <svg data-testid="xlinked-set" tabindex="0" width="20" height="20" style="display: block">
-      <defs><rect id="xset-a" width="20" height="20" fill="rgb(0, 255, 0)"/></defs><use href="#xset-a"><set attributeName="xlink:href" to="#xset-a"/>
-      <animate attributeName="xlink:href" values="#xset-a;/far.svg#c" dur="2s"/></use></svg>
+      <defs><rect id="xset-a" width="20" height="20" fill="rgb(0, 255, 0)"/></defs><use href="#xset-a"><animate attributeName="xlink:href" values="#xset-a;/far.svg#c" dur="2s"/>
+      <set attributeName="xlink:href" to="#xset-a"/></use></svg>
     <svg data-testid="animated-paint" tabindex="0" width="20" height="20" style="display: block">
-      <rect width="20" height="20" fill="rgb(0, 255, 0)"><animate attributeName="fill" values="rgb(0, 255, 0);url(/paint.svg#p)" dur="2s"/></rect></svg>`);
+      <rect width="20" height="20" fill="rgb(0, 255, 0)"><animate attributeName="fill" values="rgb(0, 255, 0);url(/paint.svg#p)" dur="2s"/></rect></svg>
+    <svg data-testid="fragment-set" tabindex="0" width="20" height="20" style="display: block">
+      <defs><rect id="frag-a" width="20" height="20" fill="rgb(0, 255, 0)"/><rect id="frag-b" width="20" height="20" fill="rgb(0, 0, 255)"/></defs>
+      <use href="#frag-a"><set attributeName="href" to="#frag-b"/></use></svg>
+    <svg data-testid="commented-var" tabindex="0" width="40" height="40" style="display: block">
+      <defs><g id="reg-shape-2"><rect width="40" height="40" style="fill: var(/**/--reg-tone)"/></g></defs><use href="#reg-shape-2" style="--reg-tone: rgb(0, 0, 255)"/></svg>
+    <svg data-testid="negated" tabindex="0" width="20" height="20" style="display: block">
+      <defs><g id="neg-shape"><rect class="negated" width="20" height="20"/></g></defs><use href="#neg-shape" color="rgb(0, 0, 255)"/></svg>
+    <svg width="0" height="0" style="position: absolute"><symbol id="scoped" class="scoped" viewBox="0 0 10 10"><rect width="10" height="10"/></symbol></svg>
+    <svg data-testid="scoped" tabindex="0" width="20" height="20" style="display: block"><use href="#scoped" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="linked-text" tabindex="0" width="120" height="50" style="display: block">
+      <text x="0" y="40" font-family="monospace" font-size="40"><a href="#" font-family="page-face">WW</a></text></svg>
+    <svg data-testid="media-font" tabindex="0" width="120" height="50" style="display: block">
+      <style>@media (min-width: 500px) { @font-face { font-family: media-face; src: url(${block}) } }</style>
+      <text x="0" y="40" font-family="media-face" font-size="40">WW</text></svg>
+    <svg data-testid="scripted-rule" tabindex="0" width="100" height="50" style="display: block; fill: rgb(0, 255, 0)">
+      <style id="scripted-sheet"></style><defs><g id="scripted-shape"><rect class="scripted" width="50" height="50"/></g></defs>
+      <use href="#scripted-shape"/><use href="#scripted-shape" x="50"/></svg>
+    <svg data-testid="scripted-font" tabindex="0" width="120" height="50" style="display: block">
+      <style id="scripted-face"></style><text x="0" y="40" font-family="scripted-face" font-size="40">WW</text></svg>`);
+    // Rules a script adds to a drawing's own style sheets, which its text does not have.
+    const scripted = (document.getElementById("scripted-sheet") as unknown as { sheet: CSSStyleSheet }).sheet;
+    scripted.insertRule(".scripted { fill: rgb(255, 0, 0) }");
+    (document.getElementById("scripted-face") as unknown as { sheet: CSSStyleSheet }).sheet.insertRule(`@font-face { font-family: scripted-face; src: url(${block}) }`);
     CSS.registerProperty({ name: "--js-tone", syntax: "<color>", inherits: false, initialValue: "rgb(255, 0, 0)" });
   }, { block, green });
   await page.evaluate(async (block) => {
@@ -706,15 +731,17 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   }, block);
   const faithful = [
     "plain", "instances", "literal", "referring", "variable", "red-use", "nested-ids", "themed", "copied-twice", "root-current", "empty-var",
-    "noted", "own-font", "generic-font",
+    "noted", "own-font", "generic-font", "scripted-rule", "scripted-font", "nested",
   ] as const;
   const live = new Map<string, Buffer>();
   for (const id of faithful) live.set(id, await page.getByTestId(id).screenshot());
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
 
   // What a <use> shows, styled by nothing on the page but the <use> (its colour, a custom property inline or by a
-  // rule on the <use>, a rule on the definition's ancestor, the drawing's root), drawn per quadrant as the page shows it;
-  // and drawings with text in a font of their own or a generic family, or attributes whose text reads like a url().
+  // rule on the <use>, a rule on the definition's ancestor, the drawing's root, a nested page rule whose parent does
+  // not match), drawn per quadrant as the page shows it;
+  // and drawings with text in a font of their own or a generic family, or attributes whose text reads like a url(). A
+  // drawing's own rule or font face that a script added is drawn too.
   for (const id of faithful) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
@@ -724,17 +751,26 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   for (const [id, reason] of [
     // A page rule on what a <use> shows, plain, as currentColor, important, on a definition in the drawing, under a
     // condition, nested, on a source shown twice, or declaring an empty custom property.
-    ...["ruled", "ico", "important", "local-ruled", "contained", "nested", "copied-twice-ruled", "empty-use"].map((id) => [id, shownRule("rect")] as const),
+    ...["ruled", "ico", "important", "local-ruled", "contained", "nested-applies", "copied-twice-ruled", "empty-use"].map((id) => [id, shownRule("rect")] as const),
     // A custom property the page registers (by @property or from a script), which shown content uses.
     ["registered", "what a <use> in the drawing shows uses --reg-tone, which the page registers, and a screenshot cannot reproduce yet"],
+    ["commented-var", "what a <use> in the drawing shows uses --reg-tone, which the page registers, and a screenshot cannot reproduce yet"],
+    // A nested page rule under a negation, and declarations directly in @scope.
+    ["negated", shownRule("rect")],
+    ["scoped", shownRule("symbol")],
     ["script-registered", "what a <use> in the drawing shows uses --js-tone, which the page registers, and a screenshot cannot reproduce yet"],
     // Text in a font the page has a face for, from a style sheet or a script.
     ["page-font", "the drawing's text uses the page's font page-face, which a screenshot cannot embed yet"],
     ["script-font", "the drawing's text uses the page's font script-face, which a screenshot cannot embed yet"],
+    // Text in a link in the text, and a face of the drawing's own that only applies under a media query.
+    ["linked-text", "the drawing's text uses the page's font page-face, which a screenshot cannot embed yet"],
+    ["media-font", "the drawing's text uses the page's font media-face, which a screenshot cannot embed yet"],
     // A link an animation sets.
     ["linked-set", "the drawing loads /elsewhere.svg#b, which a screenshot cannot embed yet"],
     ["xlinked-set", "the drawing loads /far.svg#c, which a screenshot cannot embed yet"],
     ["animated-paint", "the drawing loads /paint.svg#p, which a screenshot cannot embed yet"],
+    // Even to a #fragment.
+    ["fragment-set", "the drawing animates a link, which a screenshot cannot check yet"],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(screenshot, id).toBeNull();

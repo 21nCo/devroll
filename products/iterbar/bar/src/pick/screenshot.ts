@@ -115,8 +115,8 @@ const ANIMATIONS = new Set(["set", "animate", "animateTransform", "animateMotion
 
 /**
  * Says why `element`'s attributes cannot be drawn, if they cannot: a link (`href`, `xlink:href`) or a `url()` in an
- * attribute that can load something ({@link RESOURCE_ATTRIBUTES}), or a link an animation sets, that is neither a
- * `#fragment` (recorded in `ids`) nor `data:`.
+ * attribute that can load something ({@link RESOURCE_ATTRIBUTES}) that is neither a `#fragment` (recorded in `ids`) nor
+ * `data:`, or an animation of a link.
  */
 function attributeReferences(element: Element, ids: Set<string>): string | null {
   let refused: string | null = null;
@@ -131,6 +131,8 @@ function attributeReferences(element: Element, ids: Set<string>): string | null 
       refused ??= references(value, ids);
     }
   }
+  // Even to a #fragment: what it shows then is not what a <use> is checked to show.
+  if (refused === null && animatesLink) refused = "the drawing animates a link, which a screenshot cannot check yet";
   return refused;
 }
 
@@ -233,11 +235,8 @@ function cannotReproduce(element: Element, name: string): string {
   return `the page styles the drawing's <${element.localName}> (its ${name}) in a way its copy cannot reproduce yet`;
 }
 
-/** The elements that draw text. */
-const TEXTS = new Set(["text", "tspan", "textPath"]);
-
-/** Where a `var()` names a custom property. */
-const VARIABLE = /var\(\s*(--[^\s,)]+)/giu;
+/** Where a `var()` names a custom property (in CSS text without comments or escapes); "" where it names none. */
+const VARIABLE = /var\(\s*(--[^\s,)]+)?/giu;
 
 /**
  * Whether the page registers custom property `name` (by `@property` or `CSS.registerProperty`), which the copy's
@@ -280,7 +279,7 @@ async function shownRefusal(
   if (shown.size === 0) return null;
   const variables = new Set<string>();
   const noteVariables = (text: string): void => {
-    for (const [, name] of text.matchAll(VARIABLE)) variables.add(name!);
+    for (const [, name = ""] of decodedCss(text.replaceAll(/\/\*[\s\S]*?\*\//gu, "")).matchAll(VARIABLE)) variables.add(name);
   };
   for (const element of shown) for (const { value } of element.attributes) noteVariables(value);
   const unreadable = "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet";
@@ -291,7 +290,7 @@ async function shownRefusal(
     if (!sheet) return false;
     if (sheet.disabled) return true;
     try {
-      stack.push({ rules: sheet.cssRules, own, nested: false, parent: null });
+      stack.push({ rules: sheet.cssRules, own, nested: Boolean(sheet.media.mediaText), parent: null });
       return true;
     } catch {
       return false; // Another origin's style sheet, which the page may not read.
@@ -308,11 +307,22 @@ async function shownRefusal(
         continue;
       }
       let { parent } = next;
-      // A style rule, or the declarations a style rule has after its nested rules.
-      if (rule instanceof CSSStyleRule || (parent !== null && "style" in rule)) {
+      // A style rule, or the declarations a style rule (or @scope, for its root and what is in it) has among its rules.
+      if (rule instanceof CSSStyleRule || ("style" in rule && (parent !== null || rule.constructor.name === "CSSNestedDeclarations"))) {
         const exact = !next.nested && rule instanceof CSSStyleRule;
-        const selector = rule instanceof CSSStyleRule ? rule.selectorText : parent!;
-        if (rule instanceof CSSStyleRule) parent = exact ? selector : selector.replaceAll(/&|:scope\b/gu, "*");
+        // Declarations directly in @scope apply to its root, which its start selector matches.
+        const selector = rule instanceof CSSStyleRule ? rule.selectorText : parent ?? (rule.parentRule as { start?: string | null } | null)?.start ?? "*";
+        // A nested selector matches as with its parent's in place of `&` (and any element for `:scope`), less any negation
+        // of them, which that could narrow; one it cannot take apart matches any element.
+        if (rule instanceof CSSStyleRule && exact) {
+          parent = selector;
+        } else if (rule instanceof CSSStyleRule) {
+          const relative = /&|:scope\b/u;
+          const loose = selector.replaceAll(/:not\((?:[^()]|\([^()]*\))*\)/giu, (negation) => (relative.test(negation) ? ":is(*)" : negation));
+          parent = /:not\([^)]*(?:&|:scope\b)/iu.test(loose) ? "*" : loose.replaceAll("&", `:is(${parent ?? "*"})`).replaceAll(/:scope\b/gu, "*");
+        } else {
+          parent = selector;
+        }
         const style = (rule as CSSStyleRule).style;
         for (const element of style.length > 0 ? shown : []) {
           await eachNode();
@@ -339,7 +349,7 @@ async function shownRefusal(
   }
   for (const name of variables) {
     await eachNode();
-    if (registered(name, scratch)) return `what a <use> in the drawing shows uses ${name}, which the page registers, and a screenshot cannot reproduce yet`;
+    if (name === "" || registered(name, scratch)) return `what a <use> in the drawing shows uses ${name}, which the page registers, and a screenshot cannot reproduce yet`;
   }
   return null;
 }
@@ -353,10 +363,10 @@ function families(value: string): string[] {
 
 /**
  * Says why text in the drawing would be drawn in another font, if it would: the copy is drawn as an image, which has
- * none of the page's fonts. Text (`texts`, the computed `font-family` of each text element, and of each `<use>` that
- * shows text) in a family the page has a font face for (from any style sheet, another origin's too, or added from a
- * script) is refused, unless as many faces of it are declared in the drawing's own style sheets (whose `url()`s are
- * checked to be `data:` ones), which the copy has.
+ * none of the page's fonts. Text (`texts`, the computed `font-family` of each element in a `<text>`, and of each
+ * `<use>` that shows text) in a family the page has a font face for (from any style sheet, another origin's too, or
+ * added from a script) is refused, unless as many faces of it are declared unconditionally in the drawing's own style
+ * sheets (whose `url()`s are checked to be `data:` ones), which the copy has.
  */
 function fontRefusal(texts: readonly string[], lookup: Document | ShadowRoot, copies: ReadonlyMap<Node, SVGElement>): string | null {
   if (texts.length === 0) return null;
@@ -366,13 +376,10 @@ function fontRefusal(texts: readonly string[], lookup: Document | ShadowRoot, co
   const page = new Map<string, number>();
   for (const face of (lookup.ownerDocument ?? (lookup as Document)).fonts) if (face.status !== "error") count(page, families(face.family)[0]);
   const own = new Map<string, number>();
-  const stack: CSSRuleList[] = [];
-  for (const sheet of lookup.styleSheets) if (sheet.ownerNode && copies.has(sheet.ownerNode)) stack.push(sheet.cssRules);
-  for (let rules = stack.pop(); rules; rules = stack.pop()) {
-    for (const rule of rules) {
-      if (rule instanceof CSSFontFaceRule) count(own, families(rule.style.getPropertyValue("font-family"))[0]);
-      else if ("cssRules" in rule) stack.push(rule.cssRules as CSSRuleList);
-    }
+  // Only faces declared unconditionally: the image is not the page, and its media may not match where the page's do.
+  for (const sheet of lookup.styleSheets) {
+    if (!sheet.ownerNode || !copies.has(sheet.ownerNode) || sheet.disabled || sheet.media.mediaText) continue;
+    for (const rule of sheet.cssRules) if (rule instanceof CSSFontFaceRule) count(own, families(rule.style.getPropertyValue("font-family"))[0]);
   }
   for (const value of texts) {
     for (const family of families(value)) {
@@ -429,8 +436,10 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
   };
   const childrenInto = async (copy: Element, source: Element): Promise<string | null> => {
     if (source.localName === "style") {
-      // Its whole text is checked, and then given at once, so the copy (which is in a document) parses it once.
-      const text = source.textContent ?? "";
+      // Its rules as the page has them (a script may have changed them since its text), checked, and then given at
+      // once, so the copy (which is in a document) parses them once. A disabled one has none.
+      const sheet = (source as SVGStyleElement).sheet;
+      const text = !sheet ? source.textContent ?? "" : sheet.disabled ? "" : [...sheet.cssRules].map((rule) => rule.cssText).join("\n");
       const refused = references(text, ids);
       if (refused !== null) return refused;
       copy.textContent = text;
@@ -539,8 +548,8 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     const shownRefused = await shownRefusal(shown, copies, given, lookup, scratch, eachNode);
     if (shownRefused !== null) return shownRefused;
     // The fonts its text is drawn in: a text element's, and a <use>'s that shows text.
-    const showsText = [...shown].some((element) => TEXTS.has(element.localName));
-    const texts = pairs.filter(([live]) => TEXTS.has(live.localName) || (showsText && live.localName === "use")).map(([live]) => snapshot(live).get("font-family") ?? "");
+    const showsText = [...shown].some((element) => element.closest("text") !== null);
+    const texts = pairs.filter(([live]) => live.closest("text") !== null || (showsText && live.localName === "use")).map(([live]) => snapshot(live).get("font-family") ?? "");
     const fonts = fontRefusal(texts, lookup, copies);
     if (fonts !== null) return fonts;
     // Its own selectors may match the root differently now that it has its children: given its values again, it
