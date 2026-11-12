@@ -13,7 +13,7 @@ import {
 import { reportPageUrl, SlotsPanel } from "./slots.js";
 import { applyBarStyles } from "./theme.js";
 import { ElementPicker } from "./pick/picker.js";
-import { captureScreenshot, type ScreenshotResult } from "./pick/screenshot.js";
+import { captureScreenshot, RenderSlot, type ScreenshotResult } from "./pick/screenshot.js";
 import { describeElement, describeTarget, readActiveVariants } from "./pick/target.js";
 import { ThreadsPanel } from "./threads.js";
 
@@ -123,6 +123,8 @@ export class IterbarBarElement extends ElementBase {
     onCancel: () => this.#cancelPick(),
   });
   readonly #picker: ElementPicker;
+  /** Lets one of this bar's screenshot captures render at a time. */
+  readonly #renderSlot = new RenderSlot();
   #pick: Pick | null = null;
   /** The pick whose comment is being sent; another element cannot be picked meanwhile. */
   #sendingPick: Pick | null = null;
@@ -269,6 +271,7 @@ export class IterbarBarElement extends ElementBase {
   }
 
   disconnectedCallback(): void {
+    // Leaving comment mode withdraws a screenshot still being taken (see #leavePicking).
     this.commentMode = false;
     window.removeEventListener("keydown", this.#onKeydown, true);
     this.#watchUrl(false);
@@ -300,7 +303,7 @@ export class IterbarBarElement extends ElementBase {
       target: describeTarget(element),
       pageUrl: /^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null,
       activeVariants: readActiveVariants(),
-      screenshot: captureScreenshot(element, this, withdraw.signal),
+      screenshot: captureScreenshot(element, this, this.#renderSlot, withdraw.signal),
       withdraw,
     };
     this.#setCollapsed(false);

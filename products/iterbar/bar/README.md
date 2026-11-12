@@ -51,11 +51,14 @@ attributes. The bar never writes the token to an attribute.
 
 While comment mode is on, hovering outlines the page element under the
 pointer, and clicking one (or pressing Enter or Space on a focused page
-control) picks it instead of reaching the page: the press, the click, the
-focus change, a context menu and the key are all swallowed, including
-presses on the document root, which is never picked itself. Keys and clicks
-inside the bar are left alone. The composer then opens in the bar, which
-expands if collapsed. Picking another element keeps the typed text, Cancel
+element, a text field included, where the key then types nothing) picks it
+instead of reaching the page: the press, the click, the focus change, a
+context menu and the key, with its repeats and release, are all swallowed,
+including presses on the document root, which is never picked itself. That
+key stops being swallowed once it is released, the window loses focus or is
+hidden, or it is pressed again. Clicks and keys inside the bar are left
+alone, except Escape, which leaves comment mode from the bar too. The
+composer then opens in the bar, which expands if collapsed. Picking another element keeps the typed text, Cancel
 drops the pick, and Escape leaves comment mode from anywhere, discarding a
 draft not yet posted (see below for one already posted). While comment mode
 is off the picker has no page listeners and its outline layer is hidden, so
@@ -82,20 +85,22 @@ element is described when it is picked:
 - **Active variants**: the version each slot on the page shows.
 - **Screenshot**: a PNG of the element rendered in the page with
   `modern-screenshot` from the pick, at the device pixel ratio, scaled down
-  to stay within 4 MP. The element is drawn alone at the image origin,
-  upright at its untransformed size: its own transform, margins and offsets
-  and its ancestors' transforms are left out, while transforms inside it are
-  kept. The scale
-  is chosen from the element's size once its images and fonts have loaded,
-  so an element that grows meanwhile stays within the cap, and the image
-  produced is checked again: one over 4 MP is not sent. A capture withdrawn
-  by another pick, Cancel, Escape or its time limit stops at its next step
-  and holds up no other capture.
+  to stay within 4 MP. Every element, an `<svg>` drawing included, is drawn
+  alone at the image origin, upright at its exact (fractional) layout size
+  times its zoom: its own transform, margins and offsets and its ancestors'
+  transforms are left out, while transforms inside it are kept. The size
+  and scale are measured once its images and fonts have loaded, so an
+  element that grows meanwhile stays within the cap, and the image produced
+  is checked again: one over 4 MP is not sent. One capture at a time copies
+  and draws; a capture withdrawn by another pick, Cancel, Escape, the bar's
+  removal or its time limit stops at the next node it copies, or its next
+  step, and holds up no other capture.
   When the capture fails (for example a canvas tainted by a cross-origin
   image, an element with no area, a scrolled box in the element, which the
-  copy would show unscrolled, or a capture over 10 seconds) the comment is
-  still sent, without a screenshot and with the reason in
-  `screenshotUnavailableReason`.
+  copy would show unscrolled, a shape inside an SVG drawing rather than the
+  drawing, an inline element inside a scaled or rotated box, or a capture
+  over 10 seconds) the comment is still sent, without a screenshot and with
+  the reason in `screenshotUnavailableReason`.
 
   `modern-screenshot` is bundled into `dist/` (its licence is in
   `THIRD-PARTY-NOTICES.md`) rather than imported, so a Vite dev server has no
@@ -106,12 +111,13 @@ screenshot, Cancel or Escape withdraws the comment and nothing is posted.
 Once it is posted it can no longer be withdrawn: Cancel is disabled, and
 Escape ends comment mode but leaves the composer saying "Sending…" until the
 daemon answers. On success the thread appears in the bar and comment mode
-ends. A refused send keeps the composer open with the text and the daemon's
-reason, so it can be sent again. A send that gets no answer (a lost
-connection or no answer within 10 seconds) also keeps the text, but says
-the comment may already be stored, since the daemon stores it before it
-answers: check the threads, where a stored comment appears, before sending
-it again. Sends are never retried automatically.
+ends. A send the daemon refuses (a 4xx answer, which stores nothing) keeps
+the composer open with the text and the daemon's reason, so it can be sent
+again. A send that fails in the daemon (a 5xx answer, with its reason) or
+gets no answer (a lost connection or no answer within 10 seconds) also keeps
+the text, but says the comment may already be stored, since the daemon
+stores it before its last steps and its answer: check the threads, where a
+stored comment appears, before sending it again. Sends are never retried automatically.
 
 ## Connection
 

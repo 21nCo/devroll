@@ -109,18 +109,27 @@ class UnauthorizedError extends Error {}
 /** A request that got no answer within {@link REQUEST_TIMEOUT_MS}. */
 class DeadlineError extends Error {}
 
-/** A request the daemon answered with an error, carrying its message for the user. */
-export class DaemonRequestError extends Error {}
+/**
+ * A request that failed, carrying its message for the user; for an error answer, also its HTTP `status` and the
+ * daemon's own `reason` when its body had one.
+ */
+export class DaemonRequestError extends Error {
+  constructor(message: string, readonly status: number | null = null, readonly reason: string | null = null) {
+    super(message);
+  }
+}
 
-/** The message of a daemon error body, or a generic one naming the status. */
-async function errorMessage(response: Response): Promise<string> {
+/** The error for a daemon error answer: its body's message, or a generic one naming the status. */
+async function answerError(response: Response): Promise<DaemonRequestError> {
+  let reason: string | null = null;
   try {
     const body = daemonErrorResponseSchema.safeParse(await response.json());
-    if (body.success) return `The daemon refused it (${response.status}): ${body.data.error.message}`;
+    if (body.success) reason = body.data.error.message;
   } catch {
     // Not a daemon error body.
   }
-  return `The daemon answered ${response.status}.`;
+  const message = reason === null ? `The daemon answered ${response.status}.` : `The daemon refused it (${response.status}): ${reason}`;
+  return new DaemonRequestError(message, response.status, reason);
 }
 
 /**
@@ -190,8 +199,8 @@ export class DaemonConnection {
 
   /**
    * Creates a feedback item with `POST /feedback`: the draft, plus the screenshot as a PNG part. Resolves with the
-   * stored item. A refusal rejects with the daemon's reason; no answer at all rejects saying the comment may already
-   * be stored. Never retried for that reason; a `401` stops the connection as everywhere else.
+   * stored item. A 4xx refusal rejects with the daemon's reason; a 5xx, or no answer at all, rejects saying the comment
+   * may already be stored. Never retried for that reason; a `401` stops the connection as everywhere else.
    */
   async sendFeedback(draft: FeedbackDraft, screenshot: Blob | null): Promise<Feedback> {
     if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
@@ -208,8 +217,13 @@ export class DaemonConnection {
         this.#reject();
         throw new DaemonRequestError("The daemon rejected the token. Restart the dev server to get a new one.");
       }
-      // The daemon answered with a refusal, so nothing was stored.
-      if (error instanceof DaemonRequestError) throw error;
+      if (error instanceof DaemonRequestError) {
+        // A 4xx refusal stores nothing. The daemon stores a comment before steps that can still fail with a 5xx, so
+        // after one the comment may be stored.
+        if (error.status === null || error.status < 500) throw error;
+        const why = `The daemon failed (${error.status})${error.reason === null ? "" : `: ${error.reason}`}`;
+        throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, error.status, error.reason);
+      }
       // No answer (a lost connection or the deadline): the daemon stores a comment before it answers, so the outcome
       // is unknown and sending again could file it twice.
       // A success whose body cannot be read was stored.
@@ -391,7 +405,7 @@ export class DaemonConnection {
         signal: deadline.signal,
       });
       if (response.status === 401) throw new UnauthorizedError("unauthorized");
-      if (!response.ok) throw new DaemonRequestError(await errorMessage(response));
+      if (!response.ok) throw await answerError(response);
       return body === undefined || endpoint === "createFeedback" ? await response.json() : undefined;
     };
     try {

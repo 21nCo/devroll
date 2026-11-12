@@ -23,6 +23,8 @@ export interface FakeDaemon {
   holdFeedback: Promise<void> | null;
   /** When set, `POST /feedback` is stored and then the connection drops without an answer. */
   dropFeedbackAnswer: boolean;
+  /** A 5xx status to answer `POST /feedback` with after storing it, as when the daemon fails after its write. */
+  failFeedbackAfterStore: number | null;
   readonly sockets: WebSocketRoute[];
   readonly closedSockets: WebSocketRoute[];
   send(event: DaemonEvent | string): void;
@@ -49,6 +51,7 @@ export async function fakeDaemon(
     failFeedback: null,
     holdFeedback: null,
     dropFeedbackAnswer: false,
+    failFeedbackAfterStore: null,
     sockets: [],
     closedSockets: [],
     send(event) {
@@ -81,15 +84,20 @@ export async function fakeDaemon(
     }
     if (request.method() === "POST" && path === "/feedback") {
       if (daemon.holdFeedback) await daemon.holdFeedback;
+      const fail = async (status: number): Promise<void> => {
+        const error = status < 500 ? { code: "store_locked", message: "The store is locked" } : { code: "internal", message: "The store is unavailable" };
+        await route.fulfill({ status, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error }) });
+      };
       if (daemon.failFeedback !== null) {
-        await route.fulfill({
-          status: daemon.failFeedback, headers: cors, contentType: "application/json",
-          body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error: { code: "internal", message: "The store is unavailable" } }),
-        });
+        await fail(daemon.failFeedback);
         return;
       }
       const post = await readFeedbackPost(request);
       daemon.posts.push(post);
+      if (daemon.failFeedbackAfterStore !== null) {
+        await fail(daemon.failFeedbackAfterStore);
+        return;
+      }
       if (daemon.dropFeedbackAnswer) {
         await route.abort("connectionreset");
         return;

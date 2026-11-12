@@ -105,6 +105,54 @@ function pngPixels(page: Page, png: Buffer, points: readonly (readonly [number, 
   }, { base64: png.toString("base64"), points });
 }
 
+/** How many pixels of `png` are opaque and dark (text drawn in black), decoded in the page. */
+function darkPixels(page: Page, png: Buffer): Promise<number> {
+  return page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    let dark = 0;
+    for (let index = 0; index < data.length; index += 4) if (data[index + 3] === 255 && data[index]! + data[index + 1]! + data[index + 2]! < 300) dark += 1;
+    return dark;
+  }, png.toString("base64"));
+}
+
+/**
+ * Counts, in `window.cloned`, the nodes copied (`cloneNode`) inside each `[data-big]` subtree, by its value, and
+ * records in `window.clonedRuns` the order in which the subtrees were copied, one entry per run.
+ */
+async function countClones(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const state = window as unknown as { cloned: Record<string, number>; clonedRuns: string[] };
+    state.cloned = {};
+    state.clonedRuns = [];
+    const cloneNode = Node.prototype.cloneNode;
+    Node.prototype.cloneNode = function (this: Node, deep?: boolean) {
+      const big = (this instanceof Element ? this : this.parentElement)?.closest<HTMLElement>("[data-big]")?.dataset.big;
+      if (big) {
+        state.cloned[big] = (state.cloned[big] ?? 0) + 1;
+        if (state.clonedRuns.at(-1) !== big) state.clonedRuns.push(big);
+      }
+      return cloneNode.call(this, deep);
+    };
+  });
+}
+
+/** Adds a `[data-big=name]` box holding `count` small elements to the page. */
+async function addBigBox(page: Page, name: string, count: number): Promise<void> {
+  await page.evaluate(({ name, count }) => {
+    const box = document.createElement("div");
+    box.dataset.big = name;
+    box.dataset.testid = `big-${name}`;
+    box.style.cssText = "width: 300px; height: 40px; overflow: hidden; background: #ddd";
+    box.innerHTML = "<i></i>".repeat(count);
+    document.querySelector("main")!.prepend(box);
+  }, { name, count });
+}
+
 /** What `selector` matches in the page, by `data-case`. */
 function resolve(page: Page, selector: string): Promise<(string | undefined)[]> {
   return page.evaluate((value) => [...document.querySelectorAll<HTMLElement>(value)].map((element) => element.dataset.case), selector);
@@ -339,6 +387,118 @@ test("a transformed element still contains its fixed descendants", async ({ page
   expect((await pngPixels(page, screenshot!, [[10, 10], [100, 100]])).at).toEqual([[255, 0, 0, 255], [0, 0, 255, 255]]);
 });
 
+test("frames every root the same way: exact fractional size, own and ancestor transforms left out, SVG drawings too", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  const chip = (id: string, style = "") =>
+    `<span data-testid="${id}" style="display: inline-block; font: 20px/24px monospace; letter-spacing: 0.3px; background: #fff; color: #000; ${style}">ABC DEFG</span>`;
+  await page.evaluate((chips) => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+    <div>${chips[0]}</div>
+    <div style="transform: translateZ(0)">${chips[1]}</div>
+    <div>${chips[2]}</div>
+    <svg data-testid="svg" tabindex="0" width="100" height="50" style="display: block; transform: translateX(120px)">
+      <rect data-testid="shape" width="100" height="50" fill="rgb(0, 255, 0)"/></svg>
+    <div data-testid="zoomed" style="zoom: 2; width: 50px; height: 25px; background: rgb(0, 255, 0); transform: translateX(80px)"></div>
+    <div style="transform: scale(0.5)"><span data-testid="inline" style="background: #fff">Inline</span></div>`),
+  [chip("plain"), chip("in-transformed"), chip("transformed", "transform: translateX(5px)")]);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const styles = () => page.evaluate(() => [...document.querySelectorAll("main [data-testid]")].map((element) => element.getAttribute("style")));
+  const before = await styles();
+
+  // A shrink-to-fit chip with a fractional width: under a transformed ancestor, or with its own transform, its text
+  // wraps as on the page (all of "ABC DEFG" on one line), so the image has as much text as the untransformed one.
+  const plainPost = await comment(page, daemon, page.getByTestId("plain"), "Plain");
+  expect(plainPost.draft.screenshotUnavailableReason).toBeNull();
+  const plain = plainPost.screenshot!;
+  const plainSize = await page.getByTestId("plain").evaluate((element) => element.getBoundingClientRect());
+  expect(plainSize.width % 1).not.toBe(0);
+  expect(pngSize(plain)).toEqual({ width: Math.floor(plainSize.width), height: Math.floor(plainSize.height) });
+  const text = await darkPixels(page, plain);
+  expect(text).toBeGreaterThan(100);
+  for (const id of ["in-transformed", "transformed"]) {
+    const png = (await comment(page, daemon, page.getByTestId(id), id)).screenshot!;
+    expect(pngSize(png), id).toEqual(pngSize(plain));
+    expect(Math.abs(await darkPixels(page, png) - text) / text, id).toBeLessThan(0.05);
+  }
+
+  // A translated <svg> drawing (which its shape covers, so it is picked from the keyboard) fills its image.
+  await enterCommentMode(page);
+  await page.getByTestId("svg").focus();
+  await page.keyboard.press("Enter");
+  await inBar(page, "[data-role=composer-text]").fill("Drawing");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(4);
+  expect(daemon.posts[3]!.draft.target?.selector).toBe('[data-testid="svg"]');
+  const svg = daemon.posts[3]!.screenshot!;
+  expect(pngSize(svg)).toEqual({ width: 100, height: 50 });
+  expect(await pngPixels(page, svg, [[2, 2], [50, 25], [97, 47]])).toEqual({ at: [[0, 255, 0, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1 });
+
+  // Its own zoom and a transform: drawn at its zoomed size, filled.
+  const zoomed = (await comment(page, daemon, page.getByTestId("zoomed"), "Zoomed")).screenshot!;
+  expect(pngSize(zoomed)).toEqual({ width: 100, height: 50 });
+  expect((await pngPixels(page, zoomed, [[97, 47]])).opaque).toBe(1);
+
+  // What cannot be framed is sent without a screenshot, saying why: a shape inside a drawing, or an inline box that
+  // a transform around it scales.
+  for (const [id, reason] of [
+    ["shape", "only HTML elements and whole SVG drawings can be captured, not <rect>"],
+    ["inline", "the element is an inline box inside a scaled or turned one; pick a box around it"],
+  ] as const) {
+    const { draft, screenshot } = await comment(page, daemon, page.getByTestId(id), id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason).toBe(`The screenshot failed: ${reason}`);
+  }
+  // The live elements were never changed.
+  expect(await styles()).toEqual(before);
+});
+
+test("a capture withdrawn while its element is being copied stops there, and draws nothing", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await addBigBox(page, "a", 20_000);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await countCanvasBlobs(page);
+  await countClones(page);
+  const cloned = () => page.evaluate(() => (window as unknown as { cloned: Record<string, number> }).cloned.a ?? 0);
+  await enterCommentMode(page);
+  await page.getByTestId("big-a").click();
+  await expect.poll(cloned).toBeGreaterThan(0);
+  await inBar(page, "[data-role=composer-cancel]").click();
+  await expect(inBar(page, "[data-section=composer]")).toBeHidden();
+  const atCancel = await cloned();
+  await page.waitForTimeout(1000);
+  // The copy stopped within a node or two of the Cancel, far short of the 20,001 nodes, and nothing was drawn.
+  expect(await cloned()).toBeLessThan(atCancel + 50);
+  expect(await cloned()).toBeLessThan(10_000);
+  expect(await page.evaluate(() => window.canvasBlobs)).toBe(0);
+});
+
+test("rapid re-picks copy one element at a time and draw only the last", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  const names = ["a", "b", "c", "d", "e"];
+  for (const name of names) await addBigBox(page, name, 6_000);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await countCanvasBlobs(page);
+  await countClones(page);
+  await enterCommentMode(page);
+  for (const name of names) await page.getByTestId(`big-${name}`).click({ position: { x: 5, y: 5 } });
+  await inBar(page, "[data-role=composer-text]").fill("Last");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
+  const { cloned, clonedRuns } = await page.evaluate(() => {
+    const { cloned, clonedRuns } = window as unknown as { cloned: Record<string, number>; clonedRuns: string[] };
+    return { cloned, clonedRuns };
+  });
+  // Never two copies at once: each element's copying is one run, in pick order, and each replaced one stopped early.
+  expect(clonedRuns).toEqual(names.filter((name) => cloned[name]));
+  for (const name of names.slice(0, -1)) expect(cloned[name] ?? 0, name).toBeLessThan(6_001);
+  expect(cloned.e).toBe(6_001);
+  expect(await page.evaluate(() => window.canvasBlobs)).toBe(1);
+  expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-testid="big-e"]');
+  expect(daemon.posts[0]!.screenshot).not.toBeNull();
+});
+
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP).
@@ -530,6 +690,41 @@ test("Enter or Space on a focused page control, the context menu and the documen
   expect(daemon.posts).toEqual([]);
 });
 
+test("the key that picked is no longer swallowed once its press ends without a keyup reaching the page", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  const button = page.locator('[data-case="testid"]');
+  const text = inBar(page, "[data-role=composer-text]");
+  await enterCommentMode(page);
+  // Each way the press can end unseen: the window losing focus, the page being hidden, or a fresh press of the key.
+  const endings: Record<string, () => Promise<void>> = {
+    blur: () => page.evaluate(() => void window.dispatchEvent(new FocusEvent("blur"))),
+    hidden: () => page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    }),
+    "fresh press": () => text.evaluate((field) => void field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, composed: true }))),
+  };
+  for (const [ending, end] of Object.entries(endings)) {
+    await button.focus();
+    await page.keyboard.down("Enter");
+    await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On button");
+    // While the press lasts its repeats are swallowed, even in the composer.
+    await text.focus();
+    await page.keyboard.down("Enter");
+    await expect(text, ending).toHaveValue("");
+    await end();
+    // Then the key is the composer's again: held down there, it repeats into the text.
+    await page.keyboard.down("Enter");
+    await page.keyboard.down("Enter");
+    await expect(text, ending).toHaveValue("\n\n");
+    await page.keyboard.up("Enter");
+    await inBar(page, "[data-role=composer-cancel]").click();
+  }
+  expect(daemon.posts).toEqual([]);
+});
+
 test("outlines the hovered and picked elements in place under an inherited page zoom", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openCases(page, openFixture, daemon);
@@ -564,9 +759,9 @@ test("picking another element keeps the text, Cancel keeps comment mode, and a r
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("");
   await expect(inBar(page, "[data-role=composer-send]")).toBeDisabled();
   await inBar(page, "[data-role=composer-text]").fill("Retry me");
-  daemon.failFeedback = 500;
+  daemon.failFeedback = 409;
   await inBar(page, "[data-role=composer-send]").click();
-  await expect(inBar(page, "[data-role=composer-error]")).toHaveText("The daemon refused it (500): The store is unavailable");
+  await expect(inBar(page, "[data-role=composer-error]")).toHaveText("The daemon refused it (409): The store is locked");
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Retry me");
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
 
@@ -587,6 +782,18 @@ test("a send that gets no answer says the comment may already be stored", async 
   await expect(inBar(page, "[data-role=composer-error]")).toHaveText(
     /^The daemon did not answer \(.+\), so the comment may already be stored\. Check the threads before sending it again\.$/u);
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Stored, unanswered");
+  expect(daemon.posts).toHaveLength(1);
+});
+
+test("a send the daemon fails with a 5xx after storing it says the comment may already be stored", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  daemon.failFeedbackAfterStore = 500;
+  await comment(page, daemon, page.locator('[data-case="testid"]'), "Stored, then failed");
+  // Not a refusal: the daemon's reason is kept, and the user is told to check the threads before sending again.
+  await expect(inBar(page, "[data-role=composer-error]")).toHaveText(
+    "The daemon failed (500): The store is unavailable, so the comment may already be stored. Check the threads before sending it again.");
+  await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Stored, then failed");
   expect(daemon.posts).toHaveLength(1);
 });
 
@@ -675,7 +882,7 @@ test("a comment already posted cannot be cancelled, and leaving comment mode kee
   daemon.holdFeedback = new Promise((resolve) => {
     answer = resolve;
   });
-  daemon.failFeedback = 500;
+  daemon.failFeedback = 409;
   await enterCommentMode(page);
   await save.click();
   await text.fill("Refused later");
@@ -684,7 +891,7 @@ test("a comment already posted cannot be cancelled, and leaving comment mode kee
   await page.keyboard.press("Escape");
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
   answer();
-  await expect(inBar(page, "[data-role=composer-error]")).toHaveText("The daemon refused it (500): The store is unavailable");
+  await expect(inBar(page, "[data-role=composer-error]")).toHaveText("The daemon refused it (409): The store is locked");
   await expect(text).toHaveValue("Refused later");
   await expect(cancel).toBeEnabled();
   await cancel.click();

@@ -34,7 +34,11 @@ export class ElementPicker {
   #hovered: Element | null = null;
   #picked: Element | null = null;
   #frame: number | null = null;
-  /** The `code` of the activation key that made the last pick, until it is released; see {@link #ownsKey}. */
+  /**
+   * The `code` of the activation key that made the last pick, while that press lasts: until its keyup, the window
+   * losing focus or being hidden (the keyup then goes elsewhere), a fresh press of the key, or {@link stop}. See
+   * {@link #ownsKey}.
+   */
   #heldKey: string | null = null;
 
   constructor(options: PickerOptions) {
@@ -60,6 +64,8 @@ export class ElementPicker {
     window.addEventListener("pointerout", this.#onPointerOut, { capture: true, passive: true });
     window.addEventListener("keydown", this.#onKeydown, true);
     window.addEventListener("keyup", this.#onKeyup, true);
+    window.addEventListener("blur", this.#onWindowBlur);
+    document.addEventListener("visibilitychange", this.#onVisibilityChange);
     window.addEventListener("scroll", this.#queueLayout, { capture: true, passive: true });
     window.addEventListener("resize", this.#queueLayout, { passive: true });
     this.#layer.toggleAttribute("data-active", true);
@@ -81,6 +87,8 @@ export class ElementPicker {
     window.removeEventListener("pointerout", this.#onPointerOut, true);
     window.removeEventListener("keydown", this.#onKeydown, true);
     window.removeEventListener("keyup", this.#onKeyup, true);
+    window.removeEventListener("blur", this.#onWindowBlur);
+    document.removeEventListener("visibilitychange", this.#onVisibilityChange);
     window.removeEventListener("scroll", this.#queueLayout, true);
     window.removeEventListener("resize", this.#queueLayout);
     if (this.#frame !== null) cancelAnimationFrame(this.#frame);
@@ -171,6 +179,8 @@ export class ElementPicker {
   }
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
+    // A fresh press of the held key shows that the press which picked has ended, though its keyup was not seen.
+    if (!event.repeat && event.code === this.#heldKey) this.#heldKey = null;
     if (event.repeat && this.#ownsKey(event)) return;
     const element = this.#activationTarget(event);
     if (element) {
@@ -192,6 +202,15 @@ export class ElementPicker {
     if (this.#ownsKey(event) || !this.#activationTarget(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+  };
+
+  /** The window lost focus: the held key's release goes elsewhere, so the press is over for the picker. */
+  readonly #onWindowBlur = (event: FocusEvent): void => {
+    if (event.target === window) this.#heldKey = null;
+  };
+
+  readonly #onVisibilityChange = (): void => {
+    if (document.visibilityState === "hidden") this.#heldKey = null;
   };
 
   readonly #queueLayout = (): void => {

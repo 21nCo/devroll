@@ -140,6 +140,26 @@ describe("DaemonConnection", () => {
       .toBe("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
   });
 
+  it("calls only a 4xx answer a refusal; after a 5xx the comment may already be stored", async () => {
+    const connection = connect();
+    socket().open();
+    const draft: FeedbackDraft = {
+      schemaVersion: SCHEMA_VERSION, kind: "comment", text: "Hi", pageUrl: "http://localhost:5173/", target: null,
+      activeVariants: [], screenshotUnavailableReason: "The screenshot failed: test", evidenceWindow: null,
+    };
+    const answer = (status: number, body: unknown) => {
+      vi.stubGlobal("fetch", () => Promise.resolve(new Response(JSON.stringify(body), { status })));
+      return connection.sendFeedback(draft, null).catch((error: Error) => error.message);
+    };
+    const error = (code: string, message: string) => ({ schemaVersion: SCHEMA_VERSION, error: { code, message } });
+    expect(await answer(500, error("internal", "Could not sync the feedback directory")))
+      .toBe("The daemon failed (500): Could not sync the feedback directory, so the comment may already be stored. Check the threads before sending it again.");
+    expect(await answer(503, "busy")).toBe("The daemon failed (503), so the comment may already be stored. Check the threads before sending it again.");
+    expect(await answer(400, error("invalid_request", "The text is empty"))).toBe("The daemon refused it (400): The text is empty");
+    expect(await answer(413, error("payload_too_large", "The screenshot is too large"))).toBe("The daemon refused it (413): The screenshot is too large");
+    expect(await answer(422, "nope")).toBe("The daemon answered 422.");
+  });
+
   it("never lets a listing in flight undo an event with the same updatedAt, and still applies later events", async () => {
     connect();
     socket().open();

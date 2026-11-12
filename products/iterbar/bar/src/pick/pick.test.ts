@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SCREENSHOT_PIXELS, pngDimensions, screenshotScale, unavailableReason } from "./screenshot.js";
+import { MAX_SCREENSHOT_PIXELS, pngDimensions, RenderSlot, screenshotScale, unavailableReason } from "./screenshot.js";
 import { cssString } from "./selector.js";
 import { textExcerpt } from "./target.js";
 
@@ -73,5 +73,30 @@ describe("pngDimensions", () => {
     notPng[1] = 0;
     expect(pngDimensions(notPng)).toBeNull();
     expect(pngDimensions(header(10, 10).subarray(0, 20))).toBeNull();
+  });
+});
+
+describe("RenderSlot", () => {
+  it("lets one holder at a time in, in the order they asked, each once the one before has released it", async () => {
+    const slot = new RenderSlot();
+    const order: string[] = [];
+    const take = async (name: string) => {
+      const release = await slot.acquire();
+      order.push(`+${name}`);
+      return () => {
+        order.push(`-${name}`);
+        release();
+      };
+    };
+    const first = take("a");
+    const second = take("b");
+    const third = take("c");
+    const releaseA = await first;
+    await Promise.resolve();
+    expect(order).toEqual(["+a"]);
+    releaseA();
+    (await second)();
+    (await third)();
+    expect(order).toEqual(["+a", "-a", "+b", "-b", "+c", "-c"]);
   });
 });
