@@ -454,6 +454,9 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
       .reset, .reset * { box-sizing: border-box; border: 0 solid rgb(229, 231, 235) } .tw * { --spin: 0deg } .tw.flip { --spin: 180deg }
       .sprite-blue { fill: rgb(0, 0, 255) } .r { fill: rgb(0, 0, 0) } .sizing circle { box-sizing: border-box }
       body { cursor: url(/pointer.png), auto } :root { --logo: url(/logo.svg) } .themed { fill: rgb(255, 0, 0) } .ico rect { fill: currentColor }
+      html { box-sizing: border-box } *, *::before, *::after { box-sizing: inherit } @media (max-width: 1px) { #dot rect { fill: rgb(255, 0, 0) } }
+      .tile { fill: rgb(255, 0, 0) !important } .trans rect { fill: rgb(0, 0, 255) } @keyframes spin { to { transform: rotate(360deg) } }
+      .spin { animation: spin 1s linear infinite; transform-origin: 50px 50px } @container (min-width: 1px) { .contained-shape { fill: rgb(255, 0, 0) } }
       .nest { & .inner { fill: rgb(255, 0, 0) } } .nest-miss { & .absent { fill: rgb(255, 0, 0) } }
       @media (max-width: 1px) { .media rect { fill: rgb(255, 0, 0) } } .red-use { --tone: rgb(255, 0, 0) } .backed { background: rgb(0, 0, 255) }</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
@@ -466,7 +469,8 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
         <rect width="10" height="10" fill="url(#inner-green)"/></symbol>
       <linearGradient id="blue"><stop offset="0" stop-color="rgb(0, 0, 255)"/><stop offset="1" stop-color="rgb(0, 0, 255)"/></linearGradient></svg>
     <svg style="display: none"><g class="themed"><symbol id="themed-shape" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol></g>
-      <symbol id="ico" class="ico" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol></svg>
+      <symbol id="ico" class="ico" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
+      <symbol id="contained" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="contained-shape" width="10" height="10"/></symbol></svg>
     <svg style="display: none"><linearGradient id="hidden-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></svg>
     <div style="color: rgb(0, 0, 255)">
       <svg data-testid="plain" tabindex="0" width="100" height="50" style="display: block">
@@ -504,7 +508,13 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
       <rect width="50" height="50" fill="url(#inner-green)"/><use href="#outer-icon" x="50" width="50" height="50"/></svg>
     <svg data-testid="ruled" tabindex="0" width="20" height="20" style="display: block; fill: rgb(0, 255, 0)"><use href="#ruled" width="20" height="20"/></svg>
     <svg data-testid="themed" tabindex="0" width="20" height="20" style="display: block"><use href="#themed-shape" fill="rgb(0, 255, 0)" width="20" height="20"/></svg>
-    <svg data-testid="ico" tabindex="0" width="20" height="20" style="color: rgb(255, 0, 0)"><use href="#ico" width="20" height="20"/></svg>
+    <svg data-testid="ico" tabindex="0" width="20" height="20" style="display: block; color: rgb(255, 0, 0)"><use href="#ico" width="20" height="20"/></svg>
+    <svg data-testid="important" tabindex="0" width="20" height="20" color="rgb(255, 0, 0)" style="display: block">
+      <defs><rect id="tile" class="tile" width="20" height="20" style="fill: currentColor"/></defs><use href="#tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="trans" id="trans-drawing" class="trans" tabindex="0" width="20" height="20" style="display: block">
+      <style>#trans-drawing rect { transition: fill 0.2s }</style><rect width="20" height="20"/></svg>
+    <svg data-testid="spin" tabindex="0" width="100" height="100" style="display: block"><g class="spin"><circle cx="50" cy="50" r="45" fill="rgb(0, 255, 0)"/></g></svg>
+    <svg data-testid="contained" tabindex="0" width="20" height="20"><use href="#contained" width="20" height="20"/></svg>
     <svg data-testid="local-ruled" tabindex="0" width="20" height="20" style="display: block">
       <defs><g id="local-shape"><rect class="r" width="20" height="20"/></g></defs><use href="#local-shape" fill="rgb(0, 255, 0)"/></svg>
     <svg data-testid="has" id="has-drawing" class="sizing" tabindex="0" width="100" height="50">
@@ -526,7 +536,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   await page.evaluate(() => document.getElementById("split-sheet")!.append("@font-face { font-family: split-face; src: u", "rl(/split.woff2) }"));
   const faithful = [
     "plain", "instances", "literal", "referring", "variable", "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset",
-    "styled", "nest", "imported", "red-use", "tokens", "nested-ids", "ruled", "local-ruled", "themed",
+    "styled", "nest", "imported", "red-use", "tokens", "nested-ids", "ruled", "local-ruled", "themed", "ico", "important", "trans", "spin",
   ] as const;
   const colours = [[0, 255, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]] as const;
   // What the page shows of each drawing, before the bar is on it.
@@ -544,7 +554,10 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   // individual transform, a CSS reset's box-sizing and borders, a custom property a rule resets, and a fill from a
   // rule, a nested rule and a rule after a style sheet the page cannot read. What a <use> shows keeps a page rule's
   // fill even where it equals what it inherits where it is defined (a sprite's fill, the default black), and inherits
-  // from the <use> what a rule on an ancestor where it is defined gives it there.
+  // from the <use> what a rule on an ancestor where it is defined gives it there. A page rule's currentColor on it
+  // follows the <use>'s colour; an important rule wins over its inline style; a rule under a media query that does
+  // not hold is left out; a universal box-sizing: inherit reset changes nothing. A shape with a transition, and one
+  // a running animation turns (a circle, which looks the same at every turn), are drawn as they are now.
   for (const id of faithful) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
@@ -553,11 +566,10 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     expect(sent.reduce((sum, count) => sum + count, 0), id).toBeGreaterThan(0);
   }
 
-  // A page rule giving what a <use> shows a value that depends on where it is shown (here currentColor, which the
-  // <use>'s colour sets) is not drawn. Nor is a drawing whose own selectors would match differently once its copy's
-  // shapes carry their values.
+  // A page rule for what a <use> shows under a condition this cannot evaluate is not drawn. Nor is a drawing whose own
+  // selectors would match differently once its copy's shapes carry their values.
   for (const [id, reason] of [
-    ["ico", "the page styles the <rect> that a <use> in the drawing shows (its fill) by where it is shown, which its copy cannot reproduce yet"],
+    ["contained", "the page has a rule for the <rect> that a <use> in the drawing shows under a condition a screenshot cannot evaluate yet"],
     ["has", "the page styles the drawing's <rect> (its opacity) in a way its copy cannot reproduce yet"],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);

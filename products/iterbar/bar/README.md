@@ -98,11 +98,14 @@ element is described when it is picked:
   does. What the page's rules give an element (a fill, opacity,
   transform, `d`, box-sizing or custom property) is given to its copy as
   computed, and then every element is compared again. What a `<use>`
-  shows inherits from the `<use>`: a page rule matching a shown element
-  is given to its copy inline, and one whose value depends on where it is
-  shown (`currentColor`, `var()`, `inherit`, a relative length) is not
-  drawn (rules in another origin's style sheet, which the page cannot
-  read, cannot be checked). Pointing and selection properties (`cursor`,
+  shows inherits from the `<use>`: what the page's applying rules
+  declare for a shown element is given to its copy inline (a value that
+  depends on where it is shown, such as `currentColor` or `var()`, as
+  declared, so each instance resolves it as on the page). Rules under a
+  condition it cannot evaluate (`@container`, `@scope`) are not drawn,
+  and rules in another origin's style sheet, which the page cannot read,
+  cannot be checked. Transitions and animations are drawn as they are at
+  that moment. Pointing and selection properties (`cursor`,
   `pointer-events`, `user-select`) and a custom property that refers to
   an image are not carried. The size and scale are measured once
   its images and fonts have loaded, so an element that grows meanwhile
