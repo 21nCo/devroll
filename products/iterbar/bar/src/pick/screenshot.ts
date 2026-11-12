@@ -668,6 +668,8 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     }
     isolatedDocument.removeChild(copy);
     svg.ownerDocument.adoptNode(copy);
+    // Every value in the copy (copied, given to match or framing it) reaches the image only as this markup.
+    if (markupDrops(new XMLSerializer().serializeToString(copy))) return "the drawing's copy has a character its image would drop, which a screenshot cannot keep yet";
     // modern-screenshot would copy a drawing whose markup matches its test for links as an HTML element instead.
     if (SVG_EXTERNAL_RESOURCE.test(copy.innerHTML)) return "the drawing's text looks like a link to the screenshot library";
     return copy;
@@ -894,9 +896,10 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
  * holds the frame a drawing's copy is checked in while it is), within
  * {@link MAX_SCREENSHOT_PIXELS} and the daemon's attachment size limit, doing its heavy work only while it holds
  * `slot`. Never rejects: a failure resolves with the reason, so the comment can still be sent without a screenshot.
- * Aborting `signal` (or the time limit, counted from this call, when its render starts: it is queued behind nothing
- * but a withdrawn holder finishing its drawing) withdraws the capture: it resolves at once, and its render stops at its
- * next copied node or step and its context is destroyed.
+ * Call it as the element is picked, before focus moves: focus on, in or around the element refuses it. Aborting
+ * `signal` (or the time limit, counted from this call, when its render starts: it is queued behind nothing but a
+ * withdrawn holder finishing its drawing) withdraws the capture: it resolves at once, and its render stops at its next
+ * copied node or step and its context is destroyed.
  */
 export async function captureScreenshot(element: Element, exclude: Node, slot: RenderSlot, signal?: AbortSignal): Promise<ScreenshotResult> {
   if (!element.isConnected) return { ok: false, reason: unavailableReason("the element is no longer on the page") };
@@ -905,6 +908,12 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
   }
   const rect = element.getBoundingClientRect();
   if (screenshotScale(rect.width, rect.height, 1) === null) return { ok: false, reason: unavailableReason("the element has no visible area") };
+  // Read as the pick is made: the comment box takes focus next, before the element is copied, so the copy would lose
+  // what focus gives it (:focus, :focus-visible, :focus-within) and anything a blur handler changes.
+  const focused = element.ownerDocument.activeElement;
+  if (focused && focused !== exclude && focused.matches(":focus") && (focused.contains(element) || element.contains(focused))) {
+    return { ok: false, reason: unavailableReason("focus was on, in or around the element when it was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet") };
+  }
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
   const withdraw = new AbortController();
   const onAbort = (): void => withdraw.abort();

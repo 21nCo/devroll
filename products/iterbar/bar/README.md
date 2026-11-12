@@ -114,8 +114,9 @@ element is described when it is picked:
   namespace) as anything. A drawing with text is unavailable (an image
   cannot be shown to use the page's font or rasterise it alike), as are a
   `#id` link the URL parser changes (a `%` escape, a tab or newline inside
-  it), an attribute or own style sheet with a character the image's markup
-  drops (a control character, a lone surrogate, U+FFFE, U+FFFF), an SVG
+  it), an attribute, own style sheet or value given to the copy with a
+  character the image's markup drops (a control character, a lone
+  surrogate, U+FFFE, U+FFFF), an SVG
   animation element in the drawing or one elsewhere targeting it, and
   `<use>` content a CSS animation moves. Otherwise transitions and
   animations are drawn as they are at that moment. Pointing, selection and
@@ -134,7 +135,10 @@ element is described when it is picked:
   that first, so the next capture may wait for it, within its own
   10-second limit.
   When the capture fails (for example a canvas tainted by a cross-origin
-  image, an element with no area, a scrolled box in the element, which the
+  image, an element with no area, focus on, in or around the element when
+  it is picked (so a keyboard pick, too), which the composer then takes, so
+  focus styles and blur handlers would change it before it is copied, a
+  scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
   `href`, or a `url()` or `src()` in a style or

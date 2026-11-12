@@ -122,15 +122,32 @@ async function addBigBox(page: Page, name: string, count: number): Promise<void>
   }, { name, count });
 }
 
-/** Picks `id` from the keyboard (an `<svg>` whose shapes cover it), sends it, and resolves with what the daemon received. */
-async function commentFromKeyboard(page: Page, daemon: FakeDaemon, id: string): Promise<FakeDaemon["posts"][number]> {
+/**
+ * Clicks the drawing `id` itself, not a shape covering it: what it holds lets clicks through (by a `pointer-events`
+ * attribute, which the copy leaves out) until the returned function puts it back. A keyboard pick would not do: focus
+ * on the picked element refuses its screenshot.
+ */
+async function clickDrawing(page: Page, id: string): Promise<() => Promise<void>> {
+  const drawing = page.getByTestId(id);
+  const held = await drawing.evaluateHandle((svg) => [...svg.querySelectorAll("*")].map((node) => {
+    const [name, value] = node instanceof SVGElement ? ["pointer-events", node.getAttribute("pointer-events")] : ["style", node.getAttribute("style")];
+    if (node instanceof SVGElement) node.setAttribute(name, "none");
+    else (node as HTMLElement).style.pointerEvents = "none";
+    return () => (value === null ? node.removeAttribute(name) : node.setAttribute(name, value));
+  }));
+  await drawing.click();
+  return async () => held.evaluate((restores) => restores.forEach((restore) => restore()));
+}
+
+/** Picks the drawing `id` by a click (see {@link clickDrawing}), sends it, and resolves with what the daemon received. */
+async function commentOnDrawing(page: Page, daemon: FakeDaemon, id: string): Promise<FakeDaemon["posts"][number]> {
   const index = daemon.posts.length;
   await enterCommentMode(page);
-  await page.getByTestId(id).focus();
-  await page.keyboard.press("Enter");
+  const restore = await clickDrawing(page, id);
   await inBar(page, "[data-role=composer-text]").fill(id);
   await inBar(page, "[data-role=composer-send]").click();
   await expect.poll(() => daemon.posts.length).toBe(index + 1);
+  await restore();
   expect(daemon.posts[index]!.draft.target?.selector).toBe(`[data-testid="${id}"]`);
   return daemon.posts[index]!;
 }
@@ -357,10 +374,9 @@ test("a transformed element still contains its fixed descendants", async ({ page
     '<div data-testid="framed" tabindex="0" style="width: 200px; height: 200px; box-sizing: border-box; border: 50px solid rgb(255, 0, 0);'
     + ' transform: translateZ(0)"><div style="position: fixed; inset: 0; background: rgb(0, 0, 255)"></div></div>'));
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-  // Its fixed child covers its padding box, so it is picked from the keyboard.
+  // Its fixed child covers its padding box, so it is clicked on its border (outside the padding box clicks are placed in).
   await enterCommentMode(page);
-  await page.getByTestId("framed").focus();
-  await page.keyboard.press("Enter");
+  await page.getByTestId("framed").click({ position: { x: -40, y: -40 } });
   await inBar(page, "[data-role=composer-text]").fill("Framed");
   await inBar(page, "[data-role=composer-send]").click();
   await expect.poll(() => daemon.posts.length).toBe(1);
@@ -415,9 +431,9 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
   expect((await pngPixels(page, boxed, [[2, 2], [87, 47], [12, 12], [77, 37]])).at).toEqual([[255, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
 
   // A translated <svg> drawing, one placed by offsets and one placed by its own style sheet (which their shapes cover,
-  // so they are picked from the keyboard) fill their images.
+  // so they are picked by a click through them) fill their images.
   for (const id of ["svg", "svg-offset", "svg-styled"]) {
-    const svg = (await commentFromKeyboard(page, daemon, id)).screenshot!;
+    const svg = (await commentOnDrawing(page, daemon, id)).screenshot!;
     expect(pngSize(svg), id).toEqual({ width: 100, height: 50 });
     expect(await pngPixels(page, svg, [[2, 2], [50, 25], [97, 47]]), id).toEqual({ at: [[0, 255, 0, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1 });
   }
@@ -571,7 +587,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   // property, a drawing whose own rule on its root depends on its shapes' style attributes, and one whose maximum
   // width is a share of its parent's are drawn as the page shows them too.
   for (const id of faithful) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
     await expectLike(page, screenshot!, live.get(id)!, id);
   }
@@ -580,14 +596,14 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   // which the copy cannot check for each <use>. Nor is a drawing whose own selectors would match differently once its
   // copy's shapes carry their values.
   for (const id of ["plain", "instances", "literal", "referring", "variable", "red-use", "nested-ids", "ruled", "local-ruled", "themed", "ico", "important", "contained"]) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
     expect(screenshot, id).toBeNull();
     expect(draft.screenshotUnavailableReason, id).toMatch(/^The screenshot failed: the page has a style rule for the <\w+> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet$/u);
   }
   for (const [id, reason] of [
     ["has", "the page styles the drawing's <rect> (its opacity) in a way its copy cannot reproduce yet"],
   ] as const) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
     expect(screenshot, id).toBeNull();
     expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
   }
@@ -601,7 +617,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
       ["font", "/face.woff2"], ["upper", "/upper.svg#p"], ["escaped", "/escaped.svg#p"], ["split", "/split.woff2"]] as const)
       .map(([id, url]) => [id, `the drawing loads ${url}, which a screenshot cannot embed yet`] as const),
   ]) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
     expect(screenshot, id).toBeNull();
     expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
   }
@@ -855,7 +871,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
   // names its namespace, text in a shown element's attributes that reads like a var(), and all of these on a page with
   // an @import whose condition is false.
   for (const id of faithful) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
     await expectLike(page, screenshot!, live.get(id)!, id);
   }
@@ -926,7 +942,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // One that names the drawing's root by the page's URL and its #id.
     ["frozen-abs", animated("set")],
   ] as const) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
     expect(screenshot, id).toBeNull();
     expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
   }
@@ -952,13 +968,40 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["plain", "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet"],
     ["far-font", text],
   ] as const) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
     expect(screenshot, id).toBeNull();
     expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
   }
-  const { draft, screenshot } = await commentFromKeyboard(page, daemon, "noted");
+  const { draft, screenshot } = await commentOnDrawing(page, daemon, "noted");
   expect(draft.screenshotUnavailableReason).toBeNull();
   await expectLike(page, screenshot!, live.get("noted")!, "noted");
+});
+
+test("sends no drawing whose copy would hold a character its image drops: in a value the page gives it, or its own style sheet", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => {
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+      <div id="drop-wrap"><svg data-testid="drop-var" width="100" height="50" style="display: block"><rect width="100" height="50" style="fill: var(--c)"/></svg></div>
+      <div id="drop-defs"><svg width="0" height="0" style="position: absolute"><linearGradient id="drop-grad"><stop style="stop-color: var(--c)"/></linearGradient></svg></div>
+      <svg data-testid="drop-def" width="100" height="50" style="display: block"><rect width="100" height="50" fill="url(#drop-grad)"/></svg>
+      <svg data-testid="drop-sheet" width="100" height="50" style="display: block"><style></style><rect width="100" height="50"/></svg>`);
+    // Raw characters, set from a script (CSS text would hold them escaped): "re<U+0001>d" is no colour, so the page
+    // draws black, but "red" once the image's markup drops the U+0001.
+    for (const id of ["drop-wrap", "drop-defs"]) document.getElementById(id)!.style.setProperty("--c", "re\u0001d");
+    document.querySelector("[data-testid=drop-sheet] style")!.textContent = "rect { --k: a\u0001b }";
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  for (const [id, reason] of [
+    // A custom property the drawing's root inherits, or a definition's ancestor (outside the drawing) does.
+    ["drop-var", "the drawing's copy has a character its image would drop, which a screenshot cannot keep yet"],
+    ["drop-def", "the drawing's copy has a character its image would drop, which a screenshot cannot keep yet"],
+    ["drop-sheet", "the drawing's style sheet has a character its image would drop, which a screenshot cannot keep yet"],
+  ] as const) {
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
+  }
 });
 
 test("a large drawing on a page with many style rules is copied well within the time limit", async ({ page, openFixture, fixtureServer }) => {
@@ -973,7 +1016,7 @@ test("a large drawing on a page with many style rules is copied well within the 
   });
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   const started = Date.now();
-  const { draft, screenshot } = await commentFromKeyboard(page, daemon, "chart");
+  const { draft, screenshot } = await commentOnDrawing(page, daemon, "chart");
   expect(draft.screenshotUnavailableReason).toBeNull();
   expect(screenshot).not.toBeNull();
   expect(Date.now() - started).toBeLessThan(5_000);
@@ -1030,10 +1073,8 @@ test("a drawing is copied only while its capture holds the render slot, and not 
     const state = window as unknown as { encodes: number; markupReads: number; cloned: Record<string, number> };
     return { clones: state.cloned.s ?? 0, encodes: state.encodes, markupReads: state.markupReads };
   });
-  const pickDrawing = async () => {
-    await page.getByTestId("big-svg").focus();
-    await page.keyboard.press("Enter");
-  };
+  // Its shapes cover only its corner, so a click picks the drawing itself.
+  const pickDrawing = () => page.getByTestId("big-svg").click();
   await enterCommentMode(page);
   // A capture that reaches drawing keeps the slot when the drawing is picked instead: the drawing's capture waits.
   await page.locator('[data-case="testid"]').click();
@@ -1122,10 +1163,8 @@ test("a drawing's copy is checked only while its capture is current: a withdrawa
   });
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   await countCanvasBlobs(page);
-  const pick = async (name: string) => {
-    await page.getByTestId(`drawing-${name}`).focus();
-    await page.keyboard.press("Enter");
-  };
+  // Their shapes cover only their corners, so a click picks each drawing itself.
+  const pick = (name: string) => page.getByTestId(`drawing-${name}`).click();
   await enterCommentMode(page);
 
   // Each style read takes 0.5 ms, so checking the 4,000 shapes would take 2 seconds: Cancel stops it within a read.
@@ -1216,8 +1255,8 @@ test("the page's rules for what a <use> shows are matched a step at a time: a wi
       last = performance.now();
     }, 5);
   });
-  await page.getByTestId("shows-u").focus();
-  await page.keyboard.press("Enter");
+  // Its shapes cover only its corner, so a click picks the drawing itself.
+  await page.getByTestId("shows-u").click();
   await expect.poll(() => matched("u"), { timeout: 15_000 }).toBeGreaterThan(5_000);
   // While the rules are matched, the page keeps running its timers.
   await page.evaluate(() => {
@@ -1232,8 +1271,7 @@ test("the page's rules for what a <use> shows are matched a step at a time: a wi
   expect(await matched("u")).toBeLessThan(atCancel + 50);
 
   // The time limit ends the matching, and the comment is sent without a screenshot.
-  await page.getByTestId("shows-v").focus();
-  await page.keyboard.press("Enter");
+  await page.getByTestId("shows-v").click();
   await inBar(page, "[data-role=composer-text]").fill("Many rules");
   await inBar(page, "[data-role=composer-send]").click();
   await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
@@ -1265,7 +1303,7 @@ test("a drawing whose style sheet is in many pieces is copied without holding up
       last = performance.now();
     }, 5);
   });
-  const { draft, screenshot } = await commentFromKeyboard(page, daemon, "pieces");
+  const { draft, screenshot } = await commentOnDrawing(page, daemon, "pieces");
   expect(draft.screenshotUnavailableReason).toBeNull();
   expect(screenshot).not.toBeNull();
   // The sheet is parsed once (taking it a piece at a time held the page up for seconds); drawing and encoding are in
@@ -1285,8 +1323,7 @@ test("rapid re-picks of drawings copy and check one at a time and draw only the 
   });
   await enterCommentMode(page);
   for (const name of names) {
-    await page.getByTestId(`drawing-${name}`).focus();
-    await page.keyboard.press("Enter");
+    await page.getByTestId(`drawing-${name}`).click();
   }
   await inBar(page, "[data-role=composer-text]").fill("Last");
   await inBar(page, "[data-role=composer-send]").click();
@@ -1467,6 +1504,45 @@ test("still sends the comment when the screenshot fails, with the reason and no 
   expect(draft.screenshotUnavailableReason).toBe("The screenshot failed: Tainted canvases may not be exported.");
   expect(draft.target?.selector).toBe('[data-testid="save"]');
   await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("No picture");
+});
+
+test("sends no screenshot, and says why, when focus is on, in or around the picked element, which the comment box takes", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => {
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+      <style>.lit { width: 100px; height: 40px; border: 0; background: rgb(0, 0, 255) } .lit:focus-visible { background: rgb(255, 0, 0) }</style>
+      <button type="button" class="lit" data-testid="lit"></button>
+      <div data-testid="holder" style="width: 100px; padding: 10px"><input data-testid="field" style="width: 100px; height: 40px; border: 0; background: rgb(0, 0, 255)"></div>
+      <div data-testid="around" tabindex="-1"><span data-testid="inside" style="display: inline-block; width: 80px; height: 30px; background: rgb(0, 255, 0)"></span></div>`);
+    // What leaving the field does, once the comment box takes focus.
+    document.querySelector("[data-testid=field]")!.addEventListener("blur", (event) => {
+      (event.target as HTMLElement).style.background = "rgb(255, 0, 0)";
+    });
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const reason = "The screenshot failed: focus was on, in or around the element when it was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet";
+  // A keyboard pick of a control its focus styles, or of a field a blur handler changes; a click on the box around a
+  // focused field, or inside a focused box.
+  for (const [focused, picked] of [["lit", null], ["field", null], ["field", "holder"], ["around", "inside"]] as const) {
+    const index = daemon.posts.length;
+    await enterCommentMode(page);
+    await page.getByTestId(focused).focus();
+    if (picked === null) await page.keyboard.press("Enter");
+    else await page.getByTestId(picked).click({ position: { x: 2, y: 2 } });
+    await inBar(page, "[data-role=composer-text]").fill(focused);
+    await inBar(page, "[data-role=composer-send]").click();
+    await expect.poll(() => daemon.posts.length).toBe(index + 1);
+    const { draft, screenshot } = daemon.posts[index]!;
+    expect(draft.target?.selector, focused).toBe(`[data-testid="${picked ?? focused}"]`);
+    expect(screenshot, focused).toBeNull();
+    expect(draft.screenshotUnavailableReason, focused).toBe(reason);
+  }
+  expect(await page.getByTestId("field").evaluate((field) => field.style.background)).toBe("rgb(255, 0, 0)");
+  // A click on the control while focus is elsewhere (in the bar) still captures it.
+  const { draft, screenshot } = await comment(page, daemon, page.getByTestId("lit"), "Lit");
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  expect((await pngPixels(page, screenshot!, [[2, 2], [97, 37]])).at).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
 });
 
 test("sends no screenshot for an element without area, and says why", async ({ page, openFixture, fixtureServer }) => {
