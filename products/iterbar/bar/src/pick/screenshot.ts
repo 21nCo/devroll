@@ -376,26 +376,21 @@ function escapeEnd(text: string, at: number): number {
 }
 
 /** Whether `char` continues a name (or a namespace prefix) in a selector. */
-function inName(char: string): boolean {
-  return char === "*" || char === "-" || char === "_" || /[\p{L}\p{N}]/u.test(char) || char > "\u007f";
-}
+const inName = (char: string): boolean => /[\w*-]/u.test(char) || char > "\u007f";
 
 /** Functional pseudo-classes that match more when their argument does; in any other, it can match less. */
 const MONOTONE = new Set(["is", "where", "has", "matches", "-webkit-any", "host", "host-context"]);
 
 /**
- * `selector` widened for `matches()`, so that it matches at least every element it can on the page, in one pass over
- * it: `&` becomes `:is(parent)` (any element without a parent), `:scope` any element, and a namespace prefix (which
- * `matches()` does not know) any namespace, `*|`; each matches more where it stands. Then each outermost functional
- * pseudo-class other than {@link MONOTONE} ones (`:not()`, `:nth-child(… of …)`) that holds one of them, at any depth,
- * where matching more could match less, becomes `:is(*)`; one that holds none is matched as it is. In a sheet with a
- * default namespace (`namespaced`), whose unprefixed names `matches()` reads as any namespace, each becomes `:is(*)`.
- * Quoted strings and escapes are kept as they are. `null` when its parentheses do not balance.
+ * `selector` widened in one pass to match at least what it can on the page: `&` becomes `:is(parent)` (any element
+ * without one), `:scope` any element, a namespace prefix (`matches()` knows none) `*|`. Each outermost pseudo-class but
+ * {@link MONOTONE} ones (`:not()`, `:nth-child(… of …)`) that holds one of them, or any under a default namespace
+ * (`namespaced`, whose unprefixed names `matches()` reads as any), becomes `:is(*)`. Strings and escapes are kept.
+ * `null` when its parentheses do not balance.
  */
 function widen(selector: string, parent: string | null, namespaced = false): string | null {
   let out = "";
-  // Each open parenthesis: where its pseudo-class starts in `out`, whether it is monotone, and whether something in it
-  // was widened.
+  // Each open parenthesis: where its pseudo-class starts in `out`, whether it is monotone, whether it holds a widening.
   const open: { start: number; monotone: boolean; widened: boolean }[] = [];
   // Where the name `out` ends with starts: a namespace prefix there is replaced.
   let name = 0;
@@ -451,21 +446,16 @@ function widen(selector: string, parent: string | null, namespaced = false): str
   return open.length === 0 ? out : null;
 }
 
-/**
- * The font families a `font-family` value lists, unquoted and in lower case. A family whose name holds a comma is
- * split in two, the same way wherever it is named, so a face of it is still found (and others' with its parts' names).
- */
+/** The families a `font-family` lists, unquoted, in lower case; a name with a comma splits alike wherever it is named. */
 function families(value: string): string[] {
   return value.split(",").map((family) => family.trim().replaceAll(/^["']|["']$/gu, "").toLowerCase()).filter((family) => family !== "");
 }
 
 /**
- * Says why text in the drawing would be drawn in another font, if it would: the copy is drawn as an image, which
- * cannot be shown to use the faces the page does. Text (`texts`, the computed `font-family` of each element in a
- * `<text>`) that lists a family with any font face is refused: one the page has (from any style sheet, another
- * origin's too, or added from a script, loaded or not), or one the drawing's own style sheets declare, under any
- * condition, valid or not. Text a `<use>` shows (`showsText`), which each `<use>` may set in another font (by a
- * `var()`), is refused when there is any face at all.
+ * Says why the drawing's text may be drawn in another font, if it may: an image cannot be shown to use a font face.
+ * Text (`texts`, each `<text>` element's computed `font-family`) listing a family with any face (the page's, from any
+ * sheet or script, loaded or not, or one the drawing's own sheets declare) is refused; text a `<use>` shows
+ * (`showsText`), which each `<use>` may set in another font, when there is any face at all.
  */
 function fontRefusal(texts: readonly string[], showsText: boolean, lookup: Document | ShadowRoot, copies: ReadonlyMap<Node, SVGElement>): string | null {
   if (texts.length === 0 && !showsText) return null;
