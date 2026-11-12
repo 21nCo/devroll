@@ -626,7 +626,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       .wrap { .nested-r { fill: rgb(255, 0, 0) } } .sprite-wrap { .nested-in { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
       @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
       @font-face { font-family: page-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
-      .scope-parent { @scope (.nested-scope) { fill: currentColor } }</style>
+      .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }</style>
     <style>@import url(/never.css) supports(display: nonexistent);</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
@@ -723,6 +723,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg width="0" height="0" style="position: absolute"><g class="scope-parent"><symbol id="nested-scope" class="nested-scope" viewBox="0 0 10 10">
       <rect width="10" height="10"/></symbol></g></svg>
     <svg data-testid="nested-scoped" tabindex="0" width="20" height="20" style="display: block"><use href="#nested-scope" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="piped" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="piped-tile" data-kind="foo|bar" width="40" height="40"/></defs><use href="#piped-tile" fill="rgb(0, 255, 0)" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="spun" tabindex="0" width="40" height="40" style="display: block">
       <style>@keyframes tint { from, to { fill: var(--tone, rgb(0, 0, 0)) } } .tinted { animation: tint 1s infinite }</style>
       <defs><rect id="tinted" class="tinted" width="40" height="40"/></defs><use href="#tinted" style="--tone: rgb(0, 0, 255)"/></svg>
@@ -782,6 +784,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["negated", shownRule("rect")],
     ["scoped", shownRule("symbol")],
     ["nested-scoped", shownRule("symbol")],
+    // A rule whose attribute value holds a "|", which is not a namespace.
+    ["piped", shownRule("rect")],
     // What a <use> shows that the drawing's own keyframes animate.
     ["spun", "what a <use> in the drawing shows is animated, which a screenshot cannot check yet"],
     ["script-registered", "what a <use> in the drawing shows uses --js-tone, which the page registers, and a screenshot cannot reproduce yet"],

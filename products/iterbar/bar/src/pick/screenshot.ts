@@ -330,8 +330,8 @@ async function shownRefusal(
           parent = selector;
         }
         const style = (rule as CSSStyleRule).style;
-        // matches() knows no namespace prefixes; any namespace matches more.
-        const matching = parent!.replaceAll(/(?:\*|[\w-]+)\|(?!=)/gu, "*|");
+        // matches() knows no namespace prefixes; any namespace matches more. Quoted strings are left as they are.
+        const matching = parent!.replaceAll(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?:\*|[\w-]+)\|(?!=)/gu, (token) => (/^["']/u.test(token) ? token : "*|"));
         for (const element of style.length > 0 ? shown : []) {
           await eachNode();
           let matches: boolean;
