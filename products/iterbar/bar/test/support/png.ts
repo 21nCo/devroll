@@ -39,3 +39,23 @@ export function darkPixels(page: Page, png: Buffer): Promise<number> {
     return dark;
   }, png.toString("base64"));
 }
+
+/** How many opaque pixels of `png` have each colour (every channel within 8), decoded in the page. */
+export function colourCounts(page: Page, png: Buffer, colours: readonly (readonly [number, number, number])[]): Promise<number[]> {
+  return page.evaluate(async ({ base64, colours }) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    const counts = colours.map(() => 0);
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index + 3] !== 255) continue;
+      colours.forEach((colour, which) => {
+        if (colour.every((channel, offset) => Math.abs(data[index + offset]! - channel) <= 8)) counts[which]! += 1;
+      });
+    }
+    return counts;
+  }, { base64: png.toString("base64"), colours });
+}

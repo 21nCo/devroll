@@ -2,7 +2,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { FeedbackDraft } from "iterbar";
 import { fakeDaemon, type FakeDaemon } from "./support/fake-daemon.js";
 import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
-import { darkPixels, pngPixels, pngSize } from "./support/png.js";
+import { colourCounts, darkPixels, pngPixels, pngSize } from "./support/png.js";
 
 // Comment mode against a fake daemon that records each POST /feedback: picking, the selector's closed set, the
 // target description, the screenshot and its failure path, and what the page receives while picking.
@@ -441,95 +441,118 @@ test("frames every root the same way: exact fractional size, own and ancestor tr
   expect(await styles()).toEqual(before);
 });
 
-test("draws an <svg> with what the page styles it with, and sends none, saying why, when it loads an outside resource", async ({ page, openFixture, fixtureServer }) => {
+test("draws an <svg> only as the page shows it, and sends none, saying why, when the page styles it or it loads an outside resource", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
+  // A style sheet from another origin, which the page cannot read, followed by a rule it can.
+  const elsewhere = `${fixtureServer.origin.replace("127.0.0.1", "localhost")}/elsewhere.css`;
+  await page.route(elsewhere, (route) => route.fulfill({ status: 200, contentType: "text/css", body: ".elsewhere { color: red }" }));
   await openFixture();
   const green = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="rgb(0,255,0)"/></svg>')}`;
-  await page.evaluate((green) => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
-    <style>.icon rect { fill: rgb(255, 0, 0) } .icon .hidden { display: none } .big { r: 20px } .mono * { fill: currentColor }
-      .brand stop { stop-color: rgb(0, 0, 255) } .accent { fill: rgb(0, 255, 0) } .sprite-blue { fill: rgb(0, 0, 255) }</style>
+  await page.evaluate(({ green, elsewhere }) => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+    <style>@import url("${elsewhere}"); .imported rect { fill: rgb(255, 0, 0) }</style>
+    <style>.icon rect { fill: rgb(255, 0, 0) } .dcss { d: path("M0 0H100V50H0Z") } .dnone { d: none } .vis { opacity: 1 } .shift { translate: 50px 0 }
+      .reset, .reset * { box-sizing: border-box; border: 0 solid rgb(229, 231, 235) }
+      .nest { & .inner { fill: rgb(255, 0, 0) } } .nest-miss { & .absent { fill: rgb(255, 0, 0) } }
+      @media (max-width: 1px) { .media rect { fill: rgb(255, 0, 0) } } .red-use { --tone: rgb(255, 0, 0) } .backed { background: rgb(0, 0, 255) }</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
-      <symbol id="accented" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="accent" width="10" height="10"/></symbol>
       <symbol id="two-tone" viewBox="0 0 100 50" preserveAspectRatio="none"><rect width="50" height="50" fill="#000"/><rect x="50" width="50" height="50" fill="currentColor"/></symbol>
-      <symbol id="ruled" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="sprite-blue" width="10" height="10"/></symbol>
-      <linearGradient id="blue" class="brand"><stop offset="0"/><stop offset="1"/></linearGradient></svg>
+      <symbol id="toned" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" style="fill: var(--tone, rgb(0, 0, 255))"/></symbol>
+      <linearGradient id="blue"><stop offset="0" stop-color="rgb(0, 0, 255)"/><stop offset="1" stop-color="rgb(0, 0, 255)"/></linearGradient></svg>
+    <svg style="display: none"><linearGradient id="hidden-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></svg>
     <div style="color: rgb(0, 0, 255)">
-      <svg data-testid="styled" class="icon" tabindex="0" width="100" height="50" style="display: block">
-        <rect width="50" height="50"/><circle class="big" cx="75" cy="25" r="5" fill="currentColor"/><rect class="hidden" x="70" y="20" width="10" height="10"/></svg>
+      <svg data-testid="plain" tabindex="0" width="100" height="50" style="display: block">
+        <defs><symbol id="half" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="50%" height="50%" fill="rgb(0, 255, 0)"/></symbol></defs>
+        <use href="#half" width="100" height="50"/><rect x="50" width="50" height="50" fill="currentColor"/></svg>
+      <svg data-testid="styled" class="icon" tabindex="0" width="20" height="20" style="display: block"><rect width="20" height="20"/></svg>
     </div>
-    <svg data-testid="mono" class="mono" tabindex="0" width="50" height="50" fill="currentColor" style="display: block; color: rgb(0, 0, 255)">
-      <rect width="50" height="50" fill="#000"/></svg>
     <svg data-testid="instances" tabindex="0" width="100" height="50" color="rgb(255, 0, 0)" style="display: block">
       <defs><g id="shape"><rect width="50" height="50" fill="currentColor"/></g></defs>
       <use href="#shape" color="rgb(0, 0, 255)"/><use href="#shape" x="50" color="rgb(0, 255, 0)"/></svg>
     <svg data-testid="literal" tabindex="0" width="150" height="50" style="display: block; color: rgb(0, 0, 0); fill: rgb(0, 255, 0)">
-      <use href="#two-tone" width="100" height="50" style="color: rgb(255, 0, 0)"/><use href="#ruled" x="100" width="50" height="50"/></svg>
-    <svg data-testid="referring" tabindex="0" width="125" height="50" style="display: block; fill: rgb(255, 0, 0)">
+      <use href="#two-tone" width="100" height="50" style="color: rgb(255, 0, 0)"/><use href="#dot" x="100" width="50" height="50"/></svg>
+    <svg data-testid="referring" tabindex="0" width="125" height="50" style="display: block">
       <defs><linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></defs>
-      <rect width="25" height="50" fill="url(#inner-green)"/><use href="#dot" x="25" width="25" height="50" preserveAspectRatio="none"/>
-      <rect x="50" width="25" height="50" fill="url(#blue)"/><image x="75" width="25" height="50" preserveAspectRatio="none" href="${green}"/>
-      <use href="#accented" x="100" width="25" height="50"/></svg>
-    <svg data-testid="variable" tabindex="0" width="20" height="20" color="rgb(255, 0, 0)" style="--paint: currentColor">
+      <rect width="25" height="50" fill="url(#inner-green)"/><rect x="25" width="25" height="50" fill="url(#blue)"/>
+      <image x="50" width="25" height="50" preserveAspectRatio="none" href="${green}"/><rect x="75" width="25" height="50" fill="url(#hidden-green)"/>
+      <use href="#toned" x="100" width="25" height="50" style="--tone: rgb(255, 0, 0)"/></svg>
+    <svg data-testid="variable" tabindex="0" width="20" height="20" color="rgb(255, 0, 0)" style="display: block; --paint: currentColor">
       <defs><rect id="var-tile" width="20" height="20" style="fill: var(--paint)"/></defs><use href="#var-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="backed" class="backed" tabindex="0" width="100" height="50" style="display: block"><rect width="50" height="50" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="unmatched" class="media nest-miss" tabindex="0" width="20" height="20" style="display: block"><rect width="20" height="20" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="data-font" tabindex="0" width="20" height="20" style="display: block">
+      <style>@font-face { font-family: inline-face; src: url(data:font/woff2;base64,AAAA) }</style><rect width="20" height="20" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="dcss" tabindex="0" width="100" height="50" style="display: block">
+      <path class="dcss" d="M0 0H1V1H0Z" fill="rgb(0, 255, 0)"/><path class="dnone" d="M0 0H100V50H0Z" fill="rgb(255, 0, 0)"/></svg>
+    <svg data-testid="vis" tabindex="0" width="100" height="50" style="display: block"><g opacity="0" class="vis"><rect width="100" height="50" fill="rgb(0, 255, 0)"/></g></svg>
+    <svg data-testid="shift" tabindex="0" width="100" height="50" style="display: block"><rect class="shift" width="50" height="50" fill="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="reset" class="reset" tabindex="0" width="100" height="50" fill="none" stroke="rgb(0, 0, 255)" stroke-width="4"
+      shape-rendering="crispEdges" style="display: block"><rect x="2" y="2" width="46" height="46"/><path d="M60 10H90V40H60Z"/></svg>
+    <svg data-testid="nest" class="nest" tabindex="0" width="20" height="20"><rect class="inner" width="20" height="20"/></svg>
+    <svg data-testid="imported" class="imported" tabindex="0" width="20" height="20"><rect width="20" height="20"/></svg>
+    <svg data-testid="red-use" tabindex="0" width="20" height="20"><use class="red-use" href="#toned" width="20" height="20"/></svg>
     <svg data-testid="padded" tabindex="0" width="20" height="20" style="padding: 5px; border: 1px solid #000"><rect width="20" height="20"/></svg>
     <svg data-testid="html" tabindex="0" width="20" height="20"><foreignObject width="20" height="20"><div>Hi</div></foreignObject></svg>
     <svg data-testid="sprite" tabindex="0" width="20" height="20"><use href="/sprite.svg#x"/></svg>
     <svg data-testid="linked-sprite" tabindex="0" width="20" height="20"><use xlink:href="/sprite.svg#x"/></svg>
     <svg data-testid="image" tabindex="0" width="20" height="20"><image href="/missing.png" width="20" height="20"/></svg>
-    <svg data-testid="fill-url" tabindex="0" width="20" height="20"><rect width="20" height="20" style="fill: url(/paint.svg#p)"/></svg>`), green);
+    <svg data-testid="fill-url" tabindex="0" width="20" height="20"><rect width="20" height="20" style="fill: url(/paint.svg#p)"/></svg>
+    <svg data-testid="font" tabindex="0" width="40" height="20">
+      <style>@font-face { font-family: outside-face; src: url(/face.woff2) }</style><text y="15" font-family="outside-face">Hi</text></svg>
+    <svg data-testid="import" tabindex="0" width="20" height="20"><style>@import url(/drawing.css);</style><rect width="20" height="20"/></svg>
+    <svg data-testid="upper" tabindex="0" width="20" height="20"><style>#upper-shape { fill: URL(/upper.svg#p) }</style><rect id="upper-shape" width="20" height="20"/></svg>
+    <svg data-testid="escaped" tabindex="0" width="20" height="20"><style>#escaped-shape { fill: u\\72l(/escaped.svg#p) }</style><rect id="escaped-shape" width="20" height="20"/></svg>`),
+  { green, elsewhere });
+  const faithful = ["plain", "instances", "literal", "referring", "variable", "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset"] as const;
+  const colours = [[0, 255, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]] as const;
+  // What the page shows of each drawing, before the bar is on it.
+  const live = new Map<string, number[]>();
+  for (const id of faithful) live.set(id, await colourCounts(page, await page.getByTestId(id).screenshot(), colours));
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-  const styles = () => page.evaluate(() => [...document.querySelectorAll("svg, svg *")].map((element) => element.outerHTML));
-  const before = await styles();
+  const markup = () => page.evaluate(() => [...document.querySelectorAll("svg, svg *")].map((element) => element.outerHTML));
+  const before = await markup();
 
-  // A page style sheet rule, an inherited currentColor, a radius from a page rule, and a shape the page hides.
-  const styled = await commentFromKeyboard(page, daemon, "styled");
-  expect(styled.draft.screenshotUnavailableReason).toBeNull();
-  expect(styled.draft.screenshotUnavailableReason).toBeNull();
-  expect((await pngPixels(page, styled.screenshot!, [[25, 25], [75, 10], [75, 25]])).at).toEqual([[255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
+  // Drawings are drawn as the page shows them: a page colour inherited as currentColor, a symbol with a relative
+  // size, <use>s of different colours, a symbol and gradients from elsewhere (one in a hidden drawing), a data: image
+  // and font, a custom property set on a <use>, the page's background on the drawing, page rules that do not apply,
+  // and page rules on its shapes' own (not inherited) properties: CSS d and d: none over the d attribute, an opacity
+  // attribute reset, an individual transform, and a CSS reset's box-sizing and borders.
+  for (const id of faithful) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(draft.screenshotUnavailableReason, id).toBeNull();
+    const sent = await colourCounts(page, screenshot!, colours);
+    sent.forEach((count, which) => expect(Math.abs(count - live.get(id)![which]!), `${id} colour ${which}: ${count} vs ${live.get(id)![which]}`).toBeLessThanOrEqual(Math.max(3, live.get(id)![which]! * 0.02)));
+    expect(sent.reduce((sum, count) => sum + count, 0), id).toBeGreaterThan(0);
+  }
 
-  // A page rule that sets a shape's fill attribute aside for the value its parent has.
-  const mono = await commentFromKeyboard(page, daemon, "mono");
-  expect(mono.draft.screenshotUnavailableReason).toBeNull();
-  expect((await pngPixels(page, mono.screenshot!, [[25, 25]])).at).toEqual([[0, 0, 255, 255]]);
+  // A drawing whose inherited properties the page restyles inside, which what a <use> shows would inherit from the
+  // <use> instead, is sent without a screenshot: a page rule's fill on a shape, a nested rule's, a rule's after a
+  // style sheet the page cannot read, and a custom property a rule sets on a <use>.
+  for (const [id, element, property] of [
+    ["styled", "rect", "fill"], ["nest", "rect", "fill"], ["imported", "rect", "fill"], ["red-use", "use", "--tone"],
+  ] as const) {
+    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id)
+      .toBe(`The screenshot failed: the page styles the drawing's <${element}> (its ${property}) in a way its copy cannot reproduce yet`);
+  }
 
-  // A definition with currentColor, shown by two <use>s of different colours: each shows its own.
-  const instances = await commentFromKeyboard(page, daemon, "instances");
-  expect(instances.draft.screenshotUnavailableReason).toBeNull();
-  expect((await pngPixels(page, instances.screenshot!, [[25, 25], [75, 25]])).at).toEqual([[0, 0, 255, 255], [0, 255, 0, 255]]);
-
-  // A literal paint equal to the colour where it is defined keeps it under a <use> of another colour, while
-  // currentColor beside it follows the <use>; and a page rule that gives a symbol's shape the value its parent has.
-  const literal = await commentFromKeyboard(page, daemon, "literal");
-  expect(literal.draft.screenshotUnavailableReason).toBeNull();
-  expect((await pngPixels(page, literal.screenshot!, [[25, 25], [75, 25], [125, 25]])).at).toEqual([[0, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255]]);
-
-  // A gradient inside it, a symbol from elsewhere that inherits its fill through the <use> (not from where it is
-  // defined), a gradient elsewhere whose stops a page rule colours, a data: image, and a symbol from elsewhere whose
-  // shape a page rule colours.
-  const referring = await commentFromKeyboard(page, daemon, "referring");
-  expect(referring.draft.screenshotUnavailableReason).toBeNull();
-  expect(await pngPixels(page, referring.screenshot!, [[12, 25], [37, 25], [62, 25], [87, 25], [112, 25]])).toEqual({
-    at: [[0, 255, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1,
-  });
-
-  // What the copy cannot reproduce: HTML inside it, a custom property that may be currentColor, its own box.
+  // What the copy cannot hold, and what would load from outside the page, in markup or in its style sheet text.
   for (const [id, reason] of [
     ["html", "the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet"],
-    ["variable", "the drawing's fill may be currentColor or a colour equal to it, which cannot be told apart"],
     ["padded", "the drawing has padding or a border, which its copy cannot frame yet"],
-  ] as const) {
+    ["import", "the drawing imports a style sheet, which a screenshot cannot embed yet"],
+    ...([["sprite", "/sprite.svg#x"], ["linked-sprite", "/sprite.svg#x"], ["image", "/missing.png"], ["fill-url", "/paint.svg#p"],
+      ["font", "/face.woff2"], ["upper", "/upper.svg#p"], ["escaped", "/escaped.svg#p"]] as const)
+      .map(([id, url]) => [id, `the drawing loads ${url}, which a screenshot cannot embed yet`] as const),
+  ]) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(screenshot, id).toBeNull();
     expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: ${reason}`);
   }
-
-  for (const [id, url] of [["sprite", "/sprite.svg#x"], ["linked-sprite", "/sprite.svg#x"], ["image", "/missing.png"], ["fill-url", "/paint.svg#p"]] as const) {
-    const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
-    expect(screenshot, id).toBeNull();
-    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: the drawing loads ${url}, which a screenshot cannot embed yet`);
-  }
-  expect(await styles()).toEqual(before);
+  expect(await markup()).toEqual(before);
+  // The frames the copies were checked in are gone.
+  expect(await page.evaluate(() => document.querySelector("iterbar-bar")!.shadowRoot!.querySelectorAll("iframe").length)).toBe(0);
 });
 
 test("a large drawing on a page with many style rules is copied well within the time limit", async ({ page, openFixture, fixtureServer }) => {
@@ -628,6 +651,153 @@ test("a drawing is copied only while its capture holds the render slot, and not 
   expect(after.clones).toBeLessThan(10_000);
   expect(after.encodes).toBe(1);
   expect(after.markupReads).toBe(0);
+});
+
+/**
+ * Adds a `[data-big=name]` drawing of `count` shapes, and records in `window.work` the nodes copied and the styles read
+ * from each such drawing on the page, by its name, and in `window.workRuns` the order the drawings were worked on, one
+ * entry per run. Each style read takes `window.readDelay` milliseconds.
+ */
+async function addBigDrawings(page: Page, names: readonly string[], count: number): Promise<void> {
+  await page.evaluate(({ names, count }) => {
+    for (const name of names) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.dataset.big = name;
+      svg.dataset.testid = `drawing-${name}`;
+      svg.setAttribute("tabindex", "0");
+      svg.setAttribute("width", "300");
+      svg.setAttribute("height", "20");
+      svg.style.display = "block";
+      svg.innerHTML = '<rect width="1" height="1"/>'.repeat(count);
+      document.querySelector("main")!.prepend(svg);
+    }
+    const state = window as unknown as { work: Record<string, { clones: number; reads: number }>; workRuns: string[]; readDelay: number };
+    state.work = {};
+    state.workRuns = [];
+    state.readDelay = 0;
+    const note = (node: Node | null, kind: "clones" | "reads"): boolean => {
+      const element = node instanceof Element ? node : node?.parentElement;
+      const big = element?.ownerDocument === document ? element.closest<SVGElement>("[data-big]")?.dataset.big : undefined;
+      if (!big) return false;
+      const work = state.work[big] ??= { clones: 0, reads: 0 };
+      work[kind] += 1;
+      if (state.workRuns.at(-1) !== big) state.workRuns.push(big);
+      return true;
+    };
+    const cloneNode = Node.prototype.cloneNode;
+    Node.prototype.cloneNode = function (this: Node, deep?: boolean) {
+      note(this, "clones");
+      return cloneNode.call(this, deep);
+    };
+    const read = window.getComputedStyle;
+    window.getComputedStyle = (element: Element, pseudo?: string | null) => {
+      if (note(element, "reads")) for (const start = performance.now(); performance.now() - start < state.readDelay;);
+      return read.call(window, element, pseudo);
+    };
+  }, { names, count });
+}
+
+function work(page: Page): Promise<{ work: Record<string, { clones: number; reads: number }>; workRuns: string[]; frames: number; blobs: number }> {
+  return page.evaluate(() => {
+    const { work, workRuns } = window as unknown as { work: Record<string, { clones: number; reads: number }>; workRuns: string[] };
+    return { work, workRuns, frames: document.querySelector("iterbar-bar")!.shadowRoot!.querySelectorAll("iframe").length, blobs: window.canvasBlobs };
+  });
+}
+
+test("a drawing's copy is checked only while its capture is current: a withdrawal stops it at once, the time limit ends it", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await addBigDrawings(page, ["w", "t"], 4_000);
+  // A page with 20,000 fill and stroke rules, none of which applies to the drawings.
+  await page.evaluate(() => {
+    const style = document.createElement("style");
+    style.textContent = Array.from({ length: 20_000 }, (_, index) => `.rule-${index} rect { fill: rgb(255, 0, 0); stroke: rgb(0, 0, 255) }`).join("\n");
+    document.head.append(style);
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await countCanvasBlobs(page);
+  const pick = async (name: string) => {
+    await page.getByTestId(`drawing-${name}`).focus();
+    await page.keyboard.press("Enter");
+  };
+  await enterCommentMode(page);
+
+  // Each style read takes 0.5 ms, so checking the 4,000 shapes would take 2 seconds: Cancel stops it within a read.
+  await page.evaluate(() => {
+    (window as unknown as { readDelay: number }).readDelay = 0.5;
+  });
+  // The page records the longest it goes without running a timer while the capture works.
+  await page.evaluate(() => {
+    const state = window as unknown as { longestStall: number; stallTimer: number };
+    state.longestStall = 0;
+    let last = performance.now();
+    state.stallTimer = window.setInterval(() => {
+      state.longestStall = Math.max(state.longestStall, performance.now() - last);
+      last = performance.now();
+    }, 5);
+  });
+  await pick("w");
+  await expect.poll(async () => (await work(page)).work.w?.reads ?? 0, { timeout: 15_000 }).toBeGreaterThan(50);
+  await inBar(page, "[data-role=composer-cancel]").click();
+  const atCancel = (await work(page)).work.w!.reads;
+  const longestStall = await page.evaluate(() => {
+    const state = window as unknown as { longestStall: number; stallTimer: number };
+    window.clearInterval(state.stallTimer);
+    return state.longestStall;
+  });
+  expect(longestStall).toBeLessThan(100);
+  // The frame the copy was checked in goes as soon as the check reaches its next element.
+  await expect.poll(async () => (await work(page)).frames, { intervals: [10], timeout: 200 }).toBe(0);
+  await page.waitForTimeout(300);
+  const withdrawn = await work(page);
+  expect(withdrawn.work.w!.reads).toBeLessThan(atCancel + 3);
+  expect(withdrawn.work.w!.reads).toBeLessThan(4_000);
+  expect(withdrawn.blobs).toBe(0);
+
+  // At 3 ms a read the check would take 12 seconds: the time limit ends it, and the comment is sent without one.
+  await page.evaluate(() => {
+    (window as unknown as { readDelay: number }).readDelay = 3;
+  });
+  await pick("t");
+  await inBar(page, "[data-role=composer-text]").fill("Slow drawing");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
+  expect(daemon.posts[0]!.screenshot).toBeNull();
+  expect(daemon.posts[0]!.draft.screenshotUnavailableReason).toBe("The screenshot failed: it took longer than 10 seconds");
+  const timedOut = await work(page);
+  expect(timedOut.work.t!.reads).toBeGreaterThan(1_000);
+  expect(timedOut.work.t!.reads).toBeLessThan(4_000);
+  expect(timedOut.frames).toBe(0);
+  expect(timedOut.blobs).toBe(0);
+});
+
+test("rapid re-picks of drawings copy and check one at a time and draw only the last", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  const names = ["a", "b", "c", "d", "e"];
+  await addBigDrawings(page, names, 2_000);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await countCanvasBlobs(page);
+  await page.evaluate(() => {
+    (window as unknown as { readDelay: number }).readDelay = 0.2;
+  });
+  await enterCommentMode(page);
+  for (const name of names) {
+    await page.getByTestId(`drawing-${name}`).focus();
+    await page.keyboard.press("Enter");
+  }
+  await inBar(page, "[data-role=composer-text]").fill("Last");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
+  const done = await work(page);
+  // Never two at once: each drawing's work is one run, in pick order, and only the last was checked through.
+  expect(done.workRuns).toEqual(names.filter((name) => done.work[name]));
+  for (const name of names.slice(0, -1)) expect(done.work[name]?.reads ?? 0, name).toBeLessThan(2_000);
+  expect(done.work.e!.reads).toBeGreaterThanOrEqual(2_000);
+  expect(done.blobs).toBe(1);
+  expect(done.frames).toBe(0);
+  expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-testid="drawing-e"]');
+  expect(daemon.posts[0]!.screenshot).not.toBeNull();
 });
 
 test("a capture withdrawn while its element is being copied stops there, and draws nothing", async ({ page, openFixture, fixtureServer }) => {

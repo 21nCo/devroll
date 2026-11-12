@@ -90,19 +90,24 @@ element is described when it is picked:
   its zoom; a non-replaced inline element at its box on screen. Its own
   transform, margins and offsets and its ancestors' transforms are left out,
   while transforms inside it are kept. An `<svg>` drawing is drawn from a
-  copy that carries the SVG styles the page gives it (paint, stroke, text,
-  opacity, transforms and geometry, from style sheet rules or inherited)
-  and the definitions it uses by `#id` from elsewhere on the page. Paint
-  the page gives as `currentColor` (by an attribute, an inline style or a
-  rule in a style sheet the page can read) stays `currentColor`, so each
-  `<use>` still colours what it shows; any other paint keeps its colour. The size and scale are measured once
+  copy of its markup, with the definitions it uses by `#id` from elsewhere
+  on the page. Its root carries what the drawing inherits from the page.
+  The copy is first checked in a hidden, sandboxed frame inside the bar
+  that has none of the page's style sheets: each copied element must
+  compute every style property (custom properties too) as its original
+  does. What the page sets that is not inherited (a rule's opacity,
+  transform, `d` or box-sizing) is given to the copied element as
+  computed. A drawing whose inherited properties the page sets inside it
+  (a rule's fill on a shape, for example) is not drawn, since what a
+  `<use>` shows inherits those from the `<use>`. The size and scale are measured once
   its images and fonts have loaded, so an element that grows meanwhile
   stays within the cap, and the image produced is checked again: one over
-  4 MP is not sent. One capture at a time reads, copies and draws the
-  element; a capture waiting for its turn holds no copy. A capture withdrawn
-  by another pick, Cancel, Escape, the bar's removal or its time limit
-  while it copies the element stops at the next node it copies, or its next
-  step, and lets the next capture start at once. One withdrawn while it is
+  4 MP is not sent. One capture at a time reads, copies, checks and draws
+  the element; a capture waiting for its turn holds no copy. A capture
+  withdrawn by another pick, Cancel, Escape, the bar's removal or its time
+  limit while it copies or checks the element stops at the next node it
+  copies or checks, or its next step, removes its frame and lets the next
+  capture start at once. One withdrawn while it is
   drawn and encoded (which waits on nothing outside the page) finishes
   that first, so the next capture may wait for it, within its own
   10-second limit.
@@ -110,11 +115,11 @@ element is described when it is picked:
   image, an element with no area, a scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
-  `href` or `url()` that is neither a `#fragment` nor a `data:` URL) or
-  holds HTML in a `<foreignObject>`, has padding or a border, or has a
-  paint that may be `currentColor` or a colour equal to it (rules that
-  disagree, or a custom property), an
-  inline element inside a scaled or rotated box, or a capture over 10
+  `href`, or a `url()` or `src()` in an attribute, an inherited value or
+  its own `<style>` text, that is neither a `#fragment` nor a `data:` URL;
+  an `@import`; an `image-set()`), holds HTML in a `<foreignObject>`, has
+  padding or a border, or whose inherited properties the page sets inside it,
+  an inline element inside a scaled or rotated box, or a capture over 10
   seconds) the comment is still sent, without a screenshot and with the
   reason in `screenshotUnavailableReason`.
 
