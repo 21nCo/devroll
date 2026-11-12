@@ -68,8 +68,8 @@ const XLINK = "http://www.w3.org/1999/xlink";
  */
 function reference(url: string, ids: Set<string>): string | null {
   const value = url.trim();
-  // The browser URL-parses a #fragment (dropping tabs and newlines, decoding escapes); one that changes is not looked up.
-  if (value.startsWith("#") && (value.includes("%") || new URL(url, "http://iterbar.invalid/").hash !== value)) return `the drawing refers to ${value.slice(0, 100)}, an escaped #id a screenshot cannot resolve yet`;
+  // The browser URL-parses a #fragment, decoding escapes and dropping tabs and newlines, before it looks the id up.
+  if (value.startsWith("#") && /[%\t\n\r]/u.test(value)) return `the drawing refers to ${value.slice(0, 100)}, an escaped #id a screenshot cannot resolve yet`;
   if (value.startsWith("#")) ids.add(value.slice(1));
   else if (!/^data:/iu.test(value)) return `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
   return null;
@@ -442,40 +442,6 @@ function widen(selector: string, parent: string | null, namespaced = false): str
   return open.length === 0 ? out : null;
 }
 
-/** The families a `font-family` lists, unquoted, in lower case; a name with a comma splits alike (empty parts kept). */
-function families(value: string): string[] {
-  return value.split(",").map((family) => family.trim().replaceAll(/^["']|["']$/gu, "").trim().toLowerCase());
-}
-
-/**
- * Says why the drawing's text may be drawn in another font, if it may: an image cannot be shown to use a font face.
- * Text (`texts`, each `<text>` element's computed `font-family`) listing a family with any face (the page's, from any
- * sheet or script, loaded or not, or one the drawing's own sheets declare) is refused; text a `<use>` shows
- * (`showsText`), which each `<use>` may set in another font, when there is any face at all.
- */
-function fontRefusal(texts: readonly string[], showsText: boolean, lookup: Document | ShadowRoot, copies: ReadonlyMap<Node, SVGElement>): string | null {
-  if (texts.length === 0 && !showsText) return null;
-  const faces = new Set<string>();
-  for (const face of (lookup.ownerDocument ?? (lookup as Document)).fonts) for (const family of families(face.family)) faces.add(family);
-  for (const sheet of lookup.styleSheets) {
-    if (!sheet.ownerNode || !copies.has(sheet.ownerNode)) continue;
-    const stack = [sheet.cssRules];
-    for (let rules = stack.pop(); rules; rules = stack.pop()) {
-      for (const rule of rules) {
-        if (rule instanceof CSSFontFaceRule) for (const family of families(rule.style.getPropertyValue("font-family"))) faces.add(family);
-        else if ("cssRules" in rule) stack.push(rule.cssRules as CSSRuleList);
-      }
-    }
-  }
-  if (showsText && faces.size > 0) return "a <use> in the drawing shows text, which it may set in a font face, which a screenshot cannot check yet";
-  for (const value of texts) {
-    for (const family of families(value)) {
-      if (faces.has(family)) return `the drawing's text uses a font face (${(family || value).slice(0, 100)}), which a screenshot cannot embed yet`;
-    }
-  }
-  return null;
-}
-
 /**
  * Copies an `<svg>` drawing (drawn from its markup) and checks that the copy computes its styles as the drawing does,
  * in a hidden, sandboxed `about:blank` frame in `scratch` without the page's style sheets, the copy as its root. The
@@ -484,10 +450,10 @@ function fontRefusal(texts: readonly string[], showsText: boolean, lookup: Docum
  * `<svg>`, carrying values the same way. Each copied element is compared with its original, property by property
  * (custom properties too, an empty one kept empty), given the values it differs in as computed, and compared again
  * once all are given. What a `<use>` shows must have nothing from the page its copy lacks (see {@link shownRefusal}),
- * text no font face (see {@link fontRefusal}), and no SVG animation may hold or target what is copied. What the copy
- * refers to (links, `url()`s in attributes that can load something, given values, `<style>` text) is checked before
- * it holds it. A string says why it cannot be drawn. `eachNode` runs before each element or rule is copied or
- * compared, and may end the copy; the frame is removed however it ends.
+ * the copy no text, and no SVG animation may hold or target what is copied. What the copy refers to (links, `url()`s
+ * in attributes that can load something, given values, `<style>` text) is checked before it holds it. A string says
+ * why it cannot be drawn. `eachNode` runs before each element or rule is copied or compared, and may end the copy; the
+ * frame is removed however it ends.
  */
 async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, eachNode: () => Promise<void>): Promise<SVGSVGElement | string> {
   const box = getComputedStyle(svg);
@@ -653,11 +619,8 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     }
     const shownRefused = await shownRefusal(shown, copies, given, lookup, scratch, eachNode);
     if (shownRefused !== null) return shownRefused;
-    // The fonts its text is drawn in.
-    const showsText = [...shown].some((element) => element.closest("text") !== null);
-    const texts = pairs.filter(([live]) => live.closest("text") !== null).map(([live]) => snapshot(live).get("font-family") ?? "");
-    const fonts = fontRefusal(texts, showsText, lookup, copies);
-    if (fonts !== null) return fonts;
+    // Text, whose font and its rasterising an image cannot be shown to match the page's (a <use> shows its copy's).
+    if (pairs.some(([live]) => live.localName === "text")) return "the drawing has text, whose font a screenshot cannot check yet";
     // Its own selectors may match the root differently now that it has its children: given its values again, it
     // must match as it did.
     const recarried = carry(copy, svg, snapshot(svg), view, ids, false);

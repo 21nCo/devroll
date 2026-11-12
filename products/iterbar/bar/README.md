@@ -111,10 +111,10 @@ element is described when it is picked:
   are matched widened: `&` as its parent's selector, `:scope` and a
   namespace prefix as anything, and a `:not()`, `:nth-child(… of …)` or
   other non-monotone pseudo-class holding one (or under a default
-  namespace) as anything. Text in a family with any font face (the
-  page's, loaded or not, or the drawing's own) is unavailable, and so is
-  text a `<use>` shows when there is any face. A drawing holding an SVG
-  animation element, or whose root, shapes or definitions one elsewhere
+  namespace) as anything. A drawing with text is unavailable: an image
+  cannot be shown to use the page's font or rasterise it alike, and so
+  is a `#id` link with a `%` escape, tab or newline. A drawing holding an
+  SVG animation element, or whose root, shapes or definitions one elsewhere
   targets, is unavailable, as is `<use>` content a CSS animation moves. Otherwise transitions and
   animations are drawn as they are at that moment. Pointing, selection
   and list-marker properties (`cursor`, `pointer-events`, `user-select`,
@@ -139,7 +139,7 @@ element is described when it is picked:
   `href`, or a `url()` or `src()` in a style or
   presentation attribute, an inherited value or its own `<style>` text,
   that is neither a `#fragment` nor a `data:` URL; an `@import`; an
-  `image-set()`; text in a font face), holds HTML in a `<foreignObject>`, has
+  `image-set()`), holds HTML in a `<foreignObject>`, has
   padding or a border, or that the page styles in a way its copy cannot reproduce,
   an inline element inside a scaled or rotated box, or a capture over 10
   seconds) the comment is still sent, without a screenshot and with the
