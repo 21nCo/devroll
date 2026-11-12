@@ -107,10 +107,13 @@ element is described when it is picked:
   condition (a universal reset such as Tailwind's matches every element),
   one of the drawing's own rules that is nested, conditional or matches
   the copy differently, or a custom property the page registers
-  (`@property` or `CSS.registerProperty`) that shown content uses. Text in
+  (`@property` or `CSS.registerProperty`) that shown content uses. A
+  selector with a namespace prefix is matched as if any namespace, less a
+  `:not()` that holds one. Text in
   a font the page has a face for is drawn by the image without it, so it
   is unavailable too, unless the drawing's own `<style>` declares the face
-  from a `data:` URL, unconditionally. Content a `<use>` shows that is
+  from a `data:` URL, unconditionally; shown text whose font a `var()`
+  gives, which each `<use>` may set, is unavailable as well. Content a `<use>` shows that is
   animated, and a `<use>` link an animation changes, are unavailable too.
   Otherwise transitions and animations are drawn as they are at that
   moment. Pointing, selection and list-marker properties (`cursor`,

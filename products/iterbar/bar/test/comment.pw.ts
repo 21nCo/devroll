@@ -625,6 +625,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       .tile { fill: rgb(255, 0, 0) !important } .r { fill: rgb(0, 0, 0) } @container (min-width: 1px) { .contained-shape { fill: rgb(255, 0, 0) } }
       .wrap { .nested-r { fill: rgb(255, 0, 0) } } .sprite-wrap { .nested-in { fill: rgb(255, 0, 0) } } .r2 { fill: rgb(0, 0, 255) } .ec, .ec-plain { --c: ; }
       @property --reg-tone { syntax: "<color>"; inherits: false; initial-value: rgb(255, 0, 0) }
+      @property --reg-green { syntax: "<color>"; inherits: false; initial-value: rgb(0, 255, 0) }
       @font-face { font-family: page-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
       .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }</style>
     <style>@import url(/never.css) supports(display: nonexistent);</style>
@@ -738,6 +739,12 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <style>@namespace svg "http://www.w3.org/2000/svg"; svg|rect.ns { fill: rgb(0, 255, 0) }</style><rect class="ns" width="100" height="50"/></svg>
     <svg data-testid="hinted" tabindex="0" width="100" height="50" style="display: block">
       <defs><rect id="hinted-tile" data-hint="var()" aria-label="var(--reg-tone)" width="100" height="50" fill="rgb(0, 255, 0)"/></defs><use href="#hinted-tile"/></svg>
+    <svg data-testid="ns-negated" tabindex="0" width="40" height="40" style="display: block">
+      <style>@namespace html url("http://www.w3.org/1999/xhtml"); .ns-tile:not(html|rect) { fill: var(--reg-green, rgb(0, 255, 0)) }</style>
+      <defs><rect id="ns-tile" class="ns-tile" width="40" height="40"/></defs><use href="#ns-tile" style="--reg-green: rgb(0, 0, 255)"/></svg>
+    <svg data-testid="font-var" tabindex="0" width="120" height="50" style="display: block; font-family: serif">
+      <style>@namespace svg url("http://www.w3.org/2000/svg"); svg|text.font-var { font-family: var(--face, monospace) }</style>
+      <defs><text id="font-var-text" class="font-var" x="0" y="40" font-size="40">WW</text></defs><use href="#font-var-text" style="--face: page-face"/></svg>
     <svg data-testid="scripted-font" tabindex="0" width="120" height="50" style="display: block">
       <style id="scripted-face"></style><text x="0" y="40" font-family="scripted-face" font-size="40">WW</text></svg>`);
     // Rules a script adds to a drawing's own style sheets, which its text does not have.
@@ -784,8 +791,12 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["negated", shownRule("rect")],
     ["scoped", shownRule("symbol")],
     ["nested-scoped", shownRule("symbol")],
-    // A rule whose attribute value holds a "|", which is not a namespace.
+    // A rule whose attribute value holds a "|", which is not a namespace; and the drawing's own rule that negates a
+    // namespace, taken to match what a <use> shows, whose registered custom property is then seen.
     ["piped", shownRule("rect")],
+    ["ns-negated", "what a <use> in the drawing shows uses --reg-green, which the page registers, and a screenshot cannot reproduce yet"],
+    // Shown text whose font a var() gives, which each <use> may set to a page font.
+    ["font-var", "what a <use> in the drawing shows has text whose font comes from a var(), which a screenshot cannot check for each <use> yet"],
     // What a <use> shows that the drawing's own keyframes animate.
     ["spun", "what a <use> in the drawing shows is animated, which a screenshot cannot check yet"],
     ["script-registered", "what a <use> in the drawing shows uses --js-tone, which the page registers, and a screenshot cannot reproduce yet"],

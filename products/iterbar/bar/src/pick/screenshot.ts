@@ -281,9 +281,15 @@ async function shownRefusal(
   const noteVariables = (text: string): void => {
     for (const [, name = ""] of decodedCss(text.replaceAll(/\/\*[\s\S]*?\*\//gu, "")).matchAll(VARIABLE)) variables.add(name);
   };
+  // Whether a font of what a <use> shows comes from a var(), which each <use> may set to another font.
+  let fontVariable = false;
+  const notesFontVariable = (style: CSSStyleDeclaration | undefined, attribute = ""): void => {
+    fontVariable ||= /var\(/iu.test(decodedCss(`${attribute} ${style?.getPropertyValue("font-family") ?? ""} ${style?.getPropertyValue("font") ?? ""}`));
+  };
   // Only attributes parsed as CSS: style and presentation attributes, not text (`data-*`, `aria-*`, a title).
   for (const element of shown) {
     for (const { name, value } of element.attributes) if (!/^(?:data-|aria-)|^(?:id|class|title|role|lang|tabindex)$/u.test(name)) noteVariables(value);
+    notesFontVariable((element as SVGElement).style, element.getAttribute("font-family") ?? "");
   }
   const unreadable = "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet";
   // Each list of rules; whether it is the drawing's own; whether it is nested or under a condition; and, inside a
@@ -331,7 +337,7 @@ async function shownRefusal(
         }
         const style = (rule as CSSStyleRule).style;
         // matches() knows no namespace prefixes; any namespace matches more. Quoted strings are left as they are.
-        const matching = parent!.replaceAll(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?:\*|[\w-]+)\|(?!=)/gu, (token) => (/^["']/u.test(token) ? token : "*|"));
+        const matching = widenNamespaces(parent!);
         for (const element of style.length > 0 ? shown : []) {
           await eachNode();
           let matches: boolean;
@@ -347,6 +353,7 @@ async function shownRefusal(
             return `the page has a style rule for the <${element.localName}> that a <use> in the drawing shows, which a screenshot cannot draw for each <use> yet`;
           }
           noteVariables(style.cssText);
+          notesFontVariable(style);
         }
       }
       if ("cssRules" in rule) stack.push({ rules: rule.cssRules as CSSRuleList, own: next.own, nested: true, parent });
@@ -360,12 +367,56 @@ async function shownRefusal(
       return "what a <use> in the drawing shows is animated, which a screenshot cannot check yet";
     }
   }
+  if (fontVariable && [...shown].some((element) => element.closest("text") !== null)) {
+    return "what a <use> in the drawing shows has text whose font comes from a var(), which a screenshot cannot check for each <use> yet";
+  }
   for (const name of variables) {
     await eachNode();
     if (name === "") return "what a <use> in the drawing shows uses a var() a screenshot cannot read yet";
     if (registered(name, scratch)) return `what a <use> in the drawing shows uses ${name}, which the page registers, and a screenshot cannot reproduce yet`;
   }
   return null;
+}
+
+/**
+ * `selector` matching at least what it does, for `matches()`, which knows no namespace prefixes: each prefix becomes
+ * `*|` (any namespace), and a `:not()` that holds one, where a wider namespace would match less, is dropped. Quoted
+ * strings are left as they are.
+ */
+function widenNamespaces(selector: string): string {
+  const prefix = /(?:\*|[\w-]+)\|(?!=)/u;
+  const token = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\\.|:not\(|[()]|(?:\*|[\w-]+)\|(?!=)/giu;
+  let out = "";
+  let at = 0;
+  // Each open :not() (where it starts, in `out`, and how deep its parentheses are), and whether it holds a prefix.
+  const negations: { start: number; depth: number; prefixed: boolean }[] = [];
+  let depth = 0;
+  for (const match of selector.matchAll(token)) {
+    const [text] = match;
+    out += selector.slice(at, match.index);
+    at = match.index + text.length;
+    if (/^:not\($/iu.test(text)) {
+      negations.push({ start: out.length, depth: ++depth, prefixed: false });
+      out += text;
+    } else if (text === "(") {
+      depth++;
+      out += text;
+    } else if (text === ")") {
+      const negation = negations.at(-1);
+      out += text;
+      if (negation?.depth === depth) {
+        negations.pop();
+        if (negation.prefixed) out = `${out.slice(0, negation.start)}:is(*)`;
+      }
+      depth--;
+    } else if (prefix.test(text) && !/^["'\\]/u.test(text)) {
+      for (const open of negations) open.prefixed = true;
+      out += "*|";
+    } else {
+      out += text;
+    }
+  }
+  return out + selector.slice(at);
 }
 
 /** The font families a computed `font-family` lists, unquoted and in lower case. */
