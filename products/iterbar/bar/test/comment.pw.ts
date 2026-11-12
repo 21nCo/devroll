@@ -628,7 +628,10 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       @property --reg-green { syntax: "<color>"; inherits: false; initial-value: rgb(0, 255, 0) }
       @font-face { font-family: page-face; src: url(${block}) } .neg { :not(&) > .negated { fill: currentColor } } @scope (.scoped) { fill: currentColor }
       .scope-parent { @scope (.nested-scope) { fill: currentColor } } [data-kind="foo|bar"] { fill: currentColor }
-      .scope-amp { @scope (.amp-root) { & > .amp-child { fill: currentColor } &.amp-self { fill: currentColor } } }</style>
+      .scope-amp { @scope (.amp-root) { & > .amp-child { fill: currentColor } &.amp-self { fill: currentColor } } }
+      @media (min-width: 0px) { [data-kind="a&b"] { fill: currentColor } [data-kind=":scope"] { fill: currentColor } }
+      .scope-media { @scope (.media-root) { @media all { & > .media-child { fill: currentColor } } } }
+      .scope-bare { @scope (.bare-root) { @media all { & { fill: currentColor } } } }</style>
     <style>@import url(/never.css) supports(display: nonexistent);</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
@@ -730,6 +733,15 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       <symbol id="amp-self" class="amp-root amp-self" viewBox="0 0 10 10"><rect width="10" height="10"/></symbol></g></svg>
     <svg data-testid="scope-child" tabindex="0" width="20" height="20" style="display: block"><use href="#amp-child" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="scope-self" tabindex="0" width="20" height="20" style="display: block"><use href="#amp-self" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="quoted-amp" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="quoted-amp-tile" data-kind="a&amp;b" width="40" height="40"/></defs><use href="#quoted-amp-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="quoted-scope" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="quoted-scope-tile" data-kind=":scope" width="40" height="40"/></defs><use href="#quoted-scope-tile" color="rgb(0, 0, 255)"/></svg>
+    <svg width="0" height="0" style="position: absolute"><g class="scope-media">
+      <symbol id="media-child" class="media-root" viewBox="0 0 10 10"><rect class="media-child" width="10" height="10"/></symbol></g>
+      <g class="scope-bare"><symbol id="media-bare" class="bare-root" viewBox="0 0 10 10"><rect width="10" height="10"/></symbol></g></svg>
+    <svg data-testid="media-scope-child" tabindex="0" width="20" height="20" style="display: block"><use href="#media-child" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="media-scope-bare" tabindex="0" width="20" height="20" style="display: block"><use href="#media-bare" width="20" height="20" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="piped" tabindex="0" width="40" height="40" style="display: block">
       <defs><rect id="piped-tile" data-kind="foo|bar" width="40" height="40"/></defs><use href="#piped-tile" fill="rgb(0, 255, 0)" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="spun" tabindex="0" width="40" height="40" style="display: block">
@@ -800,6 +812,12 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // A rule in a nested @scope whose & (the scope's root) has a child or a compound selector.
     ["scope-child", shownRule("rect")],
     ["scope-self", shownRule("symbol")],
+    // Under a condition: a quoted "&" or ":scope", which is not selector syntax; and a rule in @media in a nested
+    // @scope, whose & still stands for the scope's root.
+    ["quoted-amp", shownRule("rect")],
+    ["quoted-scope", shownRule("rect")],
+    ["media-scope-child", shownRule("rect")],
+    ["media-scope-bare", shownRule("symbol")],
     // A rule whose attribute value holds a "|", which is not a namespace; and the drawing's own rule that negates a
     // namespace, taken to match what a <use> shows, whose registered custom property is then seen.
     ["piped", shownRule("rect")],

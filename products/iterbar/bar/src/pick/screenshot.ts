@@ -320,21 +320,21 @@ async function shownRefusal(
       // A style rule, or the declarations a style rule (or @scope, for its root and what is in it) has among its rules.
       if (rule instanceof CSSStyleRule || ("style" in rule && (parent !== null || rule.constructor.name === "CSSNestedDeclarations"))) {
         const exact = !next.nested && rule instanceof CSSStyleRule;
-        // Declarations directly in @scope apply to its root, which its start selector matches.
-        const scope = rule.parentRule as { start?: string | null } | null;
-        const start = !(rule instanceof CSSStyleRule) && scope && "start" in scope ? scope.start?.replaceAll("&", `:is(${parent ?? "*"})`) : undefined;
-        const selector = rule instanceof CSSStyleRule ? rule.selectorText : start ?? parent ?? "*";
+        // Declarations in @scope (but not in a style rule in it) apply to its root.
+        const root = scopeRoot(rule, parent);
+        const selector = rule instanceof CSSStyleRule ? rule.selectorText : root ?? parent ?? "*";
         // A nested selector matches as with its parent's in place of `&` (and any element for `:scope`), less any negation
         // of them, which that could narrow; one it cannot take apart matches any element.
         if (rule instanceof CSSStyleRule && exact) {
           parent = selector;
         } else if (rule instanceof CSSStyleRule) {
           const relative = /&|:scope\b/u;
-          const loose = selector.replaceAll(/:not\((?:[^()]|\([^()]*\))*\)/giu, (negation) => (relative.test(negation) ? ":is(*)" : negation));
-          // Directly in @scope, `&` is the scope's root, which its start selector (any element without one) matches.
-          const scope = rule.parentRule as { start?: string | null } | null;
-          const ampersand = scope && "start" in scope ? scope.start?.replaceAll("&", `:is(${parent ?? "*"})`) ?? "*" : parent ?? "*";
-          parent = /:not\([^)]*(?:&|:scope\b)/iu.test(loose) ? "*" : loose.replaceAll("&", `:is(${ampersand})`).replaceAll(/:scope\b/gu, "*");
+          // In @scope (but not in a style rule in it), `&` is the scope's root.
+          const ampersand = outsideStrings(root ?? parent ?? "*", (text) => text.replaceAll(/:scope\b/gu, "*"));
+          parent = outsideStrings(selector, (text) => {
+            const loose = text.replaceAll(/:not\((?:[^()]|\([^()]*\))*\)/giu, (negation) => (relative.test(negation) ? ":is(*)" : negation));
+            return /:not\([^)]*(?:&|:scope\b)/iu.test(loose) ? "*" : loose.replaceAll(/:scope\b/gu, "*").replaceAll("&", `:is(${ampersand})`);
+          });
         } else {
           parent = selector;
         }
@@ -379,6 +379,29 @@ async function shownRefusal(
     if (registered(name, scratch)) return `what a <use> in the drawing shows uses ${name}, which the page registers, and a screenshot cannot reproduce yet`;
   }
   return null;
+}
+
+/**
+ * The selector of the root of the @scope that `rule` is in, through any grouping or conditional rules but not through
+ * a style rule (where `&` is that rule): its start selector, with `parent` (the selector of the style rule the @scope
+ * is in) for `&`, or any element without one. Undefined when `rule` is not in an @scope that way.
+ */
+function scopeRoot(rule: CSSRule, parent: string | null): string | undefined {
+  for (let outer = rule.parentRule; outer; outer = outer.parentRule) {
+    if (outer instanceof CSSStyleRule) return undefined;
+    if ("start" in outer) {
+      const start = (outer as { start?: string | null }).start;
+      return start ? outsideStrings(start, (text) => text.replaceAll("&", `:is(${parent ?? "*"})`)) : "*";
+    }
+  }
+  return undefined;
+}
+
+/** `selector` as `edit` changes it, leaving its quoted strings and escapes (which are not selector syntax) as they are. */
+function outsideStrings(selector: string, edit: (text: string) => string): string {
+  const kept: string[] = [];
+  const masked = selector.replaceAll(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\\[\s\S]/gu, (token) => `\uE000${kept.push(token) - 1}\uE000`);
+  return edit(masked).replaceAll(/\uE000(\d+)\uE000/gu, (_, index: string) => kept[Number(index)]!);
 }
 
 /**
