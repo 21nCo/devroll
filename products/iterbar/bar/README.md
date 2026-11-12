@@ -91,9 +91,9 @@ element is described when it is picked:
   transform, margins and offsets and its ancestors' transforms are left out,
   while transforms inside it are kept. An `<svg>` drawing is drawn from a
   copy that carries the SVG styles the page gives it (paint, stroke, text,
-  opacity and transforms, from style sheet rules or inherited,
-  `currentColor` included) and the definitions it uses by `#id` from
-  elsewhere on the page. The size and scale are measured once
+  opacity, transforms and geometry, from style sheet rules or inherited,
+  `currentColor` kept as such so each `<use>` still colours what it shows)
+  and the definitions it uses by `#id` from elsewhere on the page. The size and scale are measured once
   its images and fonts have loaded, so an element that grows meanwhile
   stays within the cap, and the image produced is checked again: one over
   4 MP is not sent. One capture at a time reads, copies and draws the
@@ -108,7 +108,8 @@ element is described when it is picked:
   image, an element with no area, a scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
-  `href` or `url()` that is neither a `#fragment` nor a `data:` URL), an
+  `href` or `url()` that is neither a `#fragment` nor a `data:` URL) or
+  holds HTML in a `<foreignObject>`, an
   inline element inside a scaled or rotated box, or a capture over 10
   seconds) the comment is still sent, without a screenshot and with the
   reason in `screenshotUnavailableReason`.

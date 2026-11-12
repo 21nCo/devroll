@@ -446,17 +446,27 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
   await openFixture();
   const green = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="rgb(0,255,0)"/></svg>')}`;
   await page.evaluate((green) => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
-    <style>.icon rect { fill: rgb(255, 0, 0) } .icon .hidden { display: none }</style>
-    <svg width="0" height="0" style="position: absolute"><symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
-      <linearGradient id="blue"><stop offset="0" stop-color="rgb(0, 0, 255)"/><stop offset="1" stop-color="rgb(0, 0, 255)"/></linearGradient></svg>
+    <style>.icon rect { fill: rgb(255, 0, 0) } .icon .hidden { display: none } .big { r: 20px } .mono * { fill: currentColor }
+      .brand stop { stop-color: rgb(0, 0, 255) } .accent { fill: rgb(0, 255, 0) }</style>
+    <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
+      <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
+      <symbol id="accented" viewBox="0 0 10 10" preserveAspectRatio="none"><rect class="accent" width="10" height="10"/></symbol>
+      <linearGradient id="blue" class="brand"><stop offset="0"/><stop offset="1"/></linearGradient></svg>
     <div style="color: rgb(0, 0, 255)">
       <svg data-testid="styled" class="icon" tabindex="0" width="100" height="50" style="display: block">
-        <rect width="50" height="50"/><circle cx="75" cy="25" r="20" fill="currentColor"/><rect class="hidden" x="70" y="20" width="10" height="10"/></svg>
+        <rect width="50" height="50"/><circle class="big" cx="75" cy="25" r="5" fill="currentColor"/><rect class="hidden" x="70" y="20" width="10" height="10"/></svg>
     </div>
-    <svg data-testid="referring" tabindex="0" width="100" height="50" style="display: block; fill: rgb(255, 0, 0)">
+    <svg data-testid="mono" class="mono" tabindex="0" width="50" height="50" fill="currentColor" style="display: block; color: rgb(0, 0, 255)">
+      <rect width="50" height="50" fill="#000"/></svg>
+    <svg data-testid="instances" tabindex="0" width="100" height="50" color="rgb(255, 0, 0)" style="display: block">
+      <defs><g id="shape"><rect width="50" height="50" fill="currentColor"/></g></defs>
+      <use href="#shape" color="rgb(0, 0, 255)"/><use href="#shape" x="50" color="rgb(0, 255, 0)"/></svg>
+    <svg data-testid="referring" tabindex="0" width="125" height="50" style="display: block; fill: rgb(255, 0, 0)">
       <defs><linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></defs>
       <rect width="25" height="50" fill="url(#inner-green)"/><use href="#dot" x="25" width="25" height="50" preserveAspectRatio="none"/>
-      <rect x="50" width="25" height="50" fill="url(#blue)"/><image x="75" width="25" height="50" preserveAspectRatio="none" href="${green}"/></svg>
+      <rect x="50" width="25" height="50" fill="url(#blue)"/><image x="75" width="25" height="50" preserveAspectRatio="none" href="${green}"/>
+      <use href="#accented" x="100" width="25" height="50"/></svg>
+    <svg data-testid="html" tabindex="0" width="20" height="20"><foreignObject width="20" height="20"><div>Hi</div></foreignObject></svg>
     <svg data-testid="sprite" tabindex="0" width="20" height="20"><use href="/sprite.svg#x"/></svg>
     <svg data-testid="linked-sprite" tabindex="0" width="20" height="20"><use xlink:href="/sprite.svg#x"/></svg>
     <svg data-testid="image" tabindex="0" width="20" height="20"><image href="/missing.png" width="20" height="20"/></svg>
@@ -465,18 +475,31 @@ test("draws an <svg> with what the page styles it with, and sends none, saying w
   const styles = () => page.evaluate(() => [...document.querySelectorAll("svg, svg *")].map((element) => element.outerHTML));
   const before = await styles();
 
-  // A page style sheet rule and an inherited currentColor, and a shape the page hides.
+  // A page style sheet rule, an inherited currentColor, a radius from a page rule, and a shape the page hides.
   const styled = await commentFromKeyboard(page, daemon, "styled");
   expect(styled.draft.screenshotUnavailableReason).toBeNull();
   expect((await pngPixels(page, styled.screenshot!, [[25, 25], [75, 10], [75, 25]])).at).toEqual([[255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
 
-  // A gradient inside it and one elsewhere on the page, a symbol from elsewhere that inherits its fill through the
-  // <use>, and a data: image.
+  // A page rule that sets a shape's fill attribute aside for the value its parent has.
+  const mono = await commentFromKeyboard(page, daemon, "mono");
+  expect((await pngPixels(page, mono.screenshot!, [[25, 25]])).at).toEqual([[0, 0, 255, 255]]);
+
+  // A definition with currentColor, shown by two <use>s of different colours: each shows its own.
+  const instances = await commentFromKeyboard(page, daemon, "instances");
+  expect((await pngPixels(page, instances.screenshot!, [[25, 25], [75, 25]])).at).toEqual([[0, 0, 255, 255], [0, 255, 0, 255]]);
+
+  // A gradient inside it, a symbol from elsewhere that inherits its fill through the <use> (not from where it is
+  // defined), a gradient elsewhere whose stops a page rule colours, a data: image, and a symbol from elsewhere whose
+  // shape a page rule colours.
   const referring = await commentFromKeyboard(page, daemon, "referring");
   expect(referring.draft.screenshotUnavailableReason).toBeNull();
-  expect(await pngPixels(page, referring.screenshot!, [[12, 25], [37, 25], [62, 25], [87, 25]])).toEqual({
-    at: [[0, 255, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 255, 0, 255]], opaque: 1,
+  expect(await pngPixels(page, referring.screenshot!, [[12, 25], [37, 25], [62, 25], [87, 25], [112, 25]])).toEqual({
+    at: [[0, 255, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 255, 0, 255], [0, 255, 0, 255]], opaque: 1,
   });
+
+  const html = await commentFromKeyboard(page, daemon, "html");
+  expect(html.screenshot).toBeNull();
+  expect(html.draft.screenshotUnavailableReason).toBe("The screenshot failed: the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet");
 
   for (const [id, url] of [["sprite", "/sprite.svg#x"], ["linked-sprite", "/sprite.svg#x"], ["image", "/missing.png"], ["fill-url", "/paint.svg#p"]] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);

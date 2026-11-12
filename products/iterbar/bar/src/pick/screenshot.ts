@@ -58,32 +58,49 @@ const YIELD_EVERY_MS = 10;
  */
 const SVG_EXTERNAL_RESOURCE = /\bx?link:?href\s*=\s*["'](?!data:)[^"']+["']/i;
 
-/** Inherited properties a drawing's copy carries on each element where they differ from its parent's. */
+/** Inherited properties a drawing's copy carries on an element that specifies them (see `copyDrawing`). */
 const SVG_INHERITED = [
   "color", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-dasharray",
   "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "paint-order", "clip-rule",
   "marker-start", "marker-mid", "marker-end", "visibility", "font-family", "font-size", "font-style", "font-weight",
-  "letter-spacing", "text-anchor", "dominant-baseline",
+  "font-variant", "font-stretch", "letter-spacing", "word-spacing", "text-anchor", "dominant-baseline", "writing-mode",
+  "direction", "shape-rendering", "text-rendering", "image-rendering", "color-interpolation",
 ] as const;
 
 /** Properties that are not inherited, which the copy carries where they are not their initial value. */
 const SVG_OWN: Readonly<Record<string, string>> = {
   opacity: "1", transform: "none", "clip-path": "none", mask: "none", filter: "none", "mix-blend-mode": "normal",
-  "stop-color": "rgb(0, 0, 0)", "stop-opacity": "1", "vector-effect": "none",
+  "stop-color": "rgb(0, 0, 0)", "stop-opacity": "1", "flood-color": "rgb(0, 0, 0)", "flood-opacity": "1",
+  "lighting-color": "rgb(255, 255, 255)", "vector-effect": "none", overflow: "visible", "text-decoration-line": "none",
 };
+
+/** Colours that `currentColor` can give; the copy keeps the keyword, so a `<use>` showing the element still sets it. */
+const PAINT = new Set(["fill", "stroke", "stop-color", "flood-color", "lighting-color"]);
+
+/** Geometry properties that page CSS can set, by the elements they apply to. */
+const GEOMETRY: Readonly<Record<string, readonly string[]>> = {
+  circle: ["cx", "cy", "r"], ellipse: ["cx", "cy", "rx", "ry"], rect: ["x", "y", "width", "height", "rx", "ry"],
+  image: ["x", "y", "width", "height"], use: ["x", "y", "width", "height"], svg: ["x", "y", "width", "height"], path: ["d"],
+};
+
+/** Attributes whose value can refer to something with `url(…)`. */
+const URL_ATTRIBUTES = new Set(["style", "fill", "stroke", "clip-path", "mask", "filter", "marker-start", "marker-mid", "marker-end"]);
 
 const XLINK = "http://www.w3.org/1999/xlink";
 
-/** Records in `ids` the `#id` that `url` names, or says why it cannot be drawn: it loads something from outside the page. */
-function reference(url: string, ids: Set<string>): string | null {
+/**
+ * Records in `ids` the `#id` that `url` names (and whether a `<use>` shows it), or says why the drawing cannot be
+ * drawn: it loads something from outside the page.
+ */
+function reference(url: string, ids: Map<string, boolean>, shownByUse = false): string | null {
   const value = url.trim();
-  if (value.startsWith("#")) ids.add(value.slice(1));
+  if (value.startsWith("#")) ids.set(value.slice(1), shownByUse || ids.get(value.slice(1)) === true);
   else if (!/^data:/iu.test(value)) return `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
   return null;
 }
 
-/** {@link reference} for each `url(…)` in a style value. */
-function urlReferences(value: string, ids: Set<string>): string | null {
+/** {@link reference} for each `url(…)` in a value. */
+function urlReferences(value: string, ids: Map<string, boolean>): string | null {
   for (const [, url = ""] of value.matchAll(/url\(\s*["']?([^"')]*)/gu)) {
     const refused = reference(url, ids);
     if (refused !== null) return refused;
@@ -105,51 +122,61 @@ function plainHref(element: Element): void {
   if (!element.hasAttribute("href")) element.setAttribute("href", href);
 }
 
+/** Whether a computed geometry value differs from what the element's own attribute gives. */
+function geometryOverridden(name: string, value: string, attribute: string | null): boolean {
+  if (name === "d") return attribute === null && value !== "none";
+  if (attribute === null) return value !== "auto" && value !== "0px";
+  return Number.parseFloat(attribute) !== px(value);
+}
+
 /**
- * Copies an `<svg>` drawing with the computed styles it takes from the page (its style sheets, and what it inherits,
- * `currentColor` included) inlined, since it is drawn from its markup. Its `xlink:href`s become `href`s, and what it
- * refers to by `#id` outside itself (a sprite's symbols, gradients) is copied into it as it stands there (a symbol
- * inherits from the `<use>` that shows it). A string says why it cannot be drawn: it loads a resource from outside the
- * page. `eachNode` runs before each element is copied and may end the copy.
+ * Copies an `<svg>` drawing, which is drawn from its markup, with the styles the page gives it inlined. Each element
+ * carries the inherited properties it specifies (its value differs from its parent's, or it has its own attribute or
+ * inline declaration for it, which a page rule may override), so what it only inherits still comes from where it is
+ * shown, a `<use>` included; paint equal to its colour is written as `currentColor`. The drawing's root carries all of
+ * them, from the page around it. Non-inherited properties and geometry set by the page are carried too. Its
+ * `xlink:href`s become `href`s. What it refers to by `#id` outside itself is copied into it the same way: a definition
+ * that a `<use>` shows (a sprite's symbol) inherits from the `<use>`; any other (a gradient, marker or pattern) carries
+ * everything it inherits where it stands. A string says why it cannot be drawn: it loads a resource from outside the
+ * page, or holds HTML. `eachNode` runs before each element is copied and may end the copy.
  */
 async function copyDrawing(svg: SVGSVGElement, eachNode: () => Promise<void>): Promise<SVGSVGElement | string> {
   const own = new Set<string>();
-  const wanted = new Set<string>();
-  const copyOf = async (source: Element, parent: CSSStyleDeclaration | null, styled: boolean): Promise<Element | string> => {
+  const wanted = new Map<string, boolean>();
+  const copyOf = async (source: Element, parent: CSSStyleDeclaration | null, carryAll: boolean): Promise<Element | string> => {
     await eachNode();
+    if (source.localName === "foreignObject") return "the drawing holds HTML (<foreignObject>), which a screenshot cannot copy with its styles yet";
+    if (!(source instanceof SVGElement)) return `the drawing holds a <${source.localName}> element, which a screenshot cannot copy`;
     if (source.id) own.add(source.id);
     const href = hrefOf(source);
-    const refused = (href === null ? null : reference(href, wanted))
-      ?? [...source.attributes].reduce<string | null>((found, { value }) => found ?? urlReferences(value, wanted), null);
+    const refused = (href === null ? null : reference(href, wanted, source.localName === "use"))
+      ?? [...source.attributes].reduce<string | null>((found, { name, value }) => found ?? (URL_ATTRIBUTES.has(name) ? urlReferences(value, wanted) : null), null);
     if (refused !== null) return refused;
-    const copy = source.cloneNode(false) as Element;
+    const copy = source.cloneNode(false) as SVGElement;
     plainHref(copy);
     const style = getComputedStyle(source);
-    if (styled && (copy instanceof SVGElement || copy instanceof HTMLElement)) {
-      const carry = (name: string, value: string): string | null => {
-        copy.style.setProperty(name, value);
-        return urlReferences(value, wanted);
-      };
-      for (const name of SVG_INHERITED) {
-        const value = style.getPropertyValue(name);
-        const external = value && value !== parent?.getPropertyValue(name) ? carry(name, value) : null;
-        if (external !== null) return external;
-      }
-      for (const [name, initial] of Object.entries(SVG_OWN)) {
-        const value = style.getPropertyValue(name);
-        const external = value && value !== initial ? carry(name, value) : null;
-        if (external !== null) return external;
-      }
-      if (style.transform !== "none") {
-        carry("transform-origin", style.transformOrigin);
-        carry("transform-box", style.transformBox);
-      }
-      if (style.display === "none") carry("display", "none");
+    const carry = (name: string, value: string): string | null => {
+      copy.style.setProperty(name, PAINT.has(name) && value === style.color ? "currentcolor" : value);
+      return urlReferences(value, wanted);
+    };
+    const specifies = (name: string, value: string): boolean =>
+      value !== parent?.getPropertyValue(name) || source.hasAttribute(name) || source.style.getPropertyValue(name) !== "";
+    const carried = [
+      ...SVG_INHERITED.filter((name) => carryAll || specifies(name, style.getPropertyValue(name))),
+      ...Object.keys(SVG_OWN).filter((name) => style.getPropertyValue(name) !== SVG_OWN[name]),
+      ...(source === svg ? [] : GEOMETRY[source.localName] ?? []).filter((name) => geometryOverridden(name, style.getPropertyValue(name), source.getAttribute(name))),
+    ];
+    if (style.transform !== "none") carried.push("transform-origin", "transform-box");
+    if (style.display === "none") carried.push("display");
+    for (const name of carried) {
+      const value = style.getPropertyValue(name);
+      const external = value ? carry(name, value) : null;
+      if (external !== null) return external;
     }
     for (let child = source.firstChild; child; child = child.nextSibling) {
       if (child instanceof Text) copy.appendChild(child.cloneNode(false));
       else if (child instanceof Element && child.localName !== "script") {
-        const childCopy = await copyOf(child, style, styled);
+        const childCopy = await copyOf(child, style, false);
         if (typeof childCopy === "string") return childCopy;
         copy.appendChild(childCopy);
       }
@@ -159,10 +186,11 @@ async function copyDrawing(svg: SVGSVGElement, eachNode: () => Promise<void>): P
   const copy = await copyOf(svg, null, true);
   if (typeof copy === "string") return copy;
   const defs = svg.ownerDocument.createElementNS(svg.namespaceURI, "defs");
-  for (const id of wanted) {
+  for (const [id, shownByUse] of wanted) {
     const definition = own.has(id) ? null : svg.ownerDocument.getElementById(id);
     if (!(definition instanceof SVGElement)) continue;
-    const definitionCopy = await copyOf(definition, null, false);
+    const context = definition.parentElement ? getComputedStyle(definition.parentElement) : null;
+    const definitionCopy = await copyOf(definition, context, !shownByUse);
     if (typeof definitionCopy === "string") return definitionCopy;
     defs.appendChild(definitionCopy);
   }
