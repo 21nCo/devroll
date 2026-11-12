@@ -109,13 +109,16 @@ element is described when it is picked:
   the copy differently, or a custom property the page registers
   (`@property` or `CSS.registerProperty`) that shown content uses. Rules
   are matched widened: `&` as its parent's selector, `:scope` and a
-  namespace prefix as anything, and a `:not()` holding any of them as
-  anything. Text in a family with any font face (the page's, loaded or
-  not, or one the drawing's own `<style>` declares) is unavailable, since
-  the image cannot be shown to use it; so is text a `<use>` shows when the
-  page has any font face. A drawing holding an SVG animation element
-  (`<set>`, `<animate>` and the like) is unavailable, as is content a
-  `<use>` shows that a CSS animation moves. Otherwise transitions and
+  namespace prefix as anything, and a `:not()`, `:nth-child(… of …)` or
+  other pseudo-class that can match less when its argument matches more
+  as anything when it holds any of them, or when its style sheet declares
+  a default namespace. Text in a family with any font face (the page's,
+  loaded or not, or one the drawing's own `<style>` declares) is
+  unavailable, since the image cannot be shown to use it; so is text a
+  `<use>` shows when there is any font face at all. A drawing that holds
+  an SVG animation element (`<set>`, `<animate>` and the like), or whose
+  root, shapes or definitions one elsewhere on the page targets, is
+  unavailable, as is content a `<use>` shows that a CSS animation moves. Otherwise transitions and
   animations are drawn as they are at that moment. Pointing, selection
   and list-marker properties (`cursor`, `pointer-events`, `user-select`,
   `-webkit-user-select`, `list-style-image`) are left out of the copy, as

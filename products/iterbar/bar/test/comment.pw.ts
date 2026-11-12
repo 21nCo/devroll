@@ -634,6 +634,7 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
       .scope-bare { @scope (.bare-root) { @media all { & { fill: currentColor } } } }
       .neg-twice { :not(:is(:not(&))) .neg-twice-tile { fill: currentColor } } .nth-wrap { :nth-child(1 of :not(&)).nth-tile { fill: currentColor } }</style>
     <style>@namespace svg url("http://www.w3.org/2000/svg"); .ns-twice-tile:not(:is(:not(svg|rect))) { fill: currentColor }</style>
+    <style>@namespace url("http://www.w3.org/1999/xhtml"); .default-ns-tile:not(rect) { fill: currentColor }</style>
     <style>@import url(/never.css) supports(display: nonexistent);</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
       <symbol id="dot" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol>
@@ -776,6 +777,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg width="0" height="0" style="position: absolute"><set href="#zoomed-root" attributeName="viewBox" to="0 0 20 20" fill="freeze"/></svg>
     <svg data-testid="frozen-root" id="zoomed-root" tabindex="0" width="40" height="40" viewBox="0 0 40 40" style="display: block">
       <rect width="20" height="20" fill="rgb(0, 255, 0)"/><rect x="20" width="20" height="40" fill="rgb(255, 0, 0)"/></svg>
+    <svg data-testid="default-ns" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="default-ns-tile" class="default-ns-tile" width="40" height="40"/></defs><use href="#default-ns-tile" color="rgb(0, 0, 255)"/></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
     <svg width="0" height="0" style="position: absolute"><animate href="#from-afar" attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></svg>
@@ -860,6 +863,8 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     ["ns-twice", shownRule("rect")],
     // One whose parent stands in the selector argument of :nth-child(), which counts other siblings once widened.
     ["nth-of", shownRule("rect")],
+    // One whose :not(rect) means an XHTML rect, under a style sheet's default namespace, which an SVG rect is not.
+    ["default-ns", shownRule("rect")],
     // Shown text, whose font each <use> may set (here by a var()) to a page font.
     ["font-var", "a <use> in the drawing shows text, which it may set in a font face, which a screenshot cannot check yet"],
     // What a <use> shows that the drawing's own keyframes animate.

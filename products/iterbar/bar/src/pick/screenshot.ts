@@ -279,12 +279,13 @@ async function shownRefusal(
   const unreadable = "the page has a style sheet it cannot read (another origin's), whose rules may style what a <use> in the drawing shows, which a screenshot cannot check yet";
   // Each list of rules; whether it is the drawing's own; whether it is nested or under a condition; and, inside a
   // style rule, the selector its declarations after nested rules have (relative ones match more: `&` stands for any).
-  const stack: { rules: CSSRuleList; own: boolean; nested: boolean; parent: string | null }[] = [];
+  // And whether its sheet declares a default namespace (see widen).
+  const stack: { rules: CSSRuleList; own: boolean; nested: boolean; parent: string | null; namespaced: boolean }[] = [];
   const push = (sheet: CSSStyleSheet | null, own: boolean): boolean => {
     if (!sheet) return false;
     if (sheet.disabled) return true;
     try {
-      stack.push({ rules: sheet.cssRules, own, nested: Boolean(sheet.media.mediaText), parent: null });
+      stack.push({ rules: sheet.cssRules, own, nested: Boolean(sheet.media.mediaText), parent: null, namespaced: false });
       return true;
     } catch {
       return false; // Another origin's style sheet, which the page may not read.
@@ -296,6 +297,8 @@ async function shownRefusal(
   for (let next = stack.pop(); next; next = stack.pop()) {
     for (const rule of next.rules) {
       await eachNode();
+      // A sheet's @namespace rules come before its style rules.
+      if (rule instanceof CSSNamespaceRule) next.namespaced ||= rule.prefix === "";
       if (rule instanceof CSSImportRule) {
         // One never fetched (its condition is false) applies nothing.
         if (rule.styleSheet && !push(rule.styleSheet, next.own)) return unreadable;
@@ -306,10 +309,10 @@ async function shownRefusal(
       if (rule instanceof CSSStyleRule || ("style" in rule && (parent !== null || rule.constructor.name === "CSSNestedDeclarations"))) {
         const exact = !next.nested && rule instanceof CSSStyleRule;
         // In @scope (but not in a style rule in it), `&` is the scope's root, and declarations apply to it.
-        const root = scopeRoot(rule, parent);
+        const root = scopeRoot(rule, parent, next.namespaced);
         const selector = rule instanceof CSSStyleRule ? rule.selectorText : root ?? parent ?? "*";
         // What it matches at least (see widen), which its nested rules' `&` stands for in turn.
-        const matching = rule instanceof CSSStyleRule ? widen(selector, root ?? parent) : selector;
+        const matching = rule instanceof CSSStyleRule ? widen(selector, root ?? parent, next.namespaced) : selector;
         if (matching === null) return `the page has a style rule (${selector.slice(0, 100)}) that a screenshot cannot match against what a <use> in the drawing shows yet`;
         parent = matching;
         const style = (rule as CSSStyleRule).style;
@@ -330,7 +333,7 @@ async function shownRefusal(
           noteVariables(style.cssText);
         }
       }
-      if ("cssRules" in rule) stack.push({ rules: rule.cssRules as CSSRuleList, own: next.own, nested: true, parent });
+      if ("cssRules" in rule) stack.push({ rules: rule.cssRules as CSSRuleList, own: next.own, nested: true, parent, namespaced: next.namespaced });
     }
   }
   for (const element of shown) {
@@ -354,12 +357,12 @@ async function shownRefusal(
  * a style rule (where `&` is that rule): its start selector, widened with `parent` (the selector of the style rule the
  * @scope is in) for `&`. Undefined when `rule` is not in an @scope that way.
  */
-function scopeRoot(rule: CSSRule, parent: string | null): string | undefined {
+function scopeRoot(rule: CSSRule, parent: string | null, namespaced: boolean): string | undefined {
   for (let outer = rule.parentRule; outer; outer = outer.parentRule) {
     if (outer instanceof CSSStyleRule) return undefined;
     if ("start" in outer) {
       const start = (outer as { start?: string | null }).start;
-      return (start && widen(start, parent)) || "*";
+      return (start && widen(start, parent, namespaced)) || "*";
     }
   }
   return undefined;
@@ -385,10 +388,11 @@ const MONOTONE = new Set(["is", "where", "has", "matches", "-webkit-any", "host"
  * it: `&` becomes `:is(parent)` (any element without a parent), `:scope` any element, and a namespace prefix (which
  * `matches()` does not know) any namespace, `*|`; each matches more where it stands. Then each outermost functional
  * pseudo-class other than {@link MONOTONE} ones (`:not()`, `:nth-child(… of …)`) that holds one of them, at any depth,
- * where matching more could match less, becomes `:is(*)`; one that holds none is matched as it is. Quoted strings and
- * escapes are kept as they are. `null` when its parentheses do not balance.
+ * where matching more could match less, becomes `:is(*)`; one that holds none is matched as it is. In a sheet with a
+ * default namespace (`namespaced`), whose unprefixed names `matches()` reads as any namespace, each becomes `:is(*)`.
+ * Quoted strings and escapes are kept as they are. `null` when its parentheses do not balance.
  */
-function widen(selector: string, parent: string | null): string | null {
+function widen(selector: string, parent: string | null, namespaced = false): string | null {
   let out = "";
   // Each open parenthesis: where its pseudo-class starts in `out`, whether it is monotone, and whether something in it
   // was widened.
@@ -426,7 +430,7 @@ function widen(selector: string, parent: string | null): string | null {
     } else if (char === "(") {
       // The pseudo-class (or pseudo-element) whose name `out` ends with.
       const colons = out[name - 1] === ":" ? 1 + Number(out[name - 2] === ":") : 0;
-      open.push({ start: name - colons, monotone: colons === 1 && MONOTONE.has(out.slice(name).toLowerCase()), widened: false });
+      open.push({ start: name - colons, monotone: colons === 1 && MONOTONE.has(out.slice(name).toLowerCase()), widened: namespaced });
       emit(char);
       at++;
     } else if (char === ")") {
@@ -496,10 +500,10 @@ function fontRefusal(texts: readonly string[], showsText: boolean, lookup: Docum
  * keeps its viewport and inherits what it does on the page. Then each copied element is compared with its original,
  * property by property, custom properties included, and given the values it differs in (what the page's rules give
  * it) as computed (an empty custom property kept empty, not absent). What a `<use>` shows must have nothing from the
- * page that its copy lacks (see {@link shownRefusal}), and the drawing's text no font from the page (see
- * {@link fontRefusal}). Once all are given, every element is compared again, since a value given can change how
- * another matches the copy's own selectors. What the copy refers to (links, `url()`s in attributes that can load
- * something, links its animations set, given values and its `<style>` text) is checked before the copy
+ * page that its copy lacks (see {@link shownRefusal}), the drawing's text no font face (see {@link fontRefusal}),
+ * and no SVG animation may hold or target what is copied. Once all are given, every element is compared again, since
+ * a value given can change how another matches the copy's own selectors. What the copy refers to (links, `url()`s in
+ * attributes that can load something, given values and its `<style>` text) is checked before the copy
  * holds it, so nothing is loaded from outside the page. A string says why it cannot be drawn. `eachNode` runs before
  * each element or rule is copied or compared, and may end the copy; the frame is removed however it ends.
  */
