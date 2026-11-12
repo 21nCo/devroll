@@ -796,6 +796,10 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     <svg width="0" height="0" style="position: absolute"><rect id="nb-tile&#160;" width="20" height="40" fill="rgb(0, 255, 0)"/><rect id="c0-tile" width="20" height="40" fill="rgb(0, 255, 0)"/></svg>
     <svg data-testid="nbsp-id" tabindex="0" width="40" height="40" style="display: block"><use href="#nb-tile&#160;"/><rect x="20" width="20" height="40" fill="rgb(0, 0, 255)"/></svg>
     <svg data-testid="control-id" tabindex="0" width="40" height="40" style="display: block"><use href="#c0-tile&#1;"/><rect x="20" width="20" height="40" fill="rgb(0, 0, 255)"/></svg>
+    <svg data-testid="control-own" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="ct&#1;" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#ct&#1;"/></svg>
+    <svg data-testid="control-inside" tabindex="0" width="40" height="40" style="display: block">
+      <defs><rect id="ci-tile" width="40" height="40" fill="rgb(0, 255, 0)"/></defs><use href="#ci&#1;-tile"/></svg>
     <svg data-testid="padded-font" tabindex="0" width="120" height="50" style="display: block"><text x="0" y="40" font-family="'pad '" font-size="40">WW</text></svg>
     <svg data-testid="frozen" tabindex="0" width="40" height="40" style="display: block">
       <polygon points="0,0 40,0 40,40" fill="rgb(0, 255, 0)"><animate attributeName="points" to="0,0 40,0 0,40" dur="0.001s" fill="freeze"/></polygon></svg>
@@ -906,6 +910,10 @@ test("draws what a <use> shows only when nothing on the page but the <use> style
     // A <use> of a percent-encoded #id, which the browser decodes.
     ["escaped-id", "the drawing refers to #esc%2Dtile, an escaped #id a screenshot cannot resolve yet"],
     ["newline-id", "the drawing refers to #nl tile, an escaped #id a screenshot cannot resolve yet"],  // its newline, as a reason has it
+    // An id, or a link inside, with a control character, which the image's markup drops: the page draws nothing for
+    // either (no element is ct or ci\u0001-tile), the image would draw each one's tile.
+    ["control-own", "the drawing has an id with a control character, which a screenshot cannot keep yet"],
+    ["control-inside", "the drawing refers to #ci\u0001-tile, an escaped #id a screenshot cannot resolve yet"],
     // One that names the drawing's root by the page's URL and its #id.
     ["frozen-abs", animated("set")],
   ] as const) {

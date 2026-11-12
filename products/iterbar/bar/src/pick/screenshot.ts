@@ -69,10 +69,15 @@ const XLINK = "http://www.w3.org/1999/xlink";
 function reference(url: string, ids: Set<string>): string | null {
   const value = linkText(url);
   if (!value.startsWith("#")) return /^data:/iu.test(value) ? null : `the drawing loads ${value.slice(0, 100)}, which a screenshot cannot embed yet`;
-  const id = fragmentId(value);
+  const id = markupDrops(value) ? null : fragmentId(value);
   if (id === null) return `the drawing refers to ${value.slice(0, 100)}, an escaped #id a screenshot cannot resolve yet`;
   ids.add(id);
   return null;
+}
+
+/** Whether the image's markup loses a character of `text`: modern-screenshot deletes those XML forbids. */
+function markupDrops(text: string): boolean {
+  return /[\uD800-\uDFFF\uFFFE\uFFFF]/u.test(text) || [...text].some((char) => char < " " && !"\t\n\r".includes(char));
 }
 
 /** `url` without the C0 controls and spaces at its ends, which the URL parser strips (and nothing else). */
@@ -493,6 +498,7 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     if (ANIMATIONS.has(source.localName)) return `the drawing is animated (<${source.localName}>), which a screenshot cannot check yet`;
     const refused = attributeReferences(source, ids);
     if (refused !== null) return refused;
+    if (ownsId && markupDrops(source.id)) return "the drawing has an id with a control character, which a screenshot cannot keep yet";
     if (source.id && ownsId) own.add(source.id);
     const copy = source.cloneNode(false) as SVGElement;
     plainHref(copy);
