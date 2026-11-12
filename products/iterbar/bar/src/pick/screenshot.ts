@@ -161,68 +161,29 @@ function cannotReproduce(element: Element, name: string): string {
 }
 
 /**
- * Whether a property is inherited, found by giving one of `values` to a parent, which first takes the declarations
- * `context` (those another property's value depends on, as a border width's on its style), and reading it on its
- * child. Values that do not change the parent cannot tell: `null`.
+ * Whether a declared value depends on where the element is drawn: a colour, variable, keyword or length that a
+ * `<use>`'s instance of it resolves against the `<use>`, not against where it is defined.
  */
-interface InheritanceProbe {
-  (name: string, values: readonly string[], context?: string): boolean | null;
-  remove(): void;
-}
-
-/** An {@link InheritanceProbe} built in `scratch`, out of the page's style sheets' reach, its answers kept. */
-function inheritanceProbe(scratch: Node): InheritanceProbe {
-  const known = new Map<string, boolean>();
-  const owner = scratch.ownerDocument ?? document;
-  let pair: { parent: SVGElement; child: SVGElement } | null = null;
-  const probe = (name: string, values: readonly string[], context = ""): boolean | null => {
-    if (name.startsWith("--")) return true;
-    const cached = known.get(name);
-    if (cached !== undefined) return cached;
-    if (!pair) {
-      const parent = scratch.appendChild(owner.createElementNS(SVG_NS, "g"));
-      pair = { parent, child: parent.appendChild(owner.createElementNS(SVG_NS, "g")) };
-    }
-    const { parent, child } = pair;
-    try {
-      parent.style.cssText = context;
-      const parentBefore = getComputedStyle(parent).getPropertyValue(name);
-      const childBefore = getComputedStyle(child).getPropertyValue(name);
-      for (const value of values) {
-        parent.style.setProperty(name, value);
-        const parentAfter = getComputedStyle(parent).getPropertyValue(name);
-        const childAfter = getComputedStyle(child).getPropertyValue(name);
-        parent.style.cssText = context;
-        if (parentAfter === parentBefore) continue;
-        known.set(name, childAfter !== childBefore);
-        return childAfter !== childBefore;
-      }
-      return null;
-    } finally {
-      parent.style.cssText = "";
-    }
-  };
-  return Object.assign(probe, { remove: () => pair?.parent.remove() });
-}
+const WHERE_SHOWN = /currentcolor|\b(?:var|env|attr)\(|\b(?:inherit|unset|revert|revert-layer|larger|smaller|bolder|lighter)\b|%|\d(?:r?em|ex|r?ch|r?lh|r?cap|r?ic|cq(?:w|h|i|b|min|max)|[sld]?v(?:w|h|i|b|min|max))\b/iu;
 
 /**
- * Says why the page's style rules may style what a `<use>` in the drawing shows in a way the copy cannot reproduce.
- * On the page, a rule that matches a shown element applies to the `<use>`'s instance of it; in the copy, the instance
- * gets the element's inline values (see `carry`) but inherits the rest from the `<use>`. So a matching rule that
- * declares a custom property, or an inherited one whose value on the element differs from the `<use>`'s, refuses the
- * drawing, even where that value equals what the element inherits where it is defined. Rules count whatever their
- * conditions; nested ones are matched with their parents' selectors. Style sheets the page cannot read (another
- * origin's, such as a font service's) cannot be checked and are left out, as are those of the copy (in `copied`),
- * which it has. `eachNode` runs before each rule.
+ * Applies the page's style rules for what `<use>`s in the drawing show to its copy, or says why it cannot. On the
+ * page, a rule that matches a shown element applies to each `<use>`'s instance of it; in the copy, an instance has the
+ * element's inline values and inherits the rest from its `<use>`. So each value a matching rule declares is given to
+ * the element's copy inline, as the element computes it, unless the element's own inline style declares it; a value
+ * that depends on where it is shown ({@link WHERE_SHOWN}) refuses the drawing. Rules count whatever their conditions;
+ * nested ones are matched with their parents' selectors. Style sheets the page cannot read (another origin's, such as
+ * a font service's) cannot be checked and are left out, as are those of the copy (whose owners are in `copies`). `ids`
+ * collects what given values refer to. `eachNode` runs before each rule and each element it is matched against.
  */
 async function rulesOnShown(
-  shown: ReadonlyMap<Element, readonly Element[]>, copied: ReadonlySet<Node>, lookup: Document | ShadowRoot, inherits: InheritanceProbe,
+  shown: ReadonlySet<Element>, copies: ReadonlyMap<Node, SVGElement>, lookup: Document | ShadowRoot, ids: Set<string>,
   eachNode: () => Promise<void>,
 ): Promise<string | null> {
   if (shown.size === 0) return null;
   const stack: { rules: CSSRuleList; parent: string | null }[] = [];
   const push = (sheet: CSSStyleSheet | null): void => {
-    if (!sheet || sheet.disabled || (sheet.ownerNode && copied.has(sheet.ownerNode))) return;
+    if (!sheet || sheet.disabled || (sheet.ownerNode && copies.has(sheet.ownerNode))) return;
     try {
       stack.push({ rules: sheet.cssRules, parent: null });
     } catch {
@@ -230,12 +191,6 @@ async function rulesOnShown(
     }
   };
   for (const sheet of [...lookup.styleSheets, ...lookup.adoptedStyleSheets]) push(sheet);
-  const styles = new Map<Element, CSSStyleDeclaration>();
-  const styleOf = (element: Element): CSSStyleDeclaration => {
-    let style = styles.get(element);
-    if (!style) styles.set(element, style = getComputedStyle(element));
-    return style;
-  };
   for (let next = stack.pop(); next; next = stack.pop()) {
     for (const rule of next.rules) {
       await eachNode();
@@ -252,7 +207,8 @@ async function rulesOnShown(
           const value = rule.style.getPropertyValue(name);
           if (!leftOut(name, value)) declared.push([name, value]);
         }
-        for (const [element, uses] of declared.length > 0 ? shown : []) {
+        for (const element of declared.length > 0 ? shown : []) {
+          await eachNode();
           let matches: boolean;
           try {
             matches = element.matches(selector);
@@ -260,14 +216,17 @@ async function rulesOnShown(
             matches = false; // A selector of pseudo-elements, which are not the element.
           }
           if (!matches) continue;
+          const copy = copies.get(element)!;
+          const inline = element instanceof SVGElement ? element.style : null;
           for (const [name, value] of declared) {
-            const own = styleOf(element).getPropertyValue(name);
-            for (const use of uses) {
-              const fromUse = styleOf(use).getPropertyValue(name);
-              if (fromUse !== own && inherits(name, [value, fromUse]) !== false) {
-                return `the page styles the <${element.localName}> that a <use> in the drawing shows (its ${name}), which its copy cannot reproduce yet`;
-              }
+            if (WHERE_SHOWN.test(value)) {
+              return `the page styles the <${element.localName}> that a <use> in the drawing shows (its ${name}) by where it is shown, which its copy cannot reproduce yet`;
             }
+            if (inline?.getPropertyValue(name)) continue;
+            const computed = getComputedStyle(element).getPropertyValue(name);
+            const refused = references(computed, ids);
+            if (refused !== null) return refused;
+            copy.style.setProperty(name, computed);
           }
         }
       }
@@ -283,15 +242,14 @@ async function rulesOnShown(
  * the page's style sheets, with the copy as its root, as the image has it: the copy's root carries every computed
  * value of the drawing that it lacks there (so what the drawing inherits from the page reaches its shapes by
  * inheritance), and each definition it uses by `#id` from elsewhere on the page is copied in under copies (without
- * their ids or other children) of its ancestors up to its own `<svg>`, the top one carrying its values the same way,
- * so it keeps its viewport and what it inherits. Then each copied element is compared with its original, property by
- * property, custom properties included, and given the values it differs in (what the page's rules give it) as
- * computed; once all are given, every element is compared again, since a value given can change how another matches
- * the copy's own selectors. What a `<use>` shows inherits from the `<use>`, not from where it is defined: a page rule
- * that gives it an inherited value refuses the drawing (see {@link rulesOnShown}). What the copy refers to (`href`s,
- * `url()`s in attributes, given values and its `<style>` text) is checked before the copy holds it, so nothing is
- * loaded from outside the page. A string says why it cannot be drawn. `eachNode` runs before each element or rule is
- * copied or compared, and may end the copy; the frame is removed however it ends.
+ * their ids or other children) of its ancestors up to its own `<svg>`, each carrying its values the same way, so it
+ * keeps its viewport and inherits what it does on the page. Then each copied element is compared with its original,
+ * property by property, custom properties included, and given the values it differs in (what the page's rules give
+ * it) as computed. What a `<use>` shows gets the page's rules for it (see {@link rulesOnShown}). Once all are given,
+ * every element is compared again, since a value given can change how another matches the copy's own selectors. What
+ * the copy refers to (`href`s, `url()`s in attributes, given values and its `<style>` text) is checked before the copy
+ * holds it, so nothing is loaded from outside the page. A string says why it cannot be drawn. `eachNode` runs before
+ * each element or rule is copied or compared, and may end the copy; the frame is removed however it ends.
  */
 async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, eachNode: () => Promise<void>): Promise<SVGSVGElement | string> {
   const box = getComputedStyle(svg);
@@ -352,7 +310,6 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
   isolated.tabIndex = -1;
   isolated.style.cssText = `position: fixed; top: 0; left: 0; width: ${frame.style.width}; height: ${frame.style.height}; border: 0; visibility: hidden; pointer-events: none`;
   scratch.appendChild(isolated);
-  const inherits = inheritanceProbe(scratch);
   try {
     const isolatedDocument = isolated.contentDocument;
     const view = isolated.contentWindow;
@@ -372,8 +329,9 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
       const definition = own.has(id) ? null : lookup.getElementById(id);
       if (!(definition instanceof SVGElement) || definition.contains(svg)) return null;
       if (!defs.parentNode) copy.appendChild(defs);
+      // An outermost <svg> stands in HTML: a group carries what its parent gives it.
       const chain: Element[] = [];
-      const top = definition.ownerSVGElement;
+      const top = definition.ownerSVGElement ?? definition.parentElement;
       for (let node: Element | null = definition.parentElement; top && node; node = node.parentElement) {
         chain.unshift(node);
         if (node === top) break;
@@ -383,12 +341,12 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
         let ancestorCopy = ancestors.get(ancestor);
         if (!ancestorCopy) {
           await eachNode();
-          const made = shallow(ancestor, false);
+          const made = ancestor instanceof SVGElement ? shallow(ancestor, false) : isolatedDocument.createElementNS(SVG_NS, "g");
           if (typeof made === "string") return made;
           // Without its id, nothing in the copy can refer to this partial copy.
           made.removeAttribute("id");
           ancestors.set(ancestor, ancestorCopy = context.appendChild(made));
-          const refused = context === defs ? carry(made, ancestor, view, ids, false) : null;
+          const refused = carry(made, ancestor, view, ids, false);
           if (refused !== null) return refused;
         }
         context = ancestorCopy;
@@ -414,9 +372,23 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
         if (refused !== null) return refused;
       }
     }
-    // Every element again, now that all are given their values; and what <use>s show.
-    const copiedOriginals = new Set<Node>(pairs.map(([live]) => live));
-    const shown = new Map<Element, Element[]>();
+    // What <use>s show, which gets the page's rules for it; then every element again, now that all are given values.
+    const copies = new Map<Node, SVGElement>(pairs);
+    const shown = new Set<Element>();
+    for (const [live] of pairs) {
+      const href = live.localName === "use" ? hrefOf(live)?.trim() : undefined;
+      const target = href?.startsWith("#") ? lookup.getElementById(href.slice(1)) : null;
+      if (!target || !copies.has(target) || shown.has(target)) continue;
+      for (const element of [target, ...target.querySelectorAll("*")]) {
+        await eachNode();
+        if (copies.has(element)) shown.add(element);
+      }
+    }
+    const shownRules = await rulesOnShown(shown, new Map([[svg, copy], ...copies]), lookup, ids, eachNode);
+    if (shownRules !== null) return shownRules;
+    for (const id of ids) {
+      if (!defined.has(id) && !own.has(id) && lookup.getElementById(id)) return "the page's rules for what a <use> in the drawing shows refer to more than its copy holds";
+    }
     for (const [live, copied] of pairs) {
       await eachNode();
       const want = getComputedStyle(live);
@@ -426,21 +398,13 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
         const value = want.getPropertyValue(name);
         if (value !== have.getPropertyValue(name) && !leftOut(name, value)) return cannotReproduce(live, name);
       }
-      const href = live.localName === "use" ? hrefOf(live)?.trim() : undefined;
-      const target = href?.startsWith("#") ? lookup.getElementById(href.slice(1)) : null;
-      for (const element of target && copiedOriginals.has(target) ? [target, ...target.querySelectorAll("*")] : []) {
-        shown.set(element, [...shown.get(element) ?? [], live]);
-      }
     }
-    const shownRules = await rulesOnShown(shown, new Set([svg, ...copiedOriginals]), lookup, inherits, eachNode);
-    if (shownRules !== null) return shownRules;
     isolatedDocument.removeChild(copy);
     svg.ownerDocument.adoptNode(copy);
     // modern-screenshot would copy a drawing whose markup matches its test for links as an HTML element instead.
     if (SVG_EXTERNAL_RESOURCE.test(copy.innerHTML)) return "the drawing's text looks like a link to the screenshot library";
     return copy;
   } finally {
-    inherits.remove();
     isolated.remove();
   }
 }

@@ -453,7 +453,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     <style>.icon rect { fill: rgb(255, 0, 0) } .dcss { d: path("M0 0H100V50H0Z") } .dnone { d: none } .vis { opacity: 1 } .shift { translate: 50px 0 }
       .reset, .reset * { box-sizing: border-box; border: 0 solid rgb(229, 231, 235) } .tw * { --spin: 0deg } .tw.flip { --spin: 180deg }
       .sprite-blue { fill: rgb(0, 0, 255) } .r { fill: rgb(0, 0, 0) } .sizing circle { box-sizing: border-box }
-      body { cursor: url(/pointer.png), auto } :root { --logo: url(/logo.svg) }
+      body { cursor: url(/pointer.png), auto } :root { --logo: url(/logo.svg) } .themed { fill: rgb(255, 0, 0) } .ico rect { fill: currentColor }
       .nest { & .inner { fill: rgb(255, 0, 0) } } .nest-miss { & .absent { fill: rgb(255, 0, 0) } }
       @media (max-width: 1px) { .media rect { fill: rgb(255, 0, 0) } } .red-use { --tone: rgb(255, 0, 0) } .backed { background: rgb(0, 0, 255) }</style>
     <svg width="0" height="0" style="position: absolute; fill: rgb(0, 0, 255)">
@@ -465,6 +465,8 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
         <linearGradient id="inner-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient>
         <rect width="10" height="10" fill="url(#inner-green)"/></symbol>
       <linearGradient id="blue"><stop offset="0" stop-color="rgb(0, 0, 255)"/><stop offset="1" stop-color="rgb(0, 0, 255)"/></linearGradient></svg>
+    <svg style="display: none"><g class="themed"><symbol id="themed-shape" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol></g>
+      <symbol id="ico" class="ico" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10"/></symbol></svg>
     <svg style="display: none"><linearGradient id="hidden-green"><stop offset="0" stop-color="rgb(0, 255, 0)"/><stop offset="1" stop-color="rgb(0, 255, 0)"/></linearGradient></svg>
     <div style="color: rgb(0, 0, 255)">
       <svg data-testid="plain" tabindex="0" width="100" height="50" style="display: block">
@@ -500,8 +502,10 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     <svg data-testid="tokens" class="tw flip" tabindex="0" width="20" height="20" style="display: block"><rect width="20" height="20" fill="rgb(0, 255, 0)"/></svg>
     <svg data-testid="nested-ids" tabindex="0" width="100" height="50" style="display: block">
       <rect width="50" height="50" fill="url(#inner-green)"/><use href="#outer-icon" x="50" width="50" height="50"/></svg>
-    <svg data-testid="ruled" tabindex="0" width="20" height="20" style="fill: rgb(0, 255, 0)"><use href="#ruled" width="20" height="20"/></svg>
-    <svg data-testid="local-ruled" tabindex="0" width="20" height="20">
+    <svg data-testid="ruled" tabindex="0" width="20" height="20" style="display: block; fill: rgb(0, 255, 0)"><use href="#ruled" width="20" height="20"/></svg>
+    <svg data-testid="themed" tabindex="0" width="20" height="20" style="display: block"><use href="#themed-shape" fill="rgb(0, 255, 0)" width="20" height="20"/></svg>
+    <svg data-testid="ico" tabindex="0" width="20" height="20" style="color: rgb(255, 0, 0)"><use href="#ico" width="20" height="20"/></svg>
+    <svg data-testid="local-ruled" tabindex="0" width="20" height="20" style="display: block">
       <defs><g id="local-shape"><rect class="r" width="20" height="20"/></g></defs><use href="#local-shape" fill="rgb(0, 255, 0)"/></svg>
     <svg data-testid="has" id="has-drawing" class="sizing" tabindex="0" width="100" height="50">
       <style>#has-drawing rect:has(+ circle[style]) { opacity: 0 }</style><rect width="100" height="50"/><circle cx="25" cy="25" r="10"/></svg>
@@ -522,7 +526,7 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   await page.evaluate(() => document.getElementById("split-sheet")!.append("@font-face { font-family: split-face; src: u", "rl(/split.woff2) }"));
   const faithful = [
     "plain", "instances", "literal", "referring", "variable", "backed", "unmatched", "data-font", "dcss", "vis", "shift", "reset",
-    "styled", "nest", "imported", "red-use", "tokens", "nested-ids",
+    "styled", "nest", "imported", "red-use", "tokens", "nested-ids", "ruled", "local-ruled", "themed",
   ] as const;
   const colours = [[0, 255, 0], [255, 0, 0], [0, 0, 255], [0, 0, 0]] as const;
   // What the page shows of each drawing, before the bar is on it.
@@ -538,7 +542,9 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
   // font, a custom property set on a <use> (inline or by a rule), the page's background on the drawing, page rules that
   // do not apply, and page rules on its shapes: CSS d and d: none over the d attribute, an opacity attribute reset, an
   // individual transform, a CSS reset's box-sizing and borders, a custom property a rule resets, and a fill from a
-  // rule, a nested rule and a rule after a style sheet the page cannot read.
+  // rule, a nested rule and a rule after a style sheet the page cannot read. What a <use> shows keeps a page rule's
+  // fill even where it equals what it inherits where it is defined (a sprite's fill, the default black), and inherits
+  // from the <use> what a rule on an ancestor where it is defined gives it there.
   for (const id of faithful) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
     expect(draft.screenshotUnavailableReason, id).toBeNull();
@@ -547,12 +553,11 @@ test("draws an <svg> only as the page shows it, and sends none, saying why, when
     expect(sent.reduce((sum, count) => sum + count, 0), id).toBeGreaterThan(0);
   }
 
-  // What a <use> shows inherits from the <use>, so a page rule giving it an inherited value is not drawn, even when
-  // the value equals what it inherits where it is defined (a sprite's fill, or the default black). Nor is a drawing
-  // whose own selectors would match differently once its copy's shapes carry their values.
+  // A page rule giving what a <use> shows a value that depends on where it is shown (here currentColor, which the
+  // <use>'s colour sets) is not drawn. Nor is a drawing whose own selectors would match differently once its copy's
+  // shapes carry their values.
   for (const [id, reason] of [
-    ["ruled", "the page styles the <rect> that a <use> in the drawing shows (its fill), which its copy cannot reproduce yet"],
-    ["local-ruled", "the page styles the <rect> that a <use> in the drawing shows (its fill), which its copy cannot reproduce yet"],
+    ["ico", "the page styles the <rect> that a <use> in the drawing shows (its fill) by where it is shown, which its copy cannot reproduce yet"],
     ["has", "the page styles the drawing's <rect> (its opacity) in a way its copy cannot reproduce yet"],
   ] as const) {
     const { draft, screenshot } = await commentFromKeyboard(page, daemon, id);
@@ -792,6 +797,75 @@ test("a drawing's copy is checked only while its capture is current: a withdrawa
   expect(timedOut.work.t!.reads).toBeLessThan(4_000);
   expect(timedOut.frames).toBe(0);
   expect(timedOut.blobs).toBe(0);
+});
+
+test("the page's rules for what a <use> shows are matched a step at a time: a withdrawal stops them, the time limit ends them", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  // Two drawings that each show a 2,000-shape symbol, on a page with 20,000 rules; each match takes 0.01 ms, so
+  // matching them all would take minutes.
+  await page.evaluate(() => {
+    const style = document.createElement("style");
+    style.textContent = Array.from({ length: 20_000 }, (_, index) => `.rule-${index} rect { fill: rgb(255, 0, 0) }`).join("\n");
+    document.head.append(style);
+    for (const name of ["u", "v"]) {
+      document.querySelector("main")!.insertAdjacentHTML("afterbegin", `<svg data-big="${name}" data-testid="shows-${name}" tabindex="0" width="100" height="20"
+        style="display: block"><defs><symbol id="symbol-${name}">${'<rect width="1" height="1"/>'.repeat(2_000)}</symbol></defs><use href="#symbol-${name}"/></svg>`);
+    }
+    const state = window as unknown as { matched: Record<string, number> };
+    state.matched = {};
+    const matches = Element.prototype.matches;
+    Element.prototype.matches = function (this: Element, selector: string) {
+      const big = this.ownerDocument === document ? this.closest<SVGElement>("[data-big]")?.dataset.big : undefined;
+      if (big) {
+        state.matched[big] = (state.matched[big] ?? 0) + 1;
+        for (const start = performance.now(); performance.now() - start < 0.01;);
+      }
+      return matches.call(this, selector);
+    };
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await countCanvasBlobs(page);
+  const matched = (name: string) => page.evaluate((name) => (window as unknown as { matched: Record<string, number> }).matched[name] ?? 0, name);
+  const frames = () => page.evaluate(() => document.querySelector("iterbar-bar")!.shadowRoot!.querySelectorAll("iframe").length);
+  await enterCommentMode(page);
+  await page.evaluate(() => {
+    const state = window as unknown as { longestStall: number; stallTimer: number };
+    state.longestStall = 0;
+    let last = performance.now();
+    state.stallTimer = window.setInterval(() => {
+      state.longestStall = Math.max(state.longestStall, performance.now() - last);
+      last = performance.now();
+    }, 5);
+  });
+  await page.getByTestId("shows-u").focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => matched("u"), { timeout: 15_000 }).toBeGreaterThan(5_000);
+  // While the rules are matched, the page keeps running its timers.
+  await page.evaluate(() => {
+    (window as unknown as { longestStall: number }).longestStall = 0;
+  });
+  await page.waitForTimeout(300);
+  await inBar(page, "[data-role=composer-cancel]").click();
+  const atCancel = await matched("u");
+  expect(await page.evaluate(() => (window as unknown as { longestStall: number }).longestStall)).toBeLessThan(100);
+  await expect.poll(frames, { intervals: [10], timeout: 200 }).toBe(0);
+  await page.waitForTimeout(300);
+  expect(await matched("u")).toBeLessThan(atCancel + 50);
+
+  // The time limit ends the matching, and the comment is sent without a screenshot.
+  await page.getByTestId("shows-v").focus();
+  await page.keyboard.press("Enter");
+  await inBar(page, "[data-role=composer-text]").fill("Many rules");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
+  expect(daemon.posts[0]!.screenshot).toBeNull();
+  expect(daemon.posts[0]!.draft.screenshotUnavailableReason).toBe("The screenshot failed: it took longer than 10 seconds");
+  const atLimit = await matched("v");
+  await page.waitForTimeout(300);
+  expect(await matched("v")).toBeLessThan(atLimit + 50);
+  expect(await frames()).toBe(0);
+  expect(await page.evaluate(() => window.canvasBlobs)).toBe(0);
 });
 
 test("a drawing whose style sheet is in many pieces is copied without holding up the page", async ({ page, openFixture, fixtureServer }) => {
