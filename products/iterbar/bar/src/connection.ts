@@ -1,15 +1,20 @@
 import {
   bearerAuthorization,
   DAEMON_HOST,
+  daemonErrorResponseSchema,
   daemonEventSchema,
   daemonPath,
+  FEEDBACK_MULTIPART_PARTS,
+  feedbackDraftSchema,
   feedbackListResponseSchema,
+  feedbackSchema,
   safeParseMessage,
   SCHEMA_VERSION,
   slotReportSchema,
   tokenSchema,
   webSocketProtocols,
   type Feedback,
+  type FeedbackDraft,
   type SlotState,
 } from "iterbar";
 
@@ -101,6 +106,32 @@ export interface ConnectionCallbacks {
 
 class UnauthorizedError extends Error {}
 
+/** A request that got no answer within {@link REQUEST_TIMEOUT_MS}. */
+class DeadlineError extends Error {}
+
+/**
+ * A request that failed, carrying its message for the user; for an error answer, also its HTTP `status` and the
+ * daemon's own `reason` when its body had one.
+ */
+export class DaemonRequestError extends Error {
+  constructor(message: string, readonly status: number | null = null, readonly reason: string | null = null) {
+    super(message);
+  }
+}
+
+/** The error for a daemon error answer: its body's message, or a generic one naming the status. */
+async function answerError(response: Response): Promise<DaemonRequestError> {
+  let reason: string | null = null;
+  try {
+    const body = daemonErrorResponseSchema.safeParse(await response.json());
+    if (body.success) reason = body.data.error.message;
+  } catch {
+    // Not a daemon error body.
+  }
+  const message = reason === null ? `The daemon answered ${response.status}.` : `The daemon refused it (${response.status}): ${reason}`;
+  return new DaemonRequestError(message, response.status, reason);
+}
+
 /**
  * The bar's link to the daemon: the `/events` WebSocket, a `GET /feedback` listing every time the socket opens (so
  * nothing published while it was closed is missed), and `POST /slots` reports. A socket that closes is reopened
@@ -126,6 +157,8 @@ export class DaemonConnection {
   #reportGeneration = 0;
   /** Ids of current events since the in-flight listing was requested; `null` when no listing is in flight. */
   #touched: Set<string> | null = null;
+  /** A listing was asked for while one was in flight; it runs once that one ends. */
+  #listAgain = false;
 
   constructor(config: DaemonConfig, callbacks: ConnectionCallbacks) {
     this.#config = config;
@@ -164,6 +197,55 @@ export class DaemonConnection {
     this.#pendingReport = { pageUrl, slots, generation: this.#reportGeneration };
     this.#reportAttempt = 0;
     if (this.#connected) this.#flushReport();
+  }
+
+  /**
+   * Creates a feedback item with `POST /feedback`: the draft, plus the screenshot as a PNG part. Resolves with the
+   * stored item. A 4xx refusal rejects with the daemon's reason; a 5xx, or no answer at all, rejects saying the comment
+   * may already be stored. Never retried for that reason; a `401` stops the connection as everywhere else.
+   */
+  async sendFeedback(draft: FeedbackDraft, screenshot: Blob | null): Promise<Feedback> {
+    if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
+    const valid = feedbackDraftSchema.safeParse(draft);
+    if (!valid.success) throw new DaemonRequestError("The comment does not match the feedback contract.");
+    const form = new FormData();
+    form.append(FEEDBACK_MULTIPART_PARTS.feedback, JSON.stringify(valid.data));
+    if (screenshot) form.append(FEEDBACK_MULTIPART_PARTS.screenshot, screenshot, "screenshot.png");
+    let response: unknown;
+    try {
+      response = await this.#request("createFeedback", form);
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        this.#reject();
+        throw new DaemonRequestError("The daemon rejected the token. Restart the dev server to get a new one.");
+      }
+      if (error instanceof DaemonRequestError) {
+        // A 4xx refusal stores nothing. The daemon stores a comment before steps that can still fail with a 5xx, so
+        // after one the comment may be stored.
+        if (error.status === null || error.status < 500) throw error;
+        const why = `The daemon failed (${error.status})${error.reason === null ? "" : `: ${error.reason}`}`;
+        this.#refreshThreads();
+        throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, error.status, error.reason);
+      }
+      // No answer (a lost connection or the deadline): the daemon stores a comment before it answers, so the outcome
+      // is unknown and sending again could file it twice.
+      // A success whose body cannot be read was stored.
+      if (error instanceof SyntaxError) {
+        this.#refreshThreads();
+        throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+      }
+      let why = `The daemon did not answer (${(error as Error).message})`;
+      if (error instanceof DeadlineError) why = `The daemon did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds`;
+      if (this.#stopped) why = "The bar was disconnected from the daemon before it answered";
+      this.#refreshThreads();
+      throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`);
+    }
+    const feedback = feedbackSchema.safeParse(response);
+    if (!feedback.success) {
+      this.#refreshThreads();
+      throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.");
+    }
+    return feedback.data;
   }
 
   #open(): void {
@@ -241,8 +323,29 @@ export class DaemonConnection {
       if (error instanceof UnauthorizedError) this.#reject();
       else socket.close();
     } finally {
-      if (this.#touched === touched) this.#touched = null;
+      if (this.#touched === touched) {
+        this.#touched = null;
+        if (this.#listAgain) this.#refreshThreads();
+      }
     }
+  }
+
+  /**
+   * Lists the threads again, now or once the listing in flight ends: a send whose outcome is unknown may have stored
+   * a comment the daemon never announced (it publishes only after its last step), and the user is told to look for it
+   * there. A lost connection lists them again when it reopens.
+   */
+  #refreshThreads(): void {
+    const socket = this.#socket;
+    this.#listAgain = false;
+    if (this.#stopped || !this.#connected || !socket) return;
+    if (this.#touched !== null) {
+      this.#listAgain = true;
+      return;
+    }
+    // This listing replaces a recovery listing still waiting for its backoff, so only one is ever in flight.
+    this.#cancelRelist();
+    void this.#list(socket);
   }
 
   async #diagnose(): Promise<void> {
@@ -305,10 +408,11 @@ export class DaemonConnection {
   }
 
   /**
-   * Sends a request and resolves with the parsed JSON body of a `GET`. The whole exchange, body included, must finish
-   * within {@link REQUEST_TIMEOUT_MS}, so a daemon that stops answering leads to the usual retry instead of a hang.
+   * Sends a request and resolves with the parsed JSON body, if any. A `GET` and `createFeedback` answer with JSON.
+   * The whole exchange, body included, must finish within {@link REQUEST_TIMEOUT_MS}, so a daemon that stops
+   * answering leads to the usual retry instead of a hang. A `FormData` body sets its own multipart content type.
    */
-  async #request(endpoint: "listFeedback" | "reportSlots", body?: string): Promise<unknown> {
+  async #request(endpoint: "listFeedback" | "reportSlots" | "createFeedback", body?: string | FormData): Promise<unknown> {
     const deadline = new AbortController();
     const cancel = (): void => deadline.abort();
     if (this.#abort.signal.aborted) cancel();
@@ -317,12 +421,12 @@ export class DaemonConnection {
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         deadline.abort();
-        reject(new Error("The daemon did not answer in time."));
+        reject(new DeadlineError("The daemon did not answer in time."));
       }, REQUEST_TIMEOUT_MS);
     });
     const exchange = async (): Promise<unknown> => {
       const headers: Record<string, string> = { authorization: bearerAuthorization(this.#config.token) };
-      if (body !== undefined) headers["content-type"] = "application/json";
+      if (typeof body === "string") headers["content-type"] = "application/json";
       const response = await fetch(`${this.#config.url}${daemonPath(endpoint)}`, {
         method: body === undefined ? "GET" : "POST",
         headers,
@@ -332,8 +436,8 @@ export class DaemonConnection {
         signal: deadline.signal,
       });
       if (response.status === 401) throw new UnauthorizedError("unauthorized");
-      if (!response.ok) throw new Error(`The daemon answered ${response.status}`);
-      return body === undefined ? await response.json() : undefined;
+      if (!response.ok) throw await answerError(response);
+      return body === undefined || endpoint === "createFeedback" ? await response.json() : undefined;
     };
     try {
       return await Promise.race([exchange(), timeout]);

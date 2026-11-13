@@ -9,7 +9,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -44,6 +45,7 @@
     "@playwright/test": "1.64.1",
     "@types/node": "^22.15.30",
     "esbuild": "^0.27.0",
+    "modern-screenshot": "4.7.0",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3",
     "vitest": "^4.1.11"

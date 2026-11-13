@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, type Feedback, type SlotReport, type SlotState } from "iterbar";
+import { SCHEMA_VERSION, type Feedback, type FeedbackDraft, type SlotReport, type SlotState } from "iterbar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonConnection, parseDaemonConfig, REQUEST_TIMEOUT_MS } from "./connection.js";
 import { ThreadsState } from "./threads-state.js";
@@ -121,6 +121,74 @@ describe("DaemonConnection", () => {
   const list = (items: Feedback[]) => ({ schemaVersion: SCHEMA_VERSION, items });
   const settle = () => vi.advanceTimersByTimeAsync(0);
   const versions = () => pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVersion);
+
+  it("says a comment may already be stored when the daemon misses the deadline, and that an unreadable success was stored", async () => {
+    const connection = connect();
+    socket().open();
+    const draft: FeedbackDraft = {
+      schemaVersion: SCHEMA_VERSION, kind: "comment", text: "Hi", pageUrl: "http://localhost:5173/", target: null,
+      activeVariants: [], screenshotUnavailableReason: "The screenshot failed: test", evidenceWindow: null,
+    };
+    const late = connection.sendFeedback(draft, null).catch((error: Error) => error.message);
+    await settle();
+    expect(requests.filter((request) => request.method === "POST" && request.path === "/feedback")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await late).toBe("The daemon did not answer within 10 seconds, so the comment may already be stored. Check the threads before sending it again.");
+
+    vi.stubGlobal("fetch", () => Promise.resolve(new Response("{", { status: 201 })));
+    expect(await connection.sendFeedback(draft, null).catch((error: Error) => error.message))
+      .toBe("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+  });
+
+  it("lists the threads again after an uncertain send, never alongside a recovery listing", async () => {
+    const connection = new DaemonConnection({ url: "http://127.0.0.1:4555", token }, {
+      onStatus: () => {}, onFeedback: () => true, isComplete: () => false, onListing: () => false,
+    });
+    connection.start();
+    socket().open();
+    const gets = () => requests.filter((request) => request.method === "GET" && request.path === "/feedback");
+    // Incomplete listings: two recovery listings at once, then one waiting for its 1 s backoff.
+    for (let index = 0; index < 3; index += 1) {
+      gets()[index]!.respond(200, list([]));
+      await settle();
+    }
+    expect(gets()).toHaveLength(3);
+    const draft: FeedbackDraft = {
+      schemaVersion: SCHEMA_VERSION, kind: "comment", text: "Hi", pageUrl: "http://localhost:5173/", target: null,
+      activeVariants: [], screenshotUnavailableReason: "The screenshot failed: test", evidenceWindow: null,
+    };
+    const sent = connection.sendFeedback(draft, null).catch((error: Error) => error.message);
+    await settle();
+    requests.find((request) => request.method === "POST")!.respond(500, { schemaVersion: SCHEMA_VERSION, error: { code: "internal", message: "Sync failed" } });
+    expect(await sent).toContain("may already be stored");
+    // The refresh starts at once and replaces the waiting recovery listing: one listing in flight, however long.
+    expect(gets()).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(gets()).toHaveLength(4);
+    gets()[3]!.respond(200, list([]));
+    await settle();
+    expect(gets()).toHaveLength(5);
+  });
+
+  it("calls only a 4xx answer a refusal; after a 5xx the comment may already be stored", async () => {
+    const connection = connect();
+    socket().open();
+    const draft: FeedbackDraft = {
+      schemaVersion: SCHEMA_VERSION, kind: "comment", text: "Hi", pageUrl: "http://localhost:5173/", target: null,
+      activeVariants: [], screenshotUnavailableReason: "The screenshot failed: test", evidenceWindow: null,
+    };
+    const answer = (status: number, body: unknown) => {
+      vi.stubGlobal("fetch", () => Promise.resolve(new Response(JSON.stringify(body), { status })));
+      return connection.sendFeedback(draft, null).catch((error: Error) => error.message);
+    };
+    const error = (code: string, message: string) => ({ schemaVersion: SCHEMA_VERSION, error: { code, message } });
+    expect(await answer(500, error("internal", "Could not sync the feedback directory")))
+      .toBe("The daemon failed (500): Could not sync the feedback directory, so the comment may already be stored. Check the threads before sending it again.");
+    expect(await answer(503, "busy")).toBe("The daemon failed (503), so the comment may already be stored. Check the threads before sending it again.");
+    expect(await answer(400, error("invalid_request", "The text is empty"))).toBe("The daemon refused it (400): The text is empty");
+    expect(await answer(413, error("payload_too_large", "The screenshot is too large"))).toBe("The daemon refused it (413): The screenshot is too large");
+    expect(await answer(422, "nope")).toBe("The daemon answered 422.");
+  });
 
   it("never lets a listing in flight undo an event with the same updatedAt, and still applies later events", async () => {
     connect();

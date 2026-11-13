@@ -1,5 +1,6 @@
-import type { Page, WebSocketRoute } from "@playwright/test";
-import { SCHEMA_VERSION, type DaemonEvent, type Feedback, type SlotReport } from "iterbar";
+import { createHash } from "node:crypto";
+import type { Page, Request, WebSocketRoute } from "@playwright/test";
+import { feedbackDraftSchema, SCHEMA_VERSION, type DaemonEvent, type Feedback, type FeedbackDraft, type SlotReport } from "iterbar";
 
 export const FAKE_TOKEN = "0123456789abcdef".repeat(4);
 
@@ -14,12 +15,29 @@ export interface FakeDaemon {
   rejectToken: boolean;
   readonly requests: { method: string; path: string; authorization: string | undefined }[];
   readonly slotReports: SlotReport[];
+  /** Every `POST /feedback`: the parsed draft, the screenshot part's bytes, if one was sent, and when it arrived (`Date.now()`, before any hold). */
+  readonly posts: { draft: FeedbackDraft; screenshot: Buffer | null; receivedAt: number }[];
+  /** A status to answer `POST /feedback` with instead of storing it. */
+  failFeedback: number | null;
+  /** While set, `POST /feedback` (already in `requests`) waits for it before it is stored and answered. */
+  holdFeedback: Promise<void> | null;
+  /** When set, `POST /feedback` is stored and then the connection drops without an answer. */
+  dropFeedbackAnswer: boolean;
+  /** A 5xx status to answer `POST /feedback` with after storing it, as when the daemon fails after its write. */
+  failFeedbackAfterStore: number | null;
   readonly sockets: WebSocketRoute[];
   readonly closedSockets: WebSocketRoute[];
   send(event: DaemonEvent | string): void;
 }
 
-/** A daemon answered by Playwright routes: `GET /feedback`, `POST /slots` and the `/events` WebSocket. */
+/** A daemon answered by Playwright routes: `GET /feedback`, `POST /feedback`, `POST /slots` and the `/events` WebSocket. */
+/** The error body the fake daemon refuses or fails a `POST /feedback` with, by status. */
+const FEEDBACK_ERRORS: Readonly<Record<number, { code: string; message: string }>> = {
+  409: { code: "store_locked", message: "The store is locked" },
+  500: { code: "internal", message: "The store is unavailable" },
+  503: { code: "internal", message: "The store is unavailable" },
+};
+
 export async function fakeDaemon(
   page: Page,
   origin: string,
@@ -36,6 +54,11 @@ export async function fakeDaemon(
     rejectToken: false,
     requests: [],
     slotReports: [],
+    posts: [],
+    failFeedback: null,
+    holdFeedback: null,
+    dropFeedbackAnswer: false,
+    failFeedbackAfterStore: null,
     sockets: [],
     closedSockets: [],
     send(event) {
@@ -66,6 +89,33 @@ export async function fakeDaemon(
       await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, items: daemon.items }) });
       return;
     }
+    if (request.method() === "POST" && path === "/feedback") {
+      const receivedAt = Date.now();
+      if (daemon.holdFeedback) await daemon.holdFeedback;
+      const fail = async (status: number): Promise<void> => {
+        const error = FEEDBACK_ERRORS[status] ?? { code: status < 500 ? "invalid_request" : "internal", message: `Failed with ${status}` };
+        await route.fulfill({ status, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error }) });
+      };
+      if (daemon.failFeedback !== null) {
+        await fail(daemon.failFeedback);
+        return;
+      }
+      const post = { ...(await readFeedbackPost(request)), receivedAt };
+      daemon.posts.push(post);
+      const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);
+      // Stored, but neither answered nor announced: only a listing shows it.
+      if (daemon.failFeedbackAfterStore !== null || daemon.dropFeedbackAnswer) daemon.items = [stored, ...daemon.items];
+      if (daemon.failFeedbackAfterStore !== null) {
+        await fail(daemon.failFeedbackAfterStore);
+        return;
+      }
+      if (daemon.dropFeedbackAnswer) {
+        await route.abort("connectionreset");
+        return;
+      }
+      await route.fulfill({ status: 201, headers: cors, contentType: "application/json", body: JSON.stringify(stored) });
+      return;
+    }
     if (request.method() === "POST" && path === "/slots") {
       daemon.slotReports.push(JSON.parse(request.postData() ?? "null") as SlotReport);
       await route.fulfill({ status: 204, headers: cors });
@@ -83,6 +133,37 @@ export async function fakeDaemon(
     });
   });
   return daemon;
+}
+
+/** Reads a multipart `POST /feedback` as the daemon does: a `feedback` JSON part and an optional `screenshot` file. */
+async function readFeedbackPost(request: Request): Promise<{ draft: FeedbackDraft; screenshot: Buffer | null }> {
+  const body = request.postDataBuffer() ?? Buffer.alloc(0);
+  const form = await new Response(new Uint8Array(body), { headers: { "content-type": await request.headerValue("content-type") ?? "" } }).formData();
+  const part = form.get("feedback");
+  const text = typeof part === "string" ? part : await part?.text();
+  const draft = feedbackDraftSchema.parse(JSON.parse(text ?? "null"));
+  const screenshot = form.get("screenshot");
+  return { draft, screenshot: screenshot instanceof Blob ? Buffer.from(await screenshot.arrayBuffer()) : null };
+}
+
+function storedFeedback(draft: FeedbackDraft, screenshot: Buffer | null, index: number): Feedback {
+  // A stored item has no evidence window; this fake never stores evidence.
+  const content: Partial<FeedbackDraft> = { ...draft };
+  delete content.evidenceWindow;
+  const at = new Date().toISOString();
+  return {
+    ...content,
+    id: `posted-${index}`,
+    screenshot: screenshot && {
+      id: `shot-${index}`, kind: "screenshot", mediaType: "image/png", byteLength: screenshot.byteLength,
+      sha256: createHash("sha256").update(screenshot).digest("hex"),
+    },
+    evidence: null,
+    replies: [],
+    status: "open",
+    createdAt: at,
+    updatedAt: at,
+  } as Feedback;
 }
 
 let sequence = 0;
