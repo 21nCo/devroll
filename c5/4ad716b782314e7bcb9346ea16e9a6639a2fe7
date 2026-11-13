@@ -1,0 +1,23 @@
+products/iterbar/bar/README.md
+  s_dc08da600d0667::t_59b8492e3633da 101-103
+products/iterbar/bar/src/pick/screenshot.ts
+  s_dc08da600d0667::t_a7f02ffab98232 223-228,507,633-634,636-639,655-656,659,701-702,824-826,941-942
+products/iterbar/bar/test/comment.pw.ts
+  s_dc08da600d0667::t_7c8e75581586ca 1036-1045,1050-1054,1060-1061,1082-1099
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c54ad716b782314e7bcb9346ea16e9a6639a2fe7",
+  "prompts": {},
+  "sessions": {
+    "s_dc08da600d0667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fe3c75d6-e341-4d9f-8f56-c3245fbbb1e6",
+        "model": "unknown"
+      },
+      "human_author": "Aravind Samala <samalaaravind02@gmail.com>"
+    }
+  }
+}
