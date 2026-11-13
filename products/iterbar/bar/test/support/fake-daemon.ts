@@ -15,8 +15,8 @@ export interface FakeDaemon {
   rejectToken: boolean;
   readonly requests: { method: string; path: string; authorization: string | undefined }[];
   readonly slotReports: SlotReport[];
-  /** Every `POST /feedback`: the parsed draft and the screenshot part's bytes, if one was sent. */
-  readonly posts: { draft: FeedbackDraft; screenshot: Buffer | null }[];
+  /** Every `POST /feedback`: the parsed draft, the screenshot part's bytes, if one was sent, and when it arrived (`Date.now()`). */
+  readonly posts: { draft: FeedbackDraft; screenshot: Buffer | null; receivedAt: number }[];
   /** A status to answer `POST /feedback` with instead of storing it. */
   failFeedback: number | null;
   /** While set, `POST /feedback` (already in `requests`) waits for it before it is stored and answered. */
@@ -99,7 +99,8 @@ export async function fakeDaemon(
         await fail(daemon.failFeedback);
         return;
       }
-      const post = await readFeedbackPost(request);
+      const receivedAt = Date.now();
+      const post = { ...(await readFeedbackPost(request)), receivedAt };
       daemon.posts.push(post);
       const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);
       // Stored, but neither answered nor announced: only a listing shows it.

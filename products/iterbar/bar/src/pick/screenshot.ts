@@ -785,6 +785,17 @@ function hasScrolledBox(element: Element): boolean {
   return [element, ...element.querySelectorAll("*")].some((node) => node.scrollTop !== 0 || node.scrollLeft !== 0);
 }
 
+/** The page elements the pointer styles, `:hover` then `:active`, but the bar's host. */
+function pointerState(page: Document, exclude: Node): (Element | null)[] {
+  const read = (state: string): Element[] => [...page.querySelectorAll(state)].filter((element) => element !== exclude);
+  return [...read(":hover"), null, ...read(":active")];
+}
+
+/** What the pointer crossing into or out of an element, or pressing or releasing on one, dispatches. */
+const POINTER_CROSSINGS = ["pointerover", "pointerout", "pointerdown", "pointerup"] as const;
+
+const POINTER_MOVED = "the pointer moved on the page after the element was picked, so a screenshot cannot show it as it was yet";
+
 /** Ends a render that was withdrawn (another pick, Cancel, Escape, the bar's removal) or timed out, at the next step it reaches. */
 function checkWithdrawn(signal: AbortSignal): void {
   if (signal.aborted) throw new Error("the capture was withdrawn");
@@ -830,9 +841,15 @@ export class RenderSlot {
  * element's images and fonts; the frame is measured after that, so an element that grew meanwhile still stays within
  * the cap. Once `signal` aborts, the render stops at its next copied node or step and its context is destroyed.
  */
-async function render(element: Element, exclude: Node, deviceScale: number, slot: RenderSlot, signal: AbortSignal): Promise<{ png: Blob; scale: number }> {
+async function render(
+  element: Element, exclude: Node, deviceScale: number, slot: RenderSlot, signal: AbortSignal, pointerMoved: () => boolean,
+): Promise<{ png: Blob; scale: number }> {
   checkWithdrawn(signal);
   const check = (): void => checkWithdrawn(signal);
+  // Called after the last read of the live element on either path: what it copied must be what the pick saw.
+  const checkPointer = (): void => {
+    if (pointerMoved()) throw new Error(POINTER_MOVED);
+  };
   // Where a drawing's copy is checked: inside the bar's shadow root, out of the page's reach.
   const scratch = (exclude instanceof Element && exclude.shadowRoot) || exclude;
   let worked = performance.now();
@@ -851,7 +868,11 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     filter: (node) => node !== exclude,
     // modern-screenshot awaits this after each copied node and lets what it throws end the copy.
     onCloneEachNode: eachNode,
-    onCloneNode: check,
+    // Called once the element is copied (an HTML element; a drawing's copy is not copied again).
+    onCloneNode: () => {
+      check();
+      checkPointer();
+    },
     onEmbedNode: check,
     onCreateForeignObjectSvg: () => {
       check();
@@ -880,6 +901,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
       // Drawn from the markup of a framed copy that is checked to look the same; the live element is never changed.
       const copy = await copyDrawing(element, frame, scratch, eachNode);
       if (typeof copy === "string") throw new Error(copy);
+      checkPointer();
       context.node = copy;
       drawing = true;
     }
@@ -922,6 +944,20 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
   if (focused && focused !== exclude && (focused.matches(":focus") || (focused !== body && focused !== documentElement))) {
     return { ok: false, reason: unavailableReason("a page element had focus when this one was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet") };
   }
+  // Read as the pick is made too: the pointer, moving to the comment box, may unstyle the element (:hover or :active on
+  // it, around it or beside it, :has(:hover)) or have a handler change it before it is copied. Any pointer crossing
+  // counts, even one that comes back before the copy ends.
+  const page = element.ownerDocument;
+  const pointer = pointerState(page, exclude);
+  let crossed = false;
+  const onCross = (): void => {
+    crossed = true;
+  };
+  const pointerMoved = (): boolean => {
+    const now = pointerState(page, exclude);
+    return crossed || now.length !== pointer.length || now.some((held, index) => held !== pointer[index]);
+  };
+  for (const type of POINTER_CROSSINGS) page.addEventListener(type, onCross, { capture: true, passive: true });
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
   const withdraw = new AbortController();
   const onAbort = (): void => withdraw.abort();
@@ -936,7 +972,7 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
     withdraw.signal.addEventListener("abort", () => reject(new Error("the capture was withdrawn")), { once: true });
   });
   try {
-    const { png, scale } = await Promise.race([render(element, exclude, deviceScale, slot, withdraw.signal), ended]);
+    const { png, scale } = await Promise.race([render(element, exclude, deviceScale, slot, withdraw.signal, pointerMoved), ended]);
     if (png.type !== "image/png") return { ok: false, reason: unavailableReason(`the browser produced ${png.type || "no image type"}`) };
     if (png.size === 0) return { ok: false, reason: unavailableReason("the image is empty") };
     if (png.size > MAX_ATTACHMENT_BYTES) {
@@ -957,5 +993,6 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
+    for (const type of POINTER_CROSSINGS) page.removeEventListener(type, onCross, { capture: true });
   }
 }

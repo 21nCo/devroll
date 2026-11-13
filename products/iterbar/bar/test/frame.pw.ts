@@ -13,8 +13,9 @@ async function comment(page: Page, daemon: FakeDaemon, target: Locator, text: st
   await inBar(page, "[data-role=comment]").click();
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
   await target.click({ position: { x: 3, y: 3 } });
+  // Sent from the keyboard: moving the pointer before the element is copied refuses its screenshot.
   await inBar(page, "[data-role=composer-text]").fill(text);
-  await inBar(page, "[data-role=composer-send]").click();
+  await inBar(page, "[data-role=composer-text]").press("Control+Enter");
   await expect.poll(() => daemon.posts.length).toBe(before + 1);
   return daemon.posts[before]!;
 }

@@ -98,8 +98,9 @@ test("sends a picked element's comment with its screenshot, which the store keep
 
   await inBar(page, "[data-role=comment]").click();
   await page.locator("#page-heading").click();
+  // Sent from the keyboard: moving the pointer before the element is copied refuses its screenshot.
   await inBar(page, "[data-role=composer-text]").fill("Make the heading friendlier");
-  await inBar(page, "[data-role=composer-send]").click();
+  await inBar(page, "[data-role=composer-text]").press("Control+Enter");
 
   // The bar shows the new thread, and comment mode ends.
   const thread = inBar(page, ".thread");

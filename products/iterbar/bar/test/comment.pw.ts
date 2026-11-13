@@ -42,13 +42,22 @@ async function enterCommentMode(page: Page): Promise<void> {
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
 }
 
+/**
+ * Types `text` and sends it from the keyboard (Ctrl+Enter), leaving the pointer where the pick left it: moving it
+ * before the element is copied refuses the screenshot.
+ */
+async function typeAndSend(page: Page, text: string): Promise<void> {
+  const box = inBar(page, "[data-role=composer-text]");
+  await box.fill(text);
+  await box.press("Control+Enter");
+}
+
 /** Picks `target` (clicked at `position`, else its centre), types `text` and sends it; resolves with what the daemon received. */
 async function comment(page: Page, daemon: FakeDaemon, target: Locator, text: string, position?: { x: number; y: number }): Promise<FakeDaemon["posts"][number]> {
   const before = daemon.posts.length;
   await enterCommentMode(page);
   await target.click(position ? { position } : {});
-  await inBar(page, "[data-role=composer-text]").fill(text);
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, text);
   await expect.poll(() => daemon.posts.length).toBe(before + 1);
   return daemon.posts[before]!;
 }
@@ -127,7 +136,7 @@ async function addBigBox(page: Page, name: string, count: number): Promise<void>
  * attribute, which the copy leaves out) until the returned function puts it back. A keyboard pick would not do: focus
  * on the picked element refuses its screenshot.
  */
-async function clickDrawing(page: Page, id: string): Promise<() => Promise<void>> {
+async function clickDrawing(page: Page, id: string, beforeClick?: () => void): Promise<() => Promise<void>> {
   const drawing = page.getByTestId(id);
   const held = await drawing.evaluateHandle((svg) => [...svg.querySelectorAll("*")].map((node) => {
     const [name, value] = node instanceof SVGElement ? ["pointer-events", node.getAttribute("pointer-events")] : ["style", node.getAttribute("style")];
@@ -135,17 +144,20 @@ async function clickDrawing(page: Page, id: string): Promise<() => Promise<void>
     else (node as HTMLElement).style.pointerEvents = "none";
     return () => (value === null ? node.removeAttribute(name) : node.setAttribute(name, value));
   }));
+  beforeClick?.();
   await drawing.click();
   return async () => held.evaluate((restores) => restores.forEach((restore) => restore()));
 }
 
-/** Picks the drawing `id` by a click (see {@link clickDrawing}), sends it, and resolves with what the daemon received. */
-async function commentOnDrawing(page: Page, daemon: FakeDaemon, id: string): Promise<FakeDaemon["posts"][number]> {
+/**
+ * Picks the drawing `id` by a click (see {@link clickDrawing}; `beforeClick` runs just before it), sends it, and
+ * resolves with what the daemon received.
+ */
+async function commentOnDrawing(page: Page, daemon: FakeDaemon, id: string, beforeClick?: () => void): Promise<FakeDaemon["posts"][number]> {
   const index = daemon.posts.length;
   await enterCommentMode(page);
-  const restore = await clickDrawing(page, id);
-  await inBar(page, "[data-role=composer-text]").fill(id);
-  await inBar(page, "[data-role=composer-send]").click();
+  const restore = await clickDrawing(page, id, beforeClick);
+  await typeAndSend(page, id);
   await expect.poll(() => daemon.posts.length).toBe(index + 1);
   await restore();
   expect(daemon.posts[index]!.draft.target?.selector).toBe(`[data-testid="${id}"]`);
@@ -341,6 +353,7 @@ test("the screenshot shows the element as it was when picked", async ({ page, op
   await page.getByTestId("tile").evaluate((tile) => {
     (tile as HTMLElement).style.background = "rgb(0, 0, 255)";
   });
+  // Clicked: the pointer moving once the copy is taken changes nothing.
   await inBar(page, "[data-role=composer-text]").fill("Was red");
   await inBar(page, "[data-role=composer-send]").click();
   await expect.poll(() => daemon.posts.length).toBe(1);
@@ -377,8 +390,7 @@ test("a transformed element still contains its fixed descendants", async ({ page
   // Its fixed child covers its padding box, so it is clicked on its border (outside the padding box clicks are placed in).
   await enterCommentMode(page);
   await page.getByTestId("framed").click({ position: { x: -40, y: -40 } });
-  await inBar(page, "[data-role=composer-text]").fill("Framed");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Framed");
   await expect.poll(() => daemon.posts.length).toBe(1);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.target?.selector).toBe('[data-testid="framed"]');
@@ -1019,11 +1031,14 @@ test("a large drawing on a page with many style rules is copied well within the 
       `<svg data-testid="chart" tabindex="0" width="300" height="40" style="display: block">${'<rect width="1" height="1"/>'.repeat(5_000)}</svg>`);
   });
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-  const started = Date.now();
-  const { draft, screenshot } = await commentOnDrawing(page, daemon, "chart");
+  // Timed from the pick to the post reaching the daemon: entering comment mode and the click's setup are left out.
+  let started = Number.NaN;
+  const { draft, screenshot, receivedAt } = await commentOnDrawing(page, daemon, "chart", () => {
+    started = Date.now();
+  });
   expect(draft.screenshotUnavailableReason).toBeNull();
   expect(screenshot).not.toBeNull();
-  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(receivedAt - started).toBeLessThan(5_000);
 });
 
 test("a drawing is copied only while its capture holds the render slot, and not at all once withdrawn", async ({ page, openFixture, fixtureServer }) => {
@@ -1208,8 +1223,7 @@ test("a drawing's copy is checked only while its capture is current: a withdrawa
     (window as unknown as { readDelay: number }).readDelay = 3;
   });
   await pick("t");
-  await inBar(page, "[data-role=composer-text]").fill("Slow drawing");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Slow drawing");
   await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
   expect(daemon.posts[0]!.screenshot).toBeNull();
   expect(daemon.posts[0]!.draft.screenshotUnavailableReason).toBe("The screenshot failed: it took longer than 10 seconds");
@@ -1276,8 +1290,7 @@ test("the page's rules for what a <use> shows are matched a step at a time: a wi
 
   // The time limit ends the matching, and the comment is sent without a screenshot.
   await page.getByTestId("shows-v").click();
-  await inBar(page, "[data-role=composer-text]").fill("Many rules");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Many rules");
   await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
   expect(daemon.posts[0]!.screenshot).toBeNull();
   expect(daemon.posts[0]!.draft.screenshotUnavailableReason).toBe("The screenshot failed: it took longer than 10 seconds");
@@ -1329,8 +1342,7 @@ test("rapid re-picks of drawings copy and check one at a time and draw only the 
   for (const name of names) {
     await page.getByTestId(`drawing-${name}`).click();
   }
-  await inBar(page, "[data-role=composer-text]").fill("Last");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Last");
   await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
   const done = await work(page);
   // Never two at once: each drawing's work is one run, in pick order, and only the last was checked through.
@@ -1374,8 +1386,7 @@ test("rapid re-picks copy one element at a time and draw only the last", async (
   await countClones(page);
   await enterCommentMode(page);
   for (const name of names) await page.getByTestId(`big-${name}`).click({ position: { x: 5, y: 5 } });
-  await inBar(page, "[data-role=composer-text]").fill("Last");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Last");
   await expect.poll(() => daemon.posts.length, { timeout: 15_000 }).toBe(1);
   const { cloned, clonedRuns } = await page.evaluate(() => {
     const { cloned, clonedRuns } = window as unknown as { cloned: Record<string, number>; clonedRuns: string[] };
@@ -1418,8 +1429,7 @@ test("a capture withdrawn while it is drawn finishes before another draws, so en
   await inBar(page, "[data-role=composer-cancel]").click();
   await page.locator('[data-case="root"]').click();
   await expect.poll(encoding).toBe(1);
-  await inBar(page, "[data-role=composer-text]").fill("Last");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Last");
   await expect.poll(() => daemon.posts.length).toBe(1);
   expect(daemon.posts[0]!.screenshot).not.toBeNull();
   expect(await page.evaluate(() => (window as unknown as { maxEncoding: number }).maxEncoding)).toBe(1);
@@ -1437,8 +1447,7 @@ test("a withdrawn capture still waiting inside its render holds up no later capt
   await page.waitForTimeout(500);
   const started = Date.now();
   await page.locator('[data-case="testid"]').click();
-  await inBar(page, "[data-role=composer-text]").fill("Not held up");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Not held up");
   await expect.poll(() => daemon.posts.length).toBe(1);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.target?.selector).toBe('[data-testid="save"]');
@@ -1450,17 +1459,17 @@ test("a withdrawn capture still waiting inside its render holds up no later capt
 
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
-  // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP).
+  // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP). The image
+  // lets the pointer through, so growing under it moves no hover.
   const release = await heldImage(page, `${fixtureServer.origin}/grow.svg`, 2500, 2000);
   await openFixture();
   await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
     '<div data-testid="grows" style="display: inline-block; vertical-align: top; min-width: 40px; min-height: 40px; background: #036">'
-    + '<img src="/grow.svg" alt="" style="display: block"></div>'));
+    + '<img src="/grow.svg" alt="" style="display: block; pointer-events: none"></div>'));
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   await enterCommentMode(page);
   await page.getByTestId("grows").click();
-  await inBar(page, "[data-role=composer-text]").fill("Grew");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Grew");
   await expect(inBar(page, "[data-role=composer-send]")).toHaveText("Sending…");
   release();
   await expect.poll(() => daemon.posts.length).toBe(1);
@@ -1536,8 +1545,7 @@ test("sends no screenshot, and says why, when a page element has focus at the pi
     await page.getByTestId(focused).focus();
     if (picked === null) await page.keyboard.press("Enter");
     else await page.getByTestId(picked).click({ position: { x: 2, y: 2 } });
-    await inBar(page, "[data-role=composer-text]").fill(focused);
-    await inBar(page, "[data-role=composer-send]").click();
+    await typeAndSend(page, focused);
     await expect.poll(() => daemon.posts.length).toBe(index + 1);
     const { draft, screenshot } = daemon.posts[index]!;
     expect(draft.target?.selector, focused).toBe(`[data-testid="${picked ?? focused}"]`);
@@ -1551,6 +1559,55 @@ test("sends no screenshot, and says why, when a page element has focus at the pi
   expect((await pngPixels(page, screenshot!, [[2, 2], [97, 37]])).at).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
 });
 
+test("sends no screenshot, and says why, when the pointer moves on the page before the element is copied", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  // Blue tiles that are red while hovered: by their own :hover, an ancestor's, or a :has(:hover) around them. Each
+  // holds an image the capture waits for, before it copies anything, until the test lets it load.
+  const ids = ["self", "under", "has", "back", "stays"] as const;
+  const releases = new Map<string, () => void>();
+  for (const id of ids) releases.set(id, await heldImage(page, `${fixtureServer.origin}/held-${id}.svg`, 4, 4));
+  await page.evaluate((ids) => {
+    const tile = "display: block; width: 60px; height: 40px; margin: 4px; background: rgb(0, 0, 255)";
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+      <style>
+        .self:hover, .under-wrap:hover > .under, .has-row:has(:hover) .has, .back:hover, .stays:hover { background: rgb(255, 0, 0) !important }
+        .tile img { pointer-events: none }
+      </style>
+      ${ids.map((id) => {
+        const inner = `<div class="tile ${id}" data-testid="${id}" style="${tile}"><img src="/held-${id}.svg" width="4" height="4" alt=""></div>`;
+        if (id === "under") return `<div class="under-wrap">${inner}</div>`;
+        if (id === "has") return `<div class="has-row">${inner}</div>`;
+        return inner;
+      }).join("")}`);
+  }, ids);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const reason = "The screenshot failed: the pointer moved on the page after the element was picked, so a screenshot cannot show it as it was yet";
+  for (const id of ids) {
+    const index = daemon.posts.length;
+    const tile = page.getByTestId(id);
+    await enterCommentMode(page);
+    await tile.click();
+    // Into the comment box while the capture waits (and, for "back", onto the tile again); "stays" keeps it there.
+    if (id !== "stays") await inBar(page, "[data-role=composer-text]").hover();
+    if (id === "back") await tile.hover();
+    releases.get(id)!();
+    await typeAndSend(page, id);
+    await expect.poll(() => daemon.posts.length).toBe(index + 1);
+    const { draft, screenshot } = daemon.posts[index]!;
+    expect(draft.target?.selector, id).toBe(`[data-testid="${id}"]`);
+    if (id === "stays") {
+      // As the page showed it at the pick, and still does: hovered.
+      expect(draft.screenshotUnavailableReason, id).toBeNull();
+      expect(await tile.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 0, 0)");
+      expect((await pngPixels(page, screenshot!, [[30, 20], [57, 37]])).at, id).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
+    } else {
+      expect(screenshot, id).toBeNull();
+      expect(draft.screenshotUnavailableReason, id).toBe(reason);
+    }
+  }
+});
+
 test("sends no screenshot for an element without area, and says why", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openCases(page, openFixture, daemon);
@@ -1560,8 +1617,7 @@ test("sends no screenshot for an element without area, and says why", async ({ p
     '<button type="button" data-testid="flat" style="width: 0; height: 0; padding: 0; border: 0; overflow: hidden"></button>'));
   await page.getByTestId("flat").focus();
   await page.keyboard.press("Enter");
-  await inBar(page, "[data-role=composer-text]").fill("Invisible");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Invisible");
   await expect.poll(() => daemon.posts.length).toBe(1);
   expect(daemon.posts[0]!.screenshot).toBeNull();
   expect(daemon.posts[0]!.draft.screenshotUnavailableReason).toBe("The screenshot failed: the element has no visible area");
@@ -1898,8 +1954,7 @@ test("says why a comment cannot be sent without a daemon", async ({ page, openFi
   await openCases(page, openFixture);
   await enterCommentMode(page);
   await page.locator('[data-case="testid"]').click();
-  await inBar(page, "[data-role=composer-text]").fill("Nowhere to go");
-  await inBar(page, "[data-role=composer-send]").click();
+  await typeAndSend(page, "Nowhere to go");
   await expect(inBar(page, "[data-role=composer-error]")).toContainText("Comments need the Iterbar daemon");
 });
 

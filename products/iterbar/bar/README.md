@@ -137,8 +137,10 @@ element is described when it is picked:
   When the capture fails (for example a canvas tainted by a cross-origin
   image, an element with no area, focus on any page element when it is
   picked (so a keyboard pick, too), which the composer then takes, so focus
-  styles and blur handlers could change it before it is copied, a
-  scrolled box in the element, which the
+  styles and blur handlers could change it before it is copied, the
+  pointer moving on the page (into the composer, say) before the element
+  is copied, which could change its `:hover` or `:active` styles (send
+  with Ctrl/Cmd+Enter to keep it still), a scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
   `href`, or a `url()` or `src()` in a style or
