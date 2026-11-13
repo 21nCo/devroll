@@ -42,10 +42,7 @@ async function enterCommentMode(page: Page): Promise<void> {
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
 }
 
-/**
- * Types `text` and sends it from the keyboard (Ctrl+Enter), leaving the pointer where the pick left it: moving it
- * before the element is copied refuses the screenshot.
- */
+/** Types `text` and sends it from the keyboard (Ctrl+Enter), leaving the pointer where the pick left it. */
 async function typeAndSend(page: Page, text: string): Promise<void> {
   const box = inBar(page, "[data-role=composer-text]");
   await box.fill(text);
@@ -353,7 +350,6 @@ test("the screenshot shows the element as it was when picked", async ({ page, op
   await page.getByTestId("tile").evaluate((tile) => {
     (tile as HTMLElement).style.background = "rgb(0, 0, 255)";
   });
-  // Clicked: the pointer moving once the copy is taken changes nothing.
   await inBar(page, "[data-role=composer-text]").fill("Was red");
   await inBar(page, "[data-role=composer-send]").click();
   await expect.poll(() => daemon.posts.length).toBe(1);
@@ -1459,13 +1455,12 @@ test("a withdrawn capture still waiting inside its render holds up no later capt
 
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
-  // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP). The image
-  // lets the pointer through, so growing under it changes no hover (which refuses a screenshot).
+  // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP).
   const release = await heldImage(page, `${fixtureServer.origin}/grow.svg`, 2500, 2000);
   await openFixture();
   await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
     '<div data-testid="grows" style="display: inline-block; vertical-align: top; min-width: 40px; min-height: 40px; background: #036">'
-    + '<img src="/grow.svg" alt="" style="display: block; pointer-events: none"></div>'));
+    + '<img src="/grow.svg" alt="" style="display: block"></div>'));
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   await enterCommentMode(page);
   await page.getByTestId("grows").click();
@@ -1559,7 +1554,7 @@ test("sends no screenshot, and says why, when a page element has focus at the pi
   expect((await pngPixels(page, screenshot!, [[2, 2], [97, 37]])).at).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
 });
 
-test("sends no screenshot, and says why, when the pointer moves on the page before the element is copied", async ({ page, openFixture, fixtureServer }) => {
+test("keeps the screenshot when the pointer moves on the page after the pick, copying the element as the page then shows it", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openFixture();
   // Blue tiles that are red while hovered: by their own :hover, an ancestor's, or a :has(:hover) around them; "within"
@@ -1593,8 +1588,6 @@ test("sends no screenshot, and says why, when the pointer moves on the page befo
     }, true);
   }, ids);
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-  const moved = "The screenshot failed: the pointer moved or was pressed on the page after the element was picked, so a screenshot cannot show it as it was yet";
-  const changed = "The screenshot failed: what the pointer is over on the page changed after the element was picked (the comment box may have opened over it), so a screenshot cannot show the element as it was yet";
   for (const id of ids) {
     const index = daemon.posts.length;
     const tile = page.getByTestId(id);
@@ -1622,24 +1615,22 @@ test("sends no screenshot, and says why, when the pointer moves on the page befo
     await expect.poll(() => daemon.posts.length).toBe(index + 1);
     const { draft, screenshot } = daemon.posts[index]!;
     expect(draft.target?.selector, id).toBe(`[data-testid="${id}"]`);
-    if (id === "stays") {
-      // As the page showed it at the pick, and still does: hovered.
-      expect(draft.screenshotUnavailableReason, id).toBeNull();
-      expect(await tile.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(255, 0, 0)");
-      expect((await pngPixels(page, screenshot!, [[30, 20], [57, 37]])).at, id).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
-    } else {
-      expect(screenshot, id).toBeNull();
-      expect(draft.screenshotUnavailableReason, id).toBe(id === "grows" ? changed : moved);
-    }
+    // Never refused for the pointer: copied once its image loaded, after the pointer moved, so as the page shows it
+    // now (the pointer has not moved since). "stays" is still hovered, so red; "grows" shows the cover over it.
+    expect(draft.screenshotUnavailableReason, id).toBeNull();
+    const live = await tile.evaluate((element) => getComputedStyle(element).backgroundColor);
+    if (id === "stays") expect(live).toBe("rgb(255, 0, 0)");
+    const colour = id === "grows" ? [204, 102, 0, 255] : [...live.matchAll(/\d+/g)].map(Number).concat(255);
+    expect((await pngPixels(page, screenshot!, [[30, 20], [57, 37]])).at, id).toEqual([colour, colour]);
   }
 });
 
-test("sends no screenshot, and says why without blaming the pointer, when the comment box opens over a still pointer", async ({ page, openFixture, fixtureServer }) => {
+test("keeps the screenshot when the comment box opens over a still pointer, copying the element as the page then shows it", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   const release = await heldImage(page, `${fixtureServer.origin}/held-corner.svg`, 4, 4);
   await openFixture();
   // A blue box, red while hovered, filling the corner the bar is docked in: covered by the comment box, it loses the
-  // hover it was picked with, and its handlers see the pointer leave.
+  // hover it was picked with before it is copied.
   await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", `
     <style>.corner:hover { background: rgb(255, 0, 0) !important }</style>
     <div class="corner" data-testid="corner" style="position: fixed; right: 0; bottom: 0; width: 400px; height: 400px; background: rgb(0, 0, 255)">
@@ -1659,8 +1650,31 @@ test("sends no screenshot, and says why without blaming the pointer, when the co
   await expect.poll(() => daemon.posts.length).toBe(1);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.target?.selector).toBe('[data-testid="corner"]');
-  expect(screenshot).toBeNull();
-  expect(draft.screenshotUnavailableReason).toBe("The screenshot failed: what the pointer is over on the page changed after the element was picked (the comment box may have opened over it), so a screenshot cannot show the element as it was yet");
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  expect((await pngPixels(page, screenshot!, [[200, 200], [397, 397]])).at).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
+});
+
+test("keeps the screenshot when the pointer moves to the comment box and clicks Send before the element is copied", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  const release = await heldImage(page, `${fixtureServer.origin}/held-plain.svg`, 4, 4);
+  await openFixture();
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
+    '<div data-testid="plain" style="width: 60px; height: 40px; background: rgb(0, 0, 255)"><img src="/held-plain.svg" width="4" height="4" alt=""></div>'));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await enterCommentMode(page);
+  await page.getByTestId("plain").click({ position: { x: 30, y: 20 } });
+  // The usual mouse flow, while the capture still waits for the image: into the comment box, type, click Send.
+  await inBar(page, "[data-role=composer-text]").click();
+  await inBar(page, "[data-role=composer-text]").fill("Plain");
+  await inBar(page, "[data-role=composer-send]").click();
+  await expect(inBar(page, "[data-role=composer-send]")).toHaveText("Sending…");
+  expect(daemon.posts).toHaveLength(0);
+  release();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  const { draft, screenshot } = daemon.posts[0]!;
+  expect(draft.target?.selector).toBe('[data-testid="plain"]');
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  expect((await pngPixels(page, screenshot!, [[50, 30]])).at).toEqual([[0, 0, 255, 255]]);
 });
 
 test("sends no screenshot for an element without area, and says why", async ({ page, openFixture, fixtureServer }) => {

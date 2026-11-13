@@ -134,16 +134,17 @@ element is described when it is picked:
   drawn and encoded (which waits on nothing outside the page) finishes
   that first, so the next capture may wait for it, within its own
   10-second limit.
+  The element is copied just after the pick, not at the pick itself: a
+  large element, or one waiting for its images, may be copied with changes
+  the page made meanwhile in answer to later pointer, keyboard or scroll
+  input (its `:hover` styles once the pointer moves to the composer, say).
+  Holding the copy to the picked state under such input is deferred to
+  ROLL-20.
   When the capture fails (for example a canvas tainted by a cross-origin
   image, an element with no area, focus on any page element when it is
   picked (so a keyboard pick, too), which the composer then takes, so focus
-  styles and blur handlers could change it before it is copied, the
-  pointer moving or pressing on the page (into the composer, say), or what
-  it is over changing (the composer opening over it, the page moving under
-  it), before the element is copied, which could change its `:hover` or
-  `:active` styles or have its handlers change it (a small element is
-  copied at once; for a large one, send with Ctrl/Cmd+Enter to keep the
-  pointer still), a scrolled box in the element, which the
+  styles and blur handlers could change it before it is copied, a
+  scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
   `href`, or a `url()` or `src()` in a style or
