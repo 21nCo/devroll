@@ -1033,19 +1033,32 @@ test("a large drawing on a page with many style rules is copied well within the 
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url() === `${daemon.url}/feedback`) sent = Date.now();
   });
+  // The capture's stage marks, observed as they are made (the capture clears them from the timeline when it ends).
+  await page.evaluate(() => {
+    const state = window as unknown as { stages: [string, number][] };
+    state.stages = [];
+    new PerformanceObserver((list) => {
+      for (const mark of list.getEntries()) {
+        if (mark.name.startsWith("iterbar:screenshot-")) state.stages.push([mark.name.slice("iterbar:screenshot-".length), performance.timeOrigin + mark.startTime]);
+      }
+    }).observe({ type: "mark" });
+  });
   const { draft, screenshot, receivedAt } = await commentOnDrawing(page, daemon, "chart", () => {
     started = Date.now();
   });
   // When each stage of the capture was reached, after the pick, so that a slow run shows where its time went.
-  const stages = await page.evaluate(() => performance.getEntriesByType("mark")
-    .filter((mark) => mark.name.startsWith("iterbar:screenshot-"))
-    .map((mark) => [mark.name.slice("iterbar:screenshot-".length), performance.timeOrigin + mark.startTime] as const));
-  const split = [...stages, ["sent", sent] as const, ["received", receivedAt] as const].map(([stage, at]) => `${stage} ${Math.round(at - started)}`);
+  const stages = await page.evaluate(() => ({
+    observed: (window as unknown as { stages: [string, number][] }).stages,
+    left: performance.getEntriesByType("mark").filter((mark) => mark.name.startsWith("iterbar:")).length,
+  }));
+  const split = [...stages.observed, ["sent", sent] as const, ["received", receivedAt] as const].map(([stage, at]) => `${stage} ${Math.round(at - started)}`);
   test.info().annotations.push({ type: "stages (ms after the pick)", description: split.join(", ") });
   console.log(`large drawing, ms after the pick: ${split.join(", ")}`);
   expect(draft.screenshotUnavailableReason).toBeNull();
   expect(screenshot).not.toBeNull();
   expect(receivedAt - started).toBeLessThan(5_000);
+  // The marks were observed; none is left in the page's timeline.
+  expect(stages.left).toBe(0);
 });
 
 test("the fake daemon times a held post from its arrival, not its release", async ({ page, openFixture, fixtureServer }) => {
@@ -1064,6 +1077,24 @@ test("the fake daemon times a held post from its arrival, not its release", asyn
   answer();
   await expect.poll(() => daemon.posts.length).toBe(1);
   expect(daemon.posts[0]!.receivedAt).toBeLessThanOrEqual(arrived);
+});
+
+test("a drawing without a style sheet of its own is still compared in full: an important inline value that differs in its copy is refused", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  // 1vw is 10px on the 1000px page but 2px in the 200px frame the copy is checked in; the copy keeps the inline
+  // important value, so it cannot be given the page's, on a shape and on a group around one.
+  await page.evaluate(() => {
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+      <svg data-testid="vw-shape" width="200" height="60" style="display: block"><rect width="50" height="50" style="stroke: black; stroke-width: 1vw !important"/></svg>
+      <svg data-testid="vw-group" width="200" height="60" style="display: block"><g style="stroke-width: 1vw !important"><rect width="50" height="50" stroke="black"/></g></svg>`);
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  for (const [id, element] of [["vw-shape", "rect"], ["vw-group", "g"]] as const) {
+    const { draft, screenshot } = await commentOnDrawing(page, daemon, id);
+    expect(screenshot, id).toBeNull();
+    expect(draft.screenshotUnavailableReason, id).toBe(`The screenshot failed: the page styles the drawing's <${element}> (its stroke-width) in a way its copy cannot reproduce yet`);
+  }
 });
 
 test("a drawing is copied only while its capture holds the render slot, and not at all once withdrawn", async ({ page, openFixture, fixtureServer }) => {

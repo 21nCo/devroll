@@ -220,6 +220,12 @@ function snapshots(): Snapshot {
   };
 }
 
+/** Whether `element` holds a declaration as important in its inline style. */
+function holdsImportant(element: SVGElement): boolean {
+  for (let index = 0; index < element.style.length; index++) if (element.style.getPropertyPriority(element.style.item(index)) === "important") return true;
+  return false;
+}
+
 /** How many times an element is given the values it differs in: a value given can change another (a border style, its width). */
 const MATCH_ROUNDS = 3;
 
@@ -498,7 +504,7 @@ function widen(selector: string, parent: string | null, namespaced = false): str
  * uses by `#id` from elsewhere is copied under copies (without ids or other children) of its ancestors up to its own
  * `<svg>`, carrying values the same way. Each copied element is compared with its original, property by property
  * (custom properties too, an empty one kept empty), given the values it differs in as computed, and compared again
- * once all are given. What a `<use>` shows must have nothing from the page its copy lacks (see {@link shownRefusal}),
+ * once all are given (unless it matched in every property and nothing in the copy has changed since, see below). What a `<use>` shows must have nothing from the page its copy lacks (see {@link shownRefusal}),
  * the copy no text, and no SVG animation may hold or target what is copied. What the copy refers to (links, `url()`s
  * in attributes that can load something, given values, `<style>` text) is checked before it holds it. A string says
  * why it cannot be drawn. `eachNode` runs before each element or rule is copied or compared, and may end the copy; the
@@ -624,11 +630,13 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     let compared = 0;
     // The elements given values to match their originals.
     const given = new Set<Element>();
-    // How many times the copy's document has changed, counted when asked; and the count at which each copied element
-    // was found to match its original.
-    const changes = new MutationObserver(() => undefined);
-    changes.observe(isolatedDocument, { subtree: true, childList: true, attributes: true, characterData: true });
+    // How many times the copy's document has changed (counted when asked, or as its changes are delivered); and the
+    // count at which each copied element was found to match its original in every property.
     let changed = 0;
+    const changes = new MutationObserver(() => {
+      changed++;
+    });
+    changes.observe(isolatedDocument, { subtree: true, childList: true, attributes: true, characterData: true });
     const changeCount = (): number => (changes.takeRecords().length > 0 ? ++changed : changed);
     const matchedAt = new Map<SVGElement, number>();
     for (;;) {
@@ -644,10 +652,11 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
         const [live, copied] = pairs[compared]!;
         const refused = carry(copied, live, snapshot(live), view, ids, true, given);
         if (refused !== null) return refused;
-        matchedAt.set(copied, changeCount());
+        // carry() leaves out what the copy holds as important (inline, from its original): only the final comparison checks that.
+        if (!holdsImportant(copied)) matchedAt.set(copied, changeCount());
       }
     }
-    // What <use>s show, which must have nothing from the page; then every element again, now that all are given values.
+    // What <use>s show, which must have nothing from the page; then every element again (see below), now that all are given values.
     const copies = new Map<Node, SVGElement>(pairs);
     // One elsewhere on the page that animates the root, a copied element or a definition's ancestor (by its href)
     // changes it too.
@@ -689,7 +698,8 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     if (recarried !== null) return recarried;
     for (const [name, value] of snapshot(svg)) if (!rootResidual.has(name) && !computes(rootStyle, name, value)) return cannotReproduce(svg, name);
     // Without a style sheet of its own (whose rules may match differently as the copy grows, or load fonts), what the
-    // copy's document computes changes only with the document: an element that matched with no change since still does.
+    // copy's document computes changes only with the document: an element that matched in every property with no change
+    // since still does, and is not compared again.
     const unchanged = isolatedDocument.styleSheets.length === 0 ? changeCount() : Number.NaN;
     changes.disconnect();
     for (const [live, copied] of pairs) {
@@ -811,6 +821,9 @@ function hasScrolledBox(element: Element): boolean {
   return [element, ...element.querySelectorAll("*")].some((node) => node.scrollTop !== 0 || node.scrollLeft !== 0);
 }
 
+/** The stages of a render marked in the page's performance timeline (`iterbar:screenshot-<stage>`) as it reaches them. */
+const CAPTURE_STAGES = ["slot", "copied", "drawing", "encoded"] as const;
+
 /** Ends a render that was withdrawn (another pick, Cancel, Escape, the bar's removal) or timed out, at the next step it reaches. */
 function checkWithdrawn(signal: AbortSignal): void {
   if (signal.aborted) throw new Error("the capture was withdrawn");
@@ -871,7 +884,6 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     worked = performance.now();
     check();
   };
-  performance.mark("iterbar:screenshot-start");
   const context = await createContext(element, {
     type: "image/png",
     timeout: SCREENSHOT_TIMEOUT_MS,
@@ -926,6 +938,8 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
   } finally {
     signal.removeEventListener("abort", freeUnlessDrawing);
     release?.();
+    // Seen by a PerformanceObserver as they are made; none stays in the page's timeline.
+    for (const stage of CAPTURE_STAGES) performance.clearMarks(`iterbar:screenshot-${stage}`);
   }
 }
 

@@ -98,7 +98,9 @@ element is described when it is picked:
   does. What the page's rules give an element (a fill, opacity,
   transform, `d`, box-sizing or custom property) is given to its copy as
   computed (an empty custom property stays empty), and then every
-  element is compared again. What a `<use>` shows is drawn with only its
+  element is compared again, unless the copy has no style sheet of its
+  own and has not changed since the element matched in every property.
+  What a `<use>` shows is drawn with only its
   own attributes and inline style, the drawing's own rules and what it
   inherits from the `<use>`, which comparing elements cannot check for each
   `<use>`; so the screenshot is unavailable when the page could style it
