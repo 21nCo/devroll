@@ -15,7 +15,7 @@ export interface FakeDaemon {
   rejectToken: boolean;
   readonly requests: { method: string; path: string; authorization: string | undefined }[];
   readonly slotReports: SlotReport[];
-  /** Every `POST /feedback`: the parsed draft, the screenshot part's bytes, if one was sent, and when it arrived (`Date.now()`). */
+  /** Every `POST /feedback`: the parsed draft, the screenshot part's bytes, if one was sent, and when it arrived (`Date.now()`, before any hold). */
   readonly posts: { draft: FeedbackDraft; screenshot: Buffer | null; receivedAt: number }[];
   /** A status to answer `POST /feedback` with instead of storing it. */
   failFeedback: number | null;
@@ -90,6 +90,7 @@ export async function fakeDaemon(
       return;
     }
     if (request.method() === "POST" && path === "/feedback") {
+      const receivedAt = Date.now();
       if (daemon.holdFeedback) await daemon.holdFeedback;
       const fail = async (status: number): Promise<void> => {
         const error = FEEDBACK_ERRORS[status] ?? { code: status < 500 ? "invalid_request" : "internal", message: `Failed with ${status}` };
@@ -99,7 +100,6 @@ export async function fakeDaemon(
         await fail(daemon.failFeedback);
         return;
       }
-      const receivedAt = Date.now();
       const post = { ...(await readFeedbackPost(request)), receivedAt };
       daemon.posts.push(post);
       const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);

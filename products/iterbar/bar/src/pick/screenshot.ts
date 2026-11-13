@@ -191,12 +191,25 @@ type Snapshot = (element: Element) => ReadonlyMap<string, string>;
 
 function snapshots(): Snapshot {
   const taken = new Map<Element, Map<string, string>>();
+  // A computed style lists every property the browser supports, the same for each element, then the element's custom
+  // properties (CSSOM): those it supports are listed once, and those the copy carries kept, so that each element costs
+  // one read of each property rather than three calls.
+  let listed: string[] = [];
+  let drawn: string[] = [];
   return (element) => {
     let values = taken.get(element);
     if (!values) {
       const style = getComputedStyle(element);
+      const length = style.length;
+      let custom = length;
+      while (custom > 0 && style.item(custom - 1).startsWith("--")) custom--;
+      if (listed.length !== custom || listed[custom - 1] !== style.item(custom - 1)) {
+        listed = Array.from({ length: custom }, (_, index) => style.item(index));
+        drawn = listed.filter((name) => !leftOut(name, ""));
+      }
       values = new Map();
-      for (let index = 0; index < style.length; index++) {
+      for (const name of drawn) values.set(name, style.getPropertyValue(name));
+      for (let index = custom; index < length; index++) {
         const name = style.item(index);
         const value = style.getPropertyValue(name);
         if (!leftOut(name, value)) values.set(name, value);
@@ -611,6 +624,13 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     let compared = 0;
     // The elements given values to match their originals.
     const given = new Set<Element>();
+    // How many times the copy's document has changed, counted when asked; and the count at which each copied element
+    // was found to match its original.
+    const changes = new MutationObserver(() => undefined);
+    changes.observe(isolatedDocument, { subtree: true, childList: true, attributes: true, characterData: true });
+    let changed = 0;
+    const changeCount = (): number => (changes.takeRecords().length > 0 ? ++changed : changed);
+    const matchedAt = new Map<SVGElement, number>();
     for (;;) {
       for (const id of ids) {
         if (defined.has(id)) continue;
@@ -624,6 +644,7 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
         const [live, copied] = pairs[compared]!;
         const refused = carry(copied, live, snapshot(live), view, ids, true, given);
         if (refused !== null) return refused;
+        matchedAt.set(copied, changeCount());
       }
     }
     // What <use>s show, which must have nothing from the page; then every element again, now that all are given values.
@@ -667,7 +688,12 @@ async function copyDrawing(svg: SVGSVGElement, frame: Frame, scratch: Node, each
     const recarried = carry(copy, svg, snapshot(svg), view, ids, false);
     if (recarried !== null) return recarried;
     for (const [name, value] of snapshot(svg)) if (!rootResidual.has(name) && !computes(rootStyle, name, value)) return cannotReproduce(svg, name);
+    // Without a style sheet of its own (whose rules may match differently as the copy grows, or load fonts), what the
+    // copy's document computes changes only with the document: an element that matched with no change since still does.
+    const unchanged = isolatedDocument.styleSheets.length === 0 ? changeCount() : Number.NaN;
+    changes.disconnect();
     for (const [live, copied] of pairs) {
+      if (matchedAt.get(copied) === unchanged) continue;
       await eachNode();
       const have = view.getComputedStyle(copied);
       for (const [name, value] of snapshot(live)) if (!computes(have, name, value)) return cannotReproduce(live, name);
@@ -845,6 +871,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     worked = performance.now();
     check();
   };
+  performance.mark("iterbar:screenshot-start");
   const context = await createContext(element, {
     type: "image/png",
     timeout: SCREENSHOT_TIMEOUT_MS,
@@ -855,6 +882,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     onEmbedNode: check,
     onCreateForeignObjectSvg: () => {
       check();
+      performance.mark("iterbar:screenshot-drawing");
       drawing = true;
     },
     autoDestruct: true,
@@ -868,6 +896,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     release = await slot.acquire();
     signal.addEventListener("abort", freeUnlessDrawing, { once: true });
     check();
+    performance.mark("iterbar:screenshot-slot");
     worked = performance.now();
     // Everything that reads or copies the element happens from here on, holding the slot.
     if (hasScrolledBox(element)) throw new Error("a box in the element is scrolled, which a screenshot cannot show yet");
@@ -880,6 +909,7 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
       // Drawn from the markup of a framed copy that is checked to look the same; the live element is never changed.
       const copy = await copyDrawing(element, frame, scratch, eachNode);
       if (typeof copy === "string") throw new Error(copy);
+      performance.mark("iterbar:screenshot-copied");
       context.node = copy;
       drawing = true;
     }
@@ -887,7 +917,9 @@ async function render(element: Element, exclude: Node, deviceScale: number, slot
     if (scale === null) throw new Error("the element has no visible area");
     context.scale = scale;
     context.dpi = scale === 1 ? null : 96 * scale;
-    return { png: await domToBlob(context), scale };
+    const png = await domToBlob(context);
+    performance.mark("iterbar:screenshot-encoded");
+    return { png, scale };
   } catch (error) {
     destroyContext(context);
     throw error;

@@ -1029,12 +1029,41 @@ test("a large drawing on a page with many style rules is copied well within the 
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   // Timed from the pick to the post reaching the daemon: entering comment mode and the click's setup are left out.
   let started = Number.NaN;
+  let sent = Number.NaN;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url() === `${daemon.url}/feedback`) sent = Date.now();
+  });
   const { draft, screenshot, receivedAt } = await commentOnDrawing(page, daemon, "chart", () => {
     started = Date.now();
   });
+  // When each stage of the capture was reached, after the pick, so that a slow run shows where its time went.
+  const stages = await page.evaluate(() => performance.getEntriesByType("mark")
+    .filter((mark) => mark.name.startsWith("iterbar:screenshot-"))
+    .map((mark) => [mark.name.slice("iterbar:screenshot-".length), performance.timeOrigin + mark.startTime] as const));
+  const split = [...stages, ["sent", sent] as const, ["received", receivedAt] as const].map(([stage, at]) => `${stage} ${Math.round(at - started)}`);
+  test.info().annotations.push({ type: "stages (ms after the pick)", description: split.join(", ") });
+  console.log(`large drawing, ms after the pick: ${split.join(", ")}`);
   expect(draft.screenshotUnavailableReason).toBeNull();
   expect(screenshot).not.toBeNull();
   expect(receivedAt - started).toBeLessThan(5_000);
+});
+
+test("the fake daemon times a held post from its arrival, not its release", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openCases(page, openFixture, daemon);
+  let answer!: () => void;
+  daemon.holdFeedback = new Promise((resolve) => {
+    answer = resolve;
+  });
+  await enterCommentMode(page);
+  await page.locator('[data-case="testid"]').click();
+  await typeAndSend(page, "Held");
+  await expect.poll(() => feedbackPosts(daemon), { intervals: [10] }).toBe(1);
+  const arrived = Date.now();
+  await page.waitForTimeout(500);
+  answer();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  expect(daemon.posts[0]!.receivedAt).toBeLessThanOrEqual(arrived);
 });
 
 test("a drawing is copied only while its capture holds the render slot, and not at all once withdrawn", async ({ page, openFixture, fixtureServer }) => {
