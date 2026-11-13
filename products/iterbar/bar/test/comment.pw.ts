@@ -52,6 +52,17 @@ async function typeAndSend(page: Page, text: string): Promise<void> {
   await box.press("Control+Enter");
 }
 
+/**
+ * Clicks a bar control as a user does, moving the pointer onto it first: while an element is being copied the bar
+ * lets a still pointer through, so a click with no move before it would reach the page.
+ */
+async function clickInBar(page: Page, selector: string): Promise<void> {
+  const control = inBar(page, selector);
+  const box = (await control.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await control.click();
+}
+
 /** Picks `target` (clicked at `position`, else its centre), types `text` and sends it; resolves with what the daemon received. */
 async function comment(page: Page, daemon: FakeDaemon, target: Locator, text: string, position?: { x: number; y: number }): Promise<FakeDaemon["posts"][number]> {
   const before = daemon.posts.length;
@@ -1102,14 +1113,14 @@ test("a drawing is copied only while its capture holds the render slot, and not 
   await page.waitForTimeout(500);
   expect(await counts()).toEqual({ clones: 0, encodes: 1, markupReads: 0 });
   // Withdrawn while it waits, it never copies the drawing.
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   await page.evaluate(() => (window as unknown as { releaseEncodes: () => void }).releaseEncodes());
   await page.waitForTimeout(500);
   expect(await counts()).toEqual({ clones: 0, encodes: 1, markupReads: 0 });
   // Withdrawn while copying it, it stops there and draws nothing.
   await pickDrawing();
   await expect.poll(async () => (await counts()).clones).toBeGreaterThan(0);
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   const atCancel = (await counts()).clones;
   await page.waitForTimeout(1000);
   const after = await counts();
@@ -1202,7 +1213,7 @@ test("a drawing's copy is checked only while its capture is current: a withdrawa
   });
   await pick("w");
   await expect.poll(async () => (await work(page)).work.w?.reads ?? 0, { timeout: 15_000 }).toBeGreaterThan(50);
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   const atCancel = (await work(page)).work.w!.reads;
   const longestStall = await page.evaluate(() => {
     const state = window as unknown as { longestStall: number; stallTimer: number };
@@ -1281,7 +1292,7 @@ test("the page's rules for what a <use> shows are matched a step at a time: a wi
     (window as unknown as { longestStall: number }).longestStall = 0;
   });
   await page.waitForTimeout(300);
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   const atCancel = await matched("u");
   expect(await page.evaluate(() => (window as unknown as { longestStall: number }).longestStall)).toBeLessThan(100);
   await expect.poll(frames, { intervals: [10], timeout: 200 }).toBe(0);
@@ -1366,7 +1377,7 @@ test("a capture withdrawn while its element is being copied stops there, and dra
   await enterCommentMode(page);
   await page.getByTestId("big-a").click();
   await expect.poll(cloned).toBeGreaterThan(0);
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();
   const atCancel = await cloned();
   await page.waitForTimeout(1000);
@@ -1426,7 +1437,7 @@ test("a capture withdrawn while it is drawn finishes before another draws, so en
     await page.locator(target).click();
     await expect.poll(encoding).toBe(1);
   }
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   await page.locator('[data-case="root"]').click();
   await expect.poll(encoding).toBe(1);
   await typeAndSend(page, "Last");
@@ -1460,7 +1471,7 @@ test("a withdrawn capture still waiting inside its render holds up no later capt
 test("keeps the screenshot within 4 MP when the element grows while it is being captured", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   // At the pick the element is 40 x 40; once its image loads, during the capture, it is 2500 x 2000 (5 MP). The image
-  // lets the pointer through, so growing under it moves no hover.
+  // lets the pointer through, so growing under it changes no hover (which refuses a screenshot).
   const release = await heldImage(page, `${fixtureServer.origin}/grow.svg`, 2500, 2000);
   await openFixture();
   await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
@@ -1562,35 +1573,53 @@ test("sends no screenshot, and says why, when a page element has focus at the pi
 test("sends no screenshot, and says why, when the pointer moves on the page before the element is copied", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await openFixture();
-  // Blue tiles that are red while hovered: by their own :hover, an ancestor's, or a :has(:hover) around them. Each
-  // holds an image the capture waits for, before it copies anything, until the test lets it load.
-  const ids = ["self", "under", "has", "back", "stays"] as const;
+  // Blue tiles that are red while hovered: by their own :hover, an ancestor's, or a :has(:hover) around them; "within"
+  // is red only while a pointermove handler finds the pointer in its left half. Each holds an image the capture waits
+  // for, before it copies anything, until the test lets it load; "grows" holds a second one that, loaded first, covers
+  // the pointer.
+  const ids = ["self", "under", "has", "back", "within", "grows", "stays"] as const;
   const releases = new Map<string, () => void>();
   for (const id of ids) releases.set(id, await heldImage(page, `${fixtureServer.origin}/held-${id}.svg`, 4, 4));
+  const releaseCover = await heldImage(page, `${fixtureServer.origin}/cover.svg`, 60, 40);
   await page.evaluate((ids) => {
-    const tile = "display: block; width: 60px; height: 40px; margin: 4px; background: rgb(0, 0, 255)";
+    const tile = "position: relative; display: block; width: 60px; height: 40px; margin: 4px; background: rgb(0, 0, 255)";
     document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
       <style>
-        .self:hover, .under-wrap:hover > .under, .has-row:has(:hover) .has, .back:hover, .stays:hover { background: rgb(255, 0, 0) !important }
+        .self:hover, .under-wrap:hover > .under, .has-row:has(:hover) .has, .tile:hover:not(.within), .within.left { background: rgb(255, 0, 0) !important }
         .tile img { pointer-events: none }
+        .tile img.cover { position: absolute; top: 0; left: 0; pointer-events: auto }
       </style>
       ${ids.map((id) => {
-        const inner = `<div class="tile ${id}" data-testid="${id}" style="${tile}"><img src="/held-${id}.svg" width="4" height="4" alt=""></div>`;
+        const cover = id === "grows" ? '<img class="cover" src="/cover.svg" alt="">' : "";
+        const inner = `<div class="tile ${id}" data-testid="${id}" style="${tile}"><img src="/held-${id}.svg" width="4" height="4" alt="">${cover}</div>`;
         if (id === "under") return `<div class="under-wrap">${inner}</div>`;
         if (id === "has") return `<div class="has-row">${inner}</div>`;
         return inner;
       }).join("")}`);
+    const within = document.querySelector<HTMLElement>(".within")!;
+    within.addEventListener("pointermove", (event) => within.classList.toggle("left", event.offsetX < 30));
   }, ids);
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-  const reason = "The screenshot failed: the pointer moved on the page after the element was picked, so a screenshot cannot show it as it was yet";
+  const moved = "The screenshot failed: the pointer moved on the page after the element was picked, so a screenshot cannot show it as it was yet";
+  const changed = "The screenshot failed: what the pointer is over on the page changed after the element was picked, so a screenshot cannot show the element as it was yet";
   for (const id of ids) {
     const index = daemon.posts.length;
     const tile = page.getByTestId(id);
+    const box = (await tile.boundingBox())!;
     await enterCommentMode(page);
-    await tile.click();
-    // Into the comment box while the capture waits (and, for "back", onto the tile again); "stays" keeps it there.
-    if (id !== "stays") await inBar(page, "[data-role=composer-text]").hover();
-    if (id === "back") await tile.hover();
+    await tile.click({ position: { x: id === "within" ? 10 : 30, y: 20 } });
+    // While the capture waits: into the comment box (and, for "back", onto the tile again), or 30 px right within
+    // the tile; "grows" has the page cover the still pointer, and "stays" keeps it there.
+    if (id === "within") {
+      await page.mouse.move(box.x + 40, box.y + 20);
+    } else if (id === "grows") {
+      releaseCover();
+      await expect.poll(() => page.locator(".grows .cover").evaluate((cover) => cover.matches(":hover"))).toBe(true);
+    } else if (id !== "stays") {
+      const composer = (await inBar(page, "[data-role=composer-text]").boundingBox())!;
+      await page.mouse.move(composer.x + composer.width / 2, composer.y + composer.height / 2);
+      if (id === "back") await page.mouse.move(box.x + 30, box.y + 20);
+    }
     releases.get(id)!();
     await typeAndSend(page, id);
     await expect.poll(() => daemon.posts.length).toBe(index + 1);
@@ -1603,9 +1632,38 @@ test("sends no screenshot, and says why, when the pointer moves on the page befo
       expect((await pngPixels(page, screenshot!, [[30, 20], [57, 37]])).at, id).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
     } else {
       expect(screenshot, id).toBeNull();
-      expect(draft.screenshotUnavailableReason, id).toBe(reason);
+      expect(draft.screenshotUnavailableReason, id).toBe(id === "grows" ? changed : moved);
     }
   }
+});
+
+test("a still pointer keeps a pick's hover when the comment box opens over it", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  const release = await heldImage(page, `${fixtureServer.origin}/held-corner.svg`, 4, 4);
+  await openFixture();
+  // A blue box, red while hovered, filling the corner the bar is docked in.
+  await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", `
+    <style>.corner:hover { background: rgb(255, 0, 0) !important }</style>
+    <div class="corner" data-testid="corner" style="position: fixed; right: 0; bottom: 0; width: 400px; height: 400px; background: rgb(0, 0, 255)">
+      <img src="/held-corner.svg" width="4" height="4" alt="" style="pointer-events: none"></div>`));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await enterCommentMode(page);
+  // Picked just above the bar, where the comment box then opens.
+  const bar = (await inBar(page, ".bar").boundingBox())!;
+  const point = { x: bar.x + bar.width / 2, y: bar.y - 10 };
+  await page.mouse.click(point.x, point.y);
+  const open = (await inBar(page, ".bar").boundingBox())!;
+  expect(open.y).toBeLessThan(point.y - 10);
+  expect(point.x).toBeGreaterThan(open.x);
+  release();
+  await typeAndSend(page, "Corner");
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  const { draft, screenshot } = daemon.posts[0]!;
+  expect(draft.target?.selector).toBe('[data-testid="corner"]');
+  expect(draft.screenshotUnavailableReason).toBeNull();
+  expect((await pngPixels(page, screenshot!, [[200, 200]])).at).toEqual([[255, 0, 0, 255]]);
+  // The bar takes the pointer again once the copy is taken.
+  await expect(page.locator("iterbar-bar")).not.toHaveAttribute("data-pointer-through");
 });
 
 test("sends no screenshot for an element without area, and says why", async ({ page, openFixture, fixtureServer }) => {
@@ -1719,7 +1777,7 @@ test("Enter or Space on a focused page control, the context menu and the documen
   expect(await events()).toEqual([]);
 
   // Holding the key: its repeats and release, which follow focus into the composer, reach neither it nor the page.
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   await page.getByTestId("custom").focus();
   await events();
   await page.keyboard.down(" ");
@@ -1766,7 +1824,7 @@ test("the key that picked is no longer swallowed once its press ends without a k
     await page.keyboard.down("Enter");
     await expect(text, ending).toHaveValue("\n\n");
     await page.keyboard.up("Enter");
-    await inBar(page, "[data-role=composer-cancel]").click();
+    await clickInBar(page, "[data-role=composer-cancel]");
   }
   expect(daemon.posts).toEqual([]);
 });
@@ -1796,7 +1854,7 @@ test("picking another element keeps the text, Cancel keeps comment mode, and a r
   await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On button#dup-b");
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Draft text");
 
-  await inBar(page, "[data-role=composer-cancel]").click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
   await expect(inBar(page, "[data-role=pick-picked]")).toBeHidden();
@@ -1867,17 +1925,17 @@ test("Cancel or Escape while the screenshot is being taken withdraws the comment
   await expect.poll(() => page.evaluate(() => window.canvasBlobs)).toBe(1);
   await slow.click();
   await text.fill("Withdrawn by Cancel");
-  await send.click();
+  await clickInBar(page, "[data-role=composer-send]");
   await expect(send).toHaveText("Sending…");
   await expect(cancel).toBeEnabled();
-  await cancel.click();
+  await clickInBar(page, "[data-role=composer-cancel]");
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
 
   await slow.click();
   await expect(send).toHaveText("Send");
   await text.fill("Withdrawn by Escape");
-  await send.click();
+  await clickInBar(page, "[data-role=composer-send]");
   await expect(send).toHaveText("Sending…");
   await page.keyboard.press("Escape");
   await expect(inBar(page, "[data-section=composer]")).toBeHidden();

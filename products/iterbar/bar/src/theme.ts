@@ -21,6 +21,9 @@ export const BAR_CSS = String.raw`
 
 [hidden] { display: none !important; }
 
+/* While a pick's element is being copied, until the pointer moves (see POINTER_THROUGH_ATTRIBUTE). */
+:host([data-pointer-through]) .bar { pointer-events: none; }
+
 .zoom-probe {
   position: fixed;
   top: 0;

@@ -791,10 +791,24 @@ function pointerState(page: Document, exclude: Node): (Element | null)[] {
   return [...read(":hover"), null, ...read(":active")];
 }
 
-/** What the pointer crossing into or out of an element, or pressing or releasing on one, dispatches. */
-const POINTER_CROSSINGS = ["pointerover", "pointerout", "pointerdown", "pointerup"] as const;
+/** What the pointer moving, pressing or releasing dispatches; a page handler may restyle the element on any of them. */
+const POINTER_MOVES = ["pointermove", "pointerdown", "pointerup"] as const;
+
+/** What what is under the pointer changing dispatches, whether the pointer or the page moved. */
+const POINTER_CROSSINGS = ["pointerover", "pointerout"] as const;
 
 const POINTER_MOVED = "the pointer moved on the page after the element was picked, so a screenshot cannot show it as it was yet";
+
+const POINTER_UNDER_CHANGED = "what the pointer is over on the page changed after the element was picked, so a screenshot cannot show the element as it was yet";
+
+/**
+ * While set on the bar's host, the bar lets the pointer through (see the theme): the comment box opening under a still
+ * pointer would otherwise take the page's hover from the picked element.
+ */
+const POINTER_THROUGH_ATTRIBUTE = "data-pointer-through";
+
+/** The capture whose pick the bar lets the pointer through for; a later pick takes it over. */
+let pointerThroughOwner: object | null = null;
 
 /** Ends a render that was withdrawn (another pick, Cancel, Escape, the bar's removal) or timed out, at the next step it reaches. */
 function checkWithdrawn(signal: AbortSignal): void {
@@ -842,13 +856,14 @@ export class RenderSlot {
  * the cap. Once `signal` aborts, the render stops at its next copied node or step and its context is destroyed.
  */
 async function render(
-  element: Element, exclude: Node, deviceScale: number, slot: RenderSlot, signal: AbortSignal, pointerMoved: () => boolean,
+  element: Element, exclude: Node, deviceScale: number, slot: RenderSlot, signal: AbortSignal, pointerChange: () => string | null,
 ): Promise<{ png: Blob; scale: number }> {
   checkWithdrawn(signal);
   const check = (): void => checkWithdrawn(signal);
   // Called after the last read of the live element on either path: what it copied must be what the pick saw.
   const checkPointer = (): void => {
-    if (pointerMoved()) throw new Error(POINTER_MOVED);
+    const change = pointerChange();
+    if (change !== null) throw new Error(change);
   };
   // Where a drawing's copy is checked: inside the bar's shadow root, out of the page's reach.
   const scratch = (exclude instanceof Element && exclude.shadowRoot) || exclude;
@@ -945,18 +960,34 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
     return { ok: false, reason: unavailableReason("a page element had focus when this one was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet") };
   }
   // Read as the pick is made too: the pointer, moving to the comment box, may unstyle the element (:hover or :active on
-  // it, around it or beside it, :has(:hover)) or have a handler change it before it is copied. Any pointer crossing
-  // counts, even one that comes back before the copy ends.
+  // it, around it or beside it, :has(:hover)) or have a handler change it before it is copied. Any move counts, even
+  // within the element or back again; so does what is under a still pointer changing. Meanwhile the bar lets the
+  // pointer through, until the pointer moves or the copy is taken, so the comment box opening under it changes nothing.
   const page = element.ownerDocument;
   const pointer = pointerState(page, exclude);
-  let crossed = false;
+  const owner = {};
+  pointerThroughOwner = owner;
+  if (exclude instanceof Element) exclude.setAttribute(POINTER_THROUGH_ATTRIBUTE, "");
+  const takePointer = (): void => {
+    if (pointerThroughOwner !== owner) return;
+    pointerThroughOwner = null;
+    if (exclude instanceof Element) exclude.removeAttribute(POINTER_THROUGH_ATTRIBUTE);
+  };
+  let [moved, crossed] = [false, false];
+  const onMove = (): void => {
+    moved = true;
+    takePointer();
+  };
   const onCross = (): void => {
     crossed = true;
   };
-  const pointerMoved = (): boolean => {
+  const pointerChange = (): string | null => {
+    takePointer();
+    if (moved) return POINTER_MOVED;
     const now = pointerState(page, exclude);
-    return crossed || now.length !== pointer.length || now.some((held, index) => held !== pointer[index]);
+    return crossed || now.length !== pointer.length || now.some((held, index) => held !== pointer[index]) ? POINTER_UNDER_CHANGED : null;
   };
+  for (const type of POINTER_MOVES) page.addEventListener(type, onMove, { capture: true, passive: true });
   for (const type of POINTER_CROSSINGS) page.addEventListener(type, onCross, { capture: true, passive: true });
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
   const withdraw = new AbortController();
@@ -972,7 +1003,7 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
     withdraw.signal.addEventListener("abort", () => reject(new Error("the capture was withdrawn")), { once: true });
   });
   try {
-    const { png, scale } = await Promise.race([render(element, exclude, deviceScale, slot, withdraw.signal, pointerMoved), ended]);
+    const { png, scale } = await Promise.race([render(element, exclude, deviceScale, slot, withdraw.signal, pointerChange), ended]);
     if (png.type !== "image/png") return { ok: false, reason: unavailableReason(`the browser produced ${png.type || "no image type"}`) };
     if (png.size === 0) return { ok: false, reason: unavailableReason("the image is empty") };
     if (png.size > MAX_ATTACHMENT_BYTES) {
@@ -993,6 +1024,8 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
+    takePointer();
+    for (const type of POINTER_MOVES) page.removeEventListener(type, onMove, { capture: true });
     for (const type of POINTER_CROSSINGS) page.removeEventListener(type, onCross, { capture: true });
   }
 }
