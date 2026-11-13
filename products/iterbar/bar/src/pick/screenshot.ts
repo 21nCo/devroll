@@ -791,24 +791,23 @@ function pointerState(page: Document, exclude: Node): (Element | null)[] {
   return [...read(":hover"), null, ...read(":active")];
 }
 
-/** What the pointer moving, pressing or releasing dispatches; a page handler may restyle the element on any of them. */
-const POINTER_MOVES = ["pointermove", "pointerdown", "pointerup"] as const;
-
-/** What what is under the pointer changing dispatches, whether the pointer or the page moved. */
-const POINTER_CROSSINGS = ["pointerover", "pointerout"] as const;
-
-const POINTER_MOVED = "the pointer moved on the page after the element was picked, so a screenshot cannot show it as it was yet";
-
-const POINTER_UNDER_CHANGED = "what the pointer is over on the page changed after the element was picked, so a screenshot cannot show the element as it was yet";
-
 /**
- * While set on the bar's host, the bar lets the pointer through (see the theme): the comment box opening under a still
- * pointer would otherwise take the page's hover from the picked element.
+ * How many times the pointer has moved, pressed or released (a page handler may restyle the element on any of them),
+ * and how many times what is under it has changed (whether the pointer or the page moved). Counted on the window from
+ * when this module loads, so before comment mode's picker, which swallows page presses there, can stop them.
  */
-const POINTER_THROUGH_ATTRIBUTE = "data-pointer-through";
+const pointerInput = { moves: 0, crossings: 0 };
+if (typeof window !== "undefined") {
+  const count = (kind: keyof typeof pointerInput) => (): void => {
+    pointerInput[kind] += 1;
+  };
+  for (const type of ["pointermove", "pointerdown", "pointerup"]) window.addEventListener(type, count("moves"), { capture: true, passive: true });
+  for (const type of ["pointerover", "pointerout"]) window.addEventListener(type, count("crossings"), { capture: true, passive: true });
+}
 
-/** The capture whose pick the bar lets the pointer through for; a later pick takes it over. */
-let pointerThroughOwner: object | null = null;
+const POINTER_MOVED = "the pointer moved or was pressed on the page after the element was picked, so a screenshot cannot show it as it was yet";
+
+const POINTER_UNDER_CHANGED = "what the pointer is over on the page changed after the element was picked (the comment box may have opened over it), so a screenshot cannot show the element as it was yet";
 
 /** Ends a render that was withdrawn (another pick, Cancel, Escape, the bar's removal) or timed out, at the next step it reaches. */
 function checkWithdrawn(signal: AbortSignal): void {
@@ -960,35 +959,18 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
     return { ok: false, reason: unavailableReason("a page element had focus when this one was picked, and the comment box takes it, so a screenshot cannot show the element as it was yet") };
   }
   // Read as the pick is made too: the pointer, moving to the comment box, may unstyle the element (:hover or :active on
-  // it, around it or beside it, :has(:hover)) or have a handler change it before it is copied. Any move counts, even
-  // within the element or back again; so does what is under a still pointer changing. Meanwhile the bar lets the
-  // pointer through, until the pointer moves or the copy is taken, so the comment box opening under it changes nothing.
+  // it, around it or beside it, :has(:hover)) or have a handler change it before it is copied. Any move or press
+  // counts, even within the element or back again; so does what is under a still pointer changing, the comment box
+  // opening over it included (its handlers see the pointer leave).
   const page = element.ownerDocument;
   const pointer = pointerState(page, exclude);
-  const owner = {};
-  pointerThroughOwner = owner;
-  if (exclude instanceof Element) exclude.setAttribute(POINTER_THROUGH_ATTRIBUTE, "");
-  const takePointer = (): void => {
-    if (pointerThroughOwner !== owner) return;
-    pointerThroughOwner = null;
-    if (exclude instanceof Element) exclude.removeAttribute(POINTER_THROUGH_ATTRIBUTE);
-  };
-  let [moved, crossed] = [false, false];
-  const onMove = (): void => {
-    moved = true;
-    takePointer();
-  };
-  const onCross = (): void => {
-    crossed = true;
-  };
+  const { moves, crossings } = pointerInput;
   const pointerChange = (): string | null => {
-    takePointer();
-    if (moved) return POINTER_MOVED;
+    if (pointerInput.moves !== moves) return POINTER_MOVED;
     const now = pointerState(page, exclude);
-    return crossed || now.length !== pointer.length || now.some((held, index) => held !== pointer[index]) ? POINTER_UNDER_CHANGED : null;
+    const changed = pointerInput.crossings !== crossings || now.length !== pointer.length || now.some((held, index) => held !== pointer[index]);
+    return changed ? POINTER_UNDER_CHANGED : null;
   };
-  for (const type of POINTER_MOVES) page.addEventListener(type, onMove, { capture: true, passive: true });
-  for (const type of POINTER_CROSSINGS) page.addEventListener(type, onCross, { capture: true, passive: true });
   const deviceScale = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
   const withdraw = new AbortController();
   const onAbort = (): void => withdraw.abort();
@@ -1024,8 +1006,5 @@ export async function captureScreenshot(element: Element, exclude: Node, slot: R
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
-    takePointer();
-    for (const type of POINTER_MOVES) page.removeEventListener(type, onMove, { capture: true });
-    for (const type of POINTER_CROSSINGS) page.removeEventListener(type, onCross, { capture: true });
   }
 }

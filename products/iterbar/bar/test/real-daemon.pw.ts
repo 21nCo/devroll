@@ -96,11 +96,23 @@ test("sends a picked element's comment with its screenshot, which the store keep
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.info.token });
   await expect(inBar(page, "[data-role=status]")).toHaveText("Connected", { timeout: 10_000 });
 
+  // Counts the images the page encodes: the screenshot is encoded once the heading is copied.
+  await page.evaluate(() => {
+    window.canvasBlobs = 0;
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) {
+      toBlob.call(this, (blob) => {
+        window.canvasBlobs += 1;
+        callback(blob);
+      }, ...rest);
+    };
+  });
   await inBar(page, "[data-role=comment]").click();
   await page.locator("#page-heading").click();
-  // Sent from the keyboard: moving the pointer before the element is copied refuses its screenshot.
+  // As a user types, the heading is copied; the pointer then moves to Send, which keeps the screenshot.
   await inBar(page, "[data-role=composer-text]").fill("Make the heading friendlier");
-  await inBar(page, "[data-role=composer-text]").press("Control+Enter");
+  await expect.poll(() => page.evaluate(() => window.canvasBlobs)).toBe(1);
+  await inBar(page, "[data-role=composer-send]").click();
 
   // The bar shows the new thread, and comment mode ends.
   const thread = inBar(page, ".thread");

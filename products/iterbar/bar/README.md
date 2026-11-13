@@ -138,11 +138,12 @@ element is described when it is picked:
   image, an element with no area, focus on any page element when it is
   picked (so a keyboard pick, too), which the composer then takes, so focus
   styles and blur handlers could change it before it is copied, the
-  pointer moving on the page (into the composer, say), or the page
-  changing under it, before the element is copied, which could change its
-  `:hover` or `:active` styles (send with Ctrl/Cmd+Enter to keep it still;
-  until it moves, the bar lets it through, so the composer opening over it
-  changes nothing), a scrolled box in the element, which the
+  pointer moving or pressing on the page (into the composer, say), or what
+  it is over changing (the composer opening over it, the page moving under
+  it), before the element is copied, which could change its `:hover` or
+  `:active` styles or have its handlers change it (a small element is
+  copied at once; for a large one, send with Ctrl/Cmd+Enter to keep the
+  pointer still), a scrolled box in the element, which the
   copy would show unscrolled, a shape inside an SVG drawing rather than the
   drawing, a drawing that loads a resource from outside the page (an
   `href`, or a `url()` or `src()` in a style or
