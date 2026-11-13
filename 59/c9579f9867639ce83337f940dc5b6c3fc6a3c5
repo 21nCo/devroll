@@ -1,0 +1,23 @@
+products/iterbar/bar/src/pick/screenshot.ts
+  s_2ab0b61d2a4c42::t_fcc7bee5079d1d 194-198,203-209,211-212,627-633,647,691-694,696,874,885,899,912,920-922
+products/iterbar/bar/test/comment.pw.ts
+  s_2ab0b61d2a4c42::t_29469d47924bc1 1032-1035,1039-1045,1051-1068
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_2ab0b61d2a4c42::t_d519d1ab79037b 18,93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "59c9579f9867639ce83337f940dc5b6c3fc6a3c5",
+  "prompts": {},
+  "sessions": {
+    "s_2ab0b61d2a4c42": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_2ab0b61d2a4c42",
+        "model": "unknown"
+      },
+      "human_author": "Aravind Samala <samalaaravind02@gmail.com>"
+    }
+  }
+}
