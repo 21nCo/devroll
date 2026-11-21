@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MAX_CURSOR_SEEN, MAX_CURSOR_TIME_MS } from "./cursor.js";
 import type { DaemonClient } from "./daemon-client.js";
 import { feedbackItem } from "./test-support/feedback.js";
-import { registerTools } from "./tools.js";
+import { MAX_BATCH_INLINE_BYTES, registerTools } from "./tools.js";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -16,10 +16,14 @@ afterEach(async () => {
 });
 
 /** The official SDK client connected in memory to the Iterbar tools over a daemon client whose listings the test supplies. */
-async function connect(list: (query: FeedbackListQuery, signal?: AbortSignal) => Feedback[] | Promise<Feedback[]>): Promise<Client> {
+async function connect(
+  list: (query: FeedbackListQuery, signal?: AbortSignal) => Feedback[] | Promise<Feedback[]>,
+  extra: Partial<Record<keyof DaemonClient, unknown>> = {},
+): Promise<Client> {
   const daemon = {
     listFeedback: async (query: FeedbackListQuery = {}, signal?: AbortSignal) => list(query, signal),
     openEvents: async () => Object.assign(new EventEmitter(), { terminate: () => undefined }),
+    ...extra,
   } as unknown as DaemonClient;
   const server = new McpServer({ name: "iterbar", version: "0.0.0" });
   registerTools({ server, client: daemon, closing: new AbortController().signal, heartbeatMs: 60_000, onError: (error) => { throw error; } });
@@ -164,5 +168,27 @@ describe("batch completeness", () => {
     ];
     const client = await connect(() => items);
     expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ expectedCount: 2, complete: true });
+  });
+});
+
+describe("a large batch", () => {
+  it("inlines screenshots up to the batch limit and references the rest by path", async () => {
+    const base = Date.now() - 60_000;
+    const byteLength = 7 * 1024 * 1024;
+    const shot = (index: number) => ({ id: `shot-${index}`, kind: "screenshot" as const, mediaType: "image/png" as const, byteLength, sha256: "0".repeat(64) });
+    const items = Array.from({ length: 5 }, (_, index) => ({
+      ...feedbackItem(`feedback-${index}`, base + index), batchId: "batch-1", batchSize: 5, batchIndex: index, screenshot: shot(index),
+      screenshotUnavailableReason: null,
+    }));
+    const client = await connect(() => items, {
+      paths: { projectRoot: "/tmp/iterbar-test-project" },
+      getAttachment: async () => new Uint8Array(byteLength),
+    });
+    const result = (await client.callTool({ name: "get_batch", arguments: { batchId: "batch-1" } }, undefined, { timeout: 60_000 })) as CallToolResult;
+    expect(result.isError).toBeFalsy();
+    const inlined = (result.structuredContent as { items: { attachments: { inlined: boolean }[] }[] }).items.map((entry) => entry.attachments[0]!.inlined);
+    const fits = Math.floor(MAX_BATCH_INLINE_BYTES / byteLength);
+    expect(inlined).toEqual(Array.from({ length: 5 }, (_, index) => index < fits));
+    expect(result.content.filter((block) => block.type === "image")).toHaveLength(fits);
   });
 });

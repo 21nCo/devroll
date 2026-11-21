@@ -17,6 +17,12 @@ import type { DaemonClient } from "./daemon-client.js";
 import { IterbarToolError } from "./errors.js";
 import { DEFAULT_WAIT_SECONDS, MAX_WAIT_SECONDS, waitForFeedback } from "./wait.js";
 
+/**
+ * Most attachment bytes one `get_batch` returns inline; the rest are referenced by their file paths, so a large batch
+ * still fits in one tool result.
+ */
+export const MAX_BATCH_INLINE_BYTES = 24 * 1024 * 1024;
+
 /** Largest evidence attachment returned inline by `get_feedback`; a larger one is referenced by its file path. */
 export const MAX_INLINE_EVIDENCE_BYTES = 1024 * 1024;
 
@@ -114,13 +120,16 @@ function inBatch(items: readonly Feedback[], batchId: string): Feedback[] {
 }
 
 /** Reads `feedback`'s attachment references and, when `inline`, their contents as content blocks. */
-async function readAttachments(client: DaemonClient, feedback: Feedback, inline: boolean) {
+async function readAttachments(
+  client: DaemonClient, feedback: Feedback, inline: boolean, budget: { remaining: number } = { remaining: Infinity },
+) {
   const blocks: ContentBlock[] = [];
   const attachments = [];
   for (const ref of attachmentsOf(feedback)) {
     const path = attachmentPath(client.paths.projectRoot, feedback.id, ref);
     let inlined = false;
-    if (inline && (ref.kind === "screenshot" || ref.byteLength <= MAX_INLINE_EVIDENCE_BYTES)) {
+    if (inline && (ref.kind === "screenshot" || ref.byteLength <= MAX_INLINE_EVIDENCE_BYTES) && ref.byteLength <= budget.remaining) {
+      budget.remaining -= ref.byteLength;
       const data = Buffer.from(await client.getAttachment(feedback.id, ref.id));
       blocks.push(ref.kind === "screenshot"
         ? { type: "image", data: data.toString("base64"), mimeType: ref.mediaType }
@@ -210,7 +219,8 @@ export function registerTools(context: ToolContext): void {
       "Read every feedback item the user sent together in one batch from the bar's draft tray, in the order they were " +
       "sent, each with its thread, target element, source location and active variants. Items share a batchId (shown on " +
       "each item by list_feedback and wait_for_feedback). By default each item's screenshot is included as an image, " +
-      "labelled with the item's id, and evidence as JSON. The bar posts a batch one comment at a time: expectedCount is " +
+      "labelled with the item's id, and evidence as JSON, up to 24 MiB in all; past that an attachment has inlined: " +
+      "false and is read from its path. The bar posts a batch one comment at a time: expectedCount is " +
       "how many it holds once all are sent, and complete says whether all have arrived. When complete is false and " +
       "lastArrivedAt is under a minute ago, wait_for_feedback with timeoutSeconds no longer than what is left of that " +
       "minute and call get_batch again; otherwise the rest was " +
@@ -218,8 +228,8 @@ export function registerTools(context: ToolContext): void {
       "first, then set each unfinished item working, make the edits, reply on each of those items and set each one " +
       "done. Leave items already done alone: a comment retried later arrives on its own. An entry with supersededBy " +
       "is an earlier copy of a comment the user sent again (perhaps edited): act on the copy it names, and on this one " +
-      "reply that it was sent again and set it resolved. If the copy it names asks for the same thing as a copy you " +
-      "already finished, do not redo the work: reply on the newest copy that it was already done and set it done.",
+      "reply that it was sent again and set it resolved. Judge the newest copy against the code as it is now: if the " +
+      "code already does what it asks, reply that it is done and set it done; otherwise make the change.",
     inputSchema: {
       batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
       includeAttachments: z.boolean().default(true).describe("Return each item's screenshot and evidence contents (default true)."),
@@ -245,8 +255,9 @@ export function registerTools(context: ToolContext): void {
     // newest copy (items come oldest first) is the one the user means, and it supersedes the others.
     const newestOfIndex = new Map<number, string>();
     for (const feedback of items) if (feedback.batchIndex !== undefined) newestOfIndex.set(feedback.batchIndex, feedback.id);
+    const budget = { remaining: MAX_BATCH_INLINE_BYTES };
     for (const feedback of items) {
-      const read = await readAttachments(client, feedback, input.includeAttachments);
+      const read = await readAttachments(client, feedback, input.includeAttachments, budget);
       if (read.blocks.length) blocks.push({ type: "text", text: `Attachments of ${feedback.id}:` }, ...read.blocks);
       const newest = feedback.batchIndex === undefined ? undefined : newestOfIndex.get(feedback.batchIndex);
       entries.push({ feedback, attachments: read.attachments, ...(newest && newest !== feedback.id ? { supersededBy: newest } : {}) });

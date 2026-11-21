@@ -81,8 +81,9 @@ Inputs: `batchId` (any item's `batchId`); `includeAttachments` (default `true`).
 Result: `{ batchId, count, expectedCount, complete, lastArrivedAt, items }`, where each entry of `items` is
 `{ feedback, attachments }` as `get_feedback` returns them, plus `supersededBy` (the newest copy's id) on an earlier copy
 of a comment the user sent again after a lost answer, perhaps edited: act on the copy it names, reply on this one that
-it was sent again and set it `resolved`. When the newest copy asks for the same thing as a copy already finished,
-reply on it that the work is done and set it `done` rather than redoing it. Entries come in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
+it was sent again and set it `resolved`. Judge the newest copy against the code as it is now: if the code already
+does what it asks, reply that it is done and set it `done`; otherwise make the change. Attachments are inlined up to
+24 MiB per call; past that an attachment has `inlined: false` and is read from its `path`. Entries come in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
 as an `image` block and its evidence as a `resource` block, each group after a text block `Attachments of <id>:`.
 The bar posts a batch one item at a time. `expectedCount` is how many items the batch holds (the newest item's
 `batchSize`, since a comment the user withdrew after a failed send lowers it), and `complete` says whether all of them
