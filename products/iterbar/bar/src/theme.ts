@@ -112,17 +112,19 @@ export const BAR_CSS = String.raw`
 .dock[data-dock="right"] .toolbar > .extra,
 .dock[data-dock="right"] .toolbar > [data-role=status],
 .dock[data-dock="right"] .toolbar > [data-role=drafts-toggle]:not([data-has]) { order: -1; }
-.dock[data-held] { left: var(--ib-held-left); right: auto; transform: none; }
+.dock[data-held] { left: var(--ib-held-left); right: auto; transform: none; max-width: var(--ib-held-room); }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
 
+/* Short of room, controls wrap onto rows above the first one (wrap-reverse), which keeps the sleeping buttons where
+   they are. */
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: wrap-reverse;
   align-items: center;
   gap: 2px;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: 20px;
   max-width: 100%;
 }
 /* Asleep: only the essentials. Awake (pointer, focus, pinned, a panel, the composer or comment mode): everything. The
@@ -196,9 +198,14 @@ button:disabled { cursor: default; opacity: 0.55; }
 .status[data-status="connected"]::before { background: #2e9e5b; }
 .status[data-status="retrying"]::before, .status[data-status="connecting"]::before { background: #d69a1d; }
 .status[data-status="unauthorized"]::before, .status[data-status="invalid"]::before { background: #d24b4b; }
-/* Asleep, a connection problem still shows as a dot on the inbox button. */
+/* Asleep, a connection problem still shows as a dot on the inbox button, drawn over its corner so the button keeps
+   its size whether the dot shows or not. */
+[data-role=inbox-toggle] { position: relative; }
 .dock:not([data-awake]):not([data-hovered]):not(:focus-within):is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) [data-role=inbox-toggle]::after {
   content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
   width: 7px;
   height: 7px;
   border-radius: 50%;

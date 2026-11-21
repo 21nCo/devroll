@@ -26,9 +26,12 @@ test("sleeps as a compact pill at the bottom centre and wakes on hover and focus
     const root = document.querySelector("iterbar-bar")!.shadowRoot!;
     return (root.elementFromPoint(x, y)?.closest("[data-role]") as HTMLElement | null)?.dataset.role;
   }, { x, y });
-  for (const dock of ["center", "left", "right"] as const) {
+  for (const dock of ["center", "left", "right", "narrow"] as const) {
     if (dock !== "center") {
-      await page.evaluate((value) => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ dock: value })), dock);
+      // Narrow: centred, but too narrow for the woken toolbar beside the pill, so the rest wraps above it.
+      if (dock === "narrow") await page.setViewportSize({ width: 360, height: 700 });
+      const stored = dock === "narrow" ? "center" : dock;
+      await page.evaluate((value) => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ dock: value })), stored);
       await openFixture();
       await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
       await expect(inBar(page, "[data-role=open-count]")).toHaveText("1");
@@ -43,6 +46,7 @@ test("sleeps as a compact pill at the bottom centre and wakes on hover and focus
       expect(await roleAt(point.x, point.y), `${role} at the ${dock} dock`).toBe(role);
     }
   }
+  await page.setViewportSize({ width: 1000, height: 700 });
   await page.evaluate(() => localStorage.removeItem(window.fixture.BAR_STATE_STORAGE_KEY));
   await openFixture();
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
@@ -157,6 +161,45 @@ test("ignores a corrupt stored state and keeps working without storage", async (
   await inBar(page, ".toolbar").hover();
   await inBar(page, "[data-role=toggle]").click();
   await expect(inBar(page, ".dock")).toHaveAttribute("data-expanded", "");
+});
+
+test("the warning dot on a sleeping Inbox does not change its size", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [], { socket: false });
+  await openFixture();
+  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ dock: "right" })));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await expect(inBar(page, "[data-role=status]")).toHaveText("Reconnecting…");
+  const asleep = (await inBar(page, "[data-role=inbox-toggle]").boundingBox())!;
+  await page.mouse.move(asleep.x + 3, asleep.y + asleep.height / 2);
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+  expect(await inBar(page, "[data-role=inbox-toggle]").boundingBox()).toEqual(asleep);
+});
+
+test("a tap on a bar inside a closed shadow root keeps it awake", async ({ browser, fixtureServer }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 700 } });
+  const page = await context.newPage();
+  try {
+    await page.goto(fixtureServer.origin);
+    await page.waitForFunction(() => window.fixture !== undefined);
+    const box = await page.evaluate(() => {
+      window.fixture.defineIterbarBar();
+      const host = document.createElement("div");
+      const bar = document.createElement("iterbar-bar");
+      host.attachShadow({ mode: "closed" }).append(bar);
+      document.body.append(host);
+      (window as unknown as { closedBar: Element }).closedBar = bar;
+      const rect = bar.shadowRoot!.querySelector("[data-role=status]")!.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    });
+    await page.touchscreen.tap(box.x, box.y);
+    // The finger has lifted and the toolbar is still awake: its pin shows.
+    await expect.poll(() => page.evaluate(() => {
+      const bar = (window as unknown as { closedBar: Element }).closedBar;
+      return getComputedStyle(bar.shadowRoot!.querySelector("[data-role=toggle]")!).display;
+    })).not.toBe("none");
+  } finally {
+    await context.close();
+  }
 });
 
 test("a tap wakes the sleeping toolbar until the next tap elsewhere", async ({ browser, fixtureServer }) => {

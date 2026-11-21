@@ -298,6 +298,9 @@ export class IterbarBarElement extends ElementBase {
     this.#dockButton.addEventListener("click", () => this.#saveState({ ...this.#state, dock: nextDock(this.#state.dock) }));
     this.#dockButton.addEventListener("keydown", (event) => this.#moveWithKey(event));
     toolbar.addEventListener("pointerenter", () => this.#holdPlace(true));
+    this.addEventListener("pointerdown", () => {
+      this.#pressedInside = true;
+    });
     // A touch leaves as the finger lifts; a tap keeps the toolbar awake until the next tap elsewhere instead.
     this.#dock.addEventListener("pointerleave", (event) => {
       if (event.pointerType !== "touch") this.#holdPlace(false);
@@ -415,7 +418,7 @@ export class IterbarBarElement extends ElementBase {
     }
     this.#watchZoom();
     window.addEventListener("keydown", this.#onKeydown, true);
-    window.addEventListener("pointerdown", this.#onPagePointerDown, true);
+    window.addEventListener("pointerdown", this.#onPagePointerDown);
     this.#watchUrl(true);
     this.#slots.attach();
     this.#reconnect();
@@ -427,7 +430,7 @@ export class IterbarBarElement extends ElementBase {
     this.#setCrosshair(false);
     this.#picker.mark(null);
     window.removeEventListener("keydown", this.#onKeydown, true);
-    window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
+    window.removeEventListener("pointerdown", this.#onPagePointerDown);
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
     this.#zoomObserver = null;
@@ -439,9 +442,17 @@ export class IterbarBarElement extends ElementBase {
     this.#followComposer(false);
   }
 
-  /** A press outside the toolbar ends a wake that a tap began (see the dock's pointerleave listener). */
-  readonly #onPagePointerDown = (event: PointerEvent): void => {
-    if (!event.composedPath().includes(this)) this.#holdPlace(false);
+  /**
+   * A press outside the toolbar ends a wake that a tap began (see the dock's pointerleave listener). A press inside is
+   * noted by a listener on the bar itself, which runs before this one on `window`, since a closed shadow root around
+   * the bar would hide it from the event's composed path here.
+   */
+  #pressedInside = false;
+
+  readonly #onPagePointerDown = (): void => {
+    const inside = this.#pressedInside;
+    this.#pressedInside = false;
+    if (!inside) this.#holdPlace(false);
   };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
@@ -1024,6 +1035,7 @@ export class IterbarBarElement extends ElementBase {
     if (state.dock !== this.#state.dock) {
       this.#dock.removeAttribute("data-held");
       this.#dock.style.removeProperty("--ib-held-left");
+      this.#dock.style.removeProperty("--ib-held-room");
     }
     this.#state = state;
     this.#applyState();
@@ -1065,6 +1077,7 @@ export class IterbarBarElement extends ElementBase {
       dock.removeAttribute("data-hovered");
       dock.removeAttribute("data-held");
       dock.style.removeProperty("--ib-held-left");
+      dock.style.removeProperty("--ib-held-room");
       return;
     }
     if (dock.hasAttribute("data-hovered")) return;
@@ -1075,9 +1088,9 @@ export class IterbarBarElement extends ElementBase {
       dock.toggleAttribute("data-held", true);
       dock.toggleAttribute("data-hovered", true);
       const visual = window.visualViewport;
+      // Short of room to the right, the added controls wrap onto a row above rather than moving the sleeping ones.
       const right = (visual?.offsetLeft ?? 0) + (visual?.width ?? window.innerWidth) - BAR_MARGIN_PX;
-      const width = dock.getBoundingClientRect().width;
-      if (left + width > right) dock.style.setProperty("--ib-held-left", `${Math.max((visual?.offsetLeft ?? 0) + BAR_MARGIN_PX, right - width)}px`);
+      dock.style.setProperty("--ib-held-room", `${Math.max(0, right - left)}px`);
       return;
     }
     dock.toggleAttribute("data-hovered", true);
