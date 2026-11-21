@@ -25,6 +25,8 @@ export interface FakeDaemon {
   dropFeedbackAnswer: boolean;
   /** A 5xx status to answer `POST /feedback` with after storing it, as when the daemon fails after its write. */
   failFeedbackAfterStore: number | null;
+  /** When set, stored feedback loses its batch fields, as with a daemon from before batches. */
+  dropBatch: boolean;
   readonly sockets: WebSocketRoute[];
   readonly closedSockets: WebSocketRoute[];
   send(event: DaemonEvent | string): void;
@@ -59,6 +61,7 @@ export async function fakeDaemon(
     holdFeedback: null,
     dropFeedbackAnswer: false,
     failFeedbackAfterStore: null,
+    dropBatch: false,
     sockets: [],
     closedSockets: [],
     send(event) {
@@ -103,6 +106,11 @@ export async function fakeDaemon(
       const post = { ...(await readFeedbackPost(request)), receivedAt };
       daemon.posts.push(post);
       const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);
+      if (daemon.dropBatch) {
+        delete stored.batchId;
+        delete stored.batchSize;
+        delete stored.batchIndex;
+      }
       // Stored, but neither answered nor announced: only a listing shows it.
       if (daemon.failFeedbackAfterStore !== null || daemon.dropFeedbackAnswer) daemon.items = [stored, ...daemon.items];
       if (daemon.failFeedbackAfterStore !== null) {

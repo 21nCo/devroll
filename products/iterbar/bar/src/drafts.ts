@@ -123,7 +123,10 @@ export class DraftTray {
     } else {
       body.append(h("p", { class: "draft-text" }, draft.text));
       if (draft.error) body.append(h("p", { class: "composer-error" }, draft.error));
-      const edit = h("button", { type: "button", "data-role": "draft-edit", "aria-label": `Edit draft ${index + 1}`, disabled: this.#busy }, "Edit");
+      // One draft is edited at a time, so unsaved text in another is never dropped.
+      const edit = h("button", {
+        type: "button", "data-role": "draft-edit", "aria-label": `Edit draft ${index + 1}`, disabled: this.#busy || this.#editing !== null,
+      }, "Edit");
       const remove = h("button", { type: "button", "data-role": "draft-remove", "aria-label": `Remove draft ${index + 1}`, disabled: this.#busy }, "Remove");
       edit.addEventListener("click", () => {
         this.#editing = { id: draft.id, value: draft.text };

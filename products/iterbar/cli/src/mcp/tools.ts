@@ -211,8 +211,9 @@ export function registerTools(context: ToolContext): void {
       "sent, each with its thread, target element, source location and active variants. Items share a batchId (shown on " +
       "each item by list_feedback and wait_for_feedback). By default each item's screenshot is included as an image, " +
       "labelled with the item's id, and evidence as JSON. The bar posts a batch one comment at a time: expectedCount is " +
-      "how many it holds once all are sent, and complete says whether all have arrived; when complete is false, " +
-      "wait_for_feedback briefly and call get_batch again. Work through the batch as one change: read all of it " +
+      "how many it holds once all are sent, and complete says whether all have arrived. When complete is false and " +
+      "lastArrivedAt is under a minute ago, wait_for_feedback briefly and call get_batch again; otherwise the rest was " +
+      "not sent (the user may have dropped a failed comment), so work on the items present. Work through the batch as one change: read all of it " +
       "first, then set each item working, make the edits, reply on each item and set each one done.",
     inputSchema: {
       batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
@@ -225,6 +226,11 @@ export function registerTools(context: ToolContext): void {
     if (items.length === 0) throw new IterbarToolError("not_found", `No feedback has batchId ${input.batchId}`);
     const sizes = items.map((item) => item.batchSize).filter((size): size is number => size !== undefined);
     const expectedCount = sizes.length ? Math.max(...sizes) : null;
+    // A comment stored twice (a retry after a lost answer) keeps its index, so it is counted once.
+    const arrived = items.every((item) => item.batchIndex !== undefined)
+      ? new Set(items.map((item) => item.batchIndex)).size
+      : items.length;
+    const lastArrivedAt = items.map((item) => item.createdAt).sort().at(-1)!;
     const blocks: ContentBlock[] = [];
     const entries = [];
     for (const feedback of items) {
@@ -236,7 +242,8 @@ export function registerTools(context: ToolContext): void {
       batchId: input.batchId,
       count: items.length,
       expectedCount,
-      complete: expectedCount === null ? null : items.length >= expectedCount,
+      complete: expectedCount === null ? null : arrived >= expectedCount,
+      lastArrivedAt,
       items: entries,
     }, blocks);
   }));

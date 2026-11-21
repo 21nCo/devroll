@@ -131,6 +131,8 @@ const contentFields = {
    * at a time, so an agent that sees fewer items than this knows more are on their way.
    */
   batchSize: z.number().int().positive().max(1000).optional(),
+  /** This comment's place in its batch, from 0; a retried comment keeps it, so a duplicate is not counted twice. */
+  batchIndex: z.number().int().nonnegative().max(999).optional(),
 };
 
 const commentFields = { kind: z.literal("comment"), text: nonBlankText };

@@ -347,9 +347,11 @@ p { margin: 0 0 6px; }
   gap: 6px;
   width: min(340px, calc(100vw - 2 * var(--ib-margin)));
   height: auto;
+  /* Never taller than the viewport, so its buttons stay reachable; it scrolls instead. */
+  max-height: calc(100vh - 2 * var(--ib-margin));
   margin: 0;
   padding: 10px;
-  overflow: visible;
+  overflow: auto;
   color: var(--ib-fg);
   background: var(--ib-bg);
   border: 1px solid var(--ib-border);

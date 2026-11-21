@@ -85,6 +85,7 @@ test("drafts several comments, edits and removes one, and sends the rest as one 
   expect(second!.draft.batchId).toBe(batchId);
   // Each comment says how many the batch holds, so an agent can tell when all of it has arrived.
   expect([first!.draft.batchSize, second!.draft.batchSize]).toEqual([2, 2]);
+  expect([first!.draft.batchIndex, second!.draft.batchIndex]).toEqual([0, 1]);
   // Both screenshots were taken, the sprite icon's included.
   expect(first!.draft.screenshotUnavailableReason).toBeNull();
   expect(first!.screenshot).not.toBeNull();
@@ -117,6 +118,7 @@ test("keeps a draft the daemon refused and retries it in the same batch", async 
   await expect.poll(() => daemon.posts.length).toBe(2);
   const ids = daemon.posts.map((post) => post.draft.batchId);
   expect(new Set(ids).size).toBe(1);
+  expect(daemon.posts.map((post) => post.draft.batchIndex)).toEqual([0, 1]);
   await expect(inBar(page, ".draft")).toHaveCount(0);
 });
 
@@ -164,6 +166,43 @@ test("Escape while editing a draft in comment mode cancels the edit and keeps co
   await expect(inBar(page, ".draft-text")).toHaveText("Original");
   await expect(inBar(page, "[data-role=draft-edit]")).toBeFocused();
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
+  // From any other control in the tray, Escape leaves comment mode as usual.
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("one draft is edited at a time", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "suggest", "One");
+  await draft(page, "card", "Two");
+  await page.keyboard.press("Escape");
+  await openPanel(page, "drafts");
+  await inBar(page, "[data-role=draft-edit]").first().click();
+  await expect(inBar(page, "[data-role=draft-edit]")).toBeDisabled();
+});
+
+test("says so when an older daemon drops the batch", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  daemon.dropBatch = true;
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "card", "Ungrouped");
+  await page.keyboard.press("Escape");
+  await openPanel(page, "drafts");
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect(inBar(page, "[data-role=announce]")).toContainText("filed one by one, not as a batch");
+});
+
+test("the page's own style attribute on the root survives comment mode", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await page.evaluate(() => document.documentElement.setAttribute("style", ""));
+  await page.keyboard.press("c");
+  await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => document.documentElement.getAttribute("style"))).toBe("");
 });
 
 test("the composer opens next to its element under a page zoom", async ({ page, openFixture, fixtureServer }) => {

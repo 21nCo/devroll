@@ -120,8 +120,9 @@ interface Draft {
   text: string;
   state: DraftView["state"];
   error: string | null;
-  /** The batch a Send all first tried it in; kept while it is not sent, so a retry stays in that batch. */
+  /** The batch a Send all first tried it in, and its place there; kept while it is not sent, so a retry stays put. */
   batchId: string | null;
+  batchIndex: number | null;
 }
 
 /**
@@ -205,14 +206,15 @@ export class IterbarBarElement extends ElementBase {
   /** An `expanded` assigned while disconnected, applied over the stored state on the next connection. */
   #pendingExpanded: boolean | undefined;
   #commentMode = false;
-  /** The page root's inline `cursor` before comment mode set the crosshair. */
-  #savedCursor: { value: string; priority: string } | null = null;
+  /** The page root's inline `cursor` before comment mode set the crosshair, and whether it had a `style` attribute. */
+  #savedCursor: { value: string; priority: string; hadStyle: boolean } | null = null;
   #slotsForReport: readonly SlotState[] | null = null;
   #reportTimer: ReturnType<typeof setTimeout> | null = null;
   /** The page URL of the last slot report, so a single-page navigation that keeps the slots is reported too. */
   #reportedUrl: string | null = null;
   #urlPoll: ReturnType<typeof setInterval> | null = null;
   #composerFrame: number | null = null;
+  #composerObserver: ResizeObserver | null = null;
 
   constructor() {
     super();
@@ -246,7 +248,8 @@ export class IterbarBarElement extends ElementBase {
       onPick: (element) => this.#onPick(element),
       onEscape: (event) => {
         // A draft being edited in the tray takes Escape itself, to cancel the edit.
-        if (event.composedPath().some((node) => node === this.#tray.element)) return false;
+        const target = event.composedPath()[0];
+        if (target instanceof Element && target.matches("[data-role=draft-text]")) return false;
         this.commentMode = false;
         return true;
       },
@@ -509,11 +512,18 @@ export class IterbarBarElement extends ElementBase {
   #followComposer(on: boolean): void {
     window.removeEventListener("scroll", this.#queuePlaceComposer, true);
     window.removeEventListener("resize", this.#queuePlaceComposer);
+    this.#composerObserver?.disconnect();
+    this.#composerObserver = null;
     if (this.#composerFrame !== null) cancelAnimationFrame(this.#composerFrame);
     this.#composerFrame = null;
     if (!on) return;
     window.addEventListener("scroll", this.#queuePlaceComposer, { capture: true, passive: true });
     window.addEventListener("resize", this.#queuePlaceComposer, { passive: true });
+    // An error or a resized text area changes its height, which can change where it fits.
+    if (typeof ResizeObserver === "function") {
+      this.#composerObserver = new ResizeObserver(this.#queuePlaceComposer);
+      this.#composerObserver.observe(this.#composer.element);
+    }
   }
 
   /**
@@ -562,7 +572,8 @@ export class IterbarBarElement extends ElementBase {
   }
 
   #feedbackDraft(
-    pick: Pick, text: string, screenshot: ScreenshotResult, batch: { readonly id: string; readonly size: number } | null,
+    pick: Pick, text: string, screenshot: ScreenshotResult,
+    batch: { readonly id: string; readonly size: number; readonly index: number } | null,
   ): FeedbackDraft {
     return {
       schemaVersion: SCHEMA_VERSION,
@@ -573,7 +584,7 @@ export class IterbarBarElement extends ElementBase {
       activeVariants: [...pick.activeVariants],
       screenshotUnavailableReason: screenshot.ok ? null : screenshot.reason,
       evidenceWindow: null,
-      ...(batch ? { batchId: batch.id, batchSize: batch.size } : {}),
+      ...(batch ? { batchId: batch.id, batchSize: batch.size, batchIndex: batch.index } : {}),
     };
   }
 
@@ -585,7 +596,7 @@ export class IterbarBarElement extends ElementBase {
       this.#composer.showError("This page's URL is not http or https, so the daemon cannot file a comment for it.");
       return;
     }
-    this.#drafts.push({ id: localId("draft"), pick, text, state: "draft", error: null, batchId: null });
+    this.#drafts.push({ id: localId("draft"), pick, text, state: "draft", error: null, batchId: null, batchIndex: null });
     // The pick now belongs to the draft: its screenshot carries on.
     this.#pick = null;
     this.#closeComposer();
@@ -602,6 +613,7 @@ export class IterbarBarElement extends ElementBase {
     if (index < 0) return;
     const [draft] = this.#drafts.splice(index, 1);
     draft!.pick.withdraw.abort();
+    if (draft!.batchId && !this.#drafts.some((each) => each.batchId === draft!.batchId)) this.#delivered.delete(draft!.batchId);
     this.#picker.mark(null);
     this.#renderDrafts();
     this.#announce("Draft removed.");
@@ -638,8 +650,14 @@ export class IterbarBarElement extends ElementBase {
     }
     const submitted = [...this.#drafts];
     const batchId = submitted.find((draft) => draft.batchId !== null)?.batchId ?? localId("batch");
-    const batch = { id: batchId, size: (this.#delivered.get(batchId) ?? 0) + submitted.length };
-    for (const draft of submitted) draft.batchId = batchId;
+    const size = (this.#delivered.get(batchId) ?? 0) + submitted.length;
+    // Drafts new to the batch take the places after those it already has (stored, or failed and kept).
+    let nextIndex = Math.max(-1, ...submitted.map((draft) => draft.batchIndex ?? -1), (this.#delivered.get(batchId) ?? 0) - 1) + 1;
+    for (const draft of submitted) {
+      draft.batchId = batchId;
+      draft.batchIndex ??= nextIndex++;
+    }
+    let ungrouped = false;
     this.#sendingBatch = true;
     this.#batchError = null;
     let sent = 0;
@@ -649,8 +667,10 @@ export class IterbarBarElement extends ElementBase {
       this.#renderDrafts();
       try {
         const screenshot = await draft.pick.screenshot;
-        const feedback = await connection.sendFeedback(
-          this.#feedbackDraft(draft.pick, draft.text, screenshot, batch), screenshot.ok ? screenshot.png : null);
+        const feedback = await connection.sendFeedback(this.#feedbackDraft(draft.pick, draft.text, screenshot,
+          { id: batchId, size, index: draft.batchIndex! }), screenshot.ok ? screenshot.png : null);
+        // A daemon from before batches stores the comment but drops its batch.
+        if (feedback.batchId !== batchId) ungrouped = true;
         if (this.#connection === connection) this.#threads.merge(feedback);
         this.#drafts = this.#drafts.filter((each) => each !== draft);
         this.#delivered.set(batchId, (this.#delivered.get(batchId) ?? 0) + 1);
@@ -666,7 +686,13 @@ export class IterbarBarElement extends ElementBase {
     else this.#batchError = `${failed} of ${submitted.length} not sent. Send all tries ${failed === 1 ? "it" : "them"} again in the same batch.`;
     this.#picker.mark(null);
     this.#renderDrafts();
-    if (failed === 0) {
+    if (ungrouped) {
+      this.#batchError = `${failed ? `${this.#batchError} ` : ""}The daemon is older than the draft tray, so the comments were filed one by one, not as a batch. Restart the dev server to update it.`;
+      this.#renderDrafts();
+    }
+    if (failed === 0 && ungrouped) {
+      this.#announce(this.#batchError ?? "");
+    } else if (failed === 0) {
       this.#announce(`Sent ${sent} ${sent === 1 ? "comment" : "comments"} as one batch.`);
       if (this.#state.panel === "drafts" && this.#drafts.length === 0) this.#openPanel("inbox", true);
     } else {
@@ -739,16 +765,20 @@ export class IterbarBarElement extends ElementBase {
     const style = document.documentElement?.style;
     if (!style) return;
     if (on && this.#savedCursor === null) {
-      this.#savedCursor = { value: style.getPropertyValue("cursor"), priority: style.getPropertyPriority("cursor") };
+      this.#savedCursor = {
+        value: style.getPropertyValue("cursor"),
+        priority: style.getPropertyPriority("cursor"),
+        hadStyle: document.documentElement.hasAttribute("style"),
+      };
       style.setProperty("cursor", "crosshair", "important");
     } else if (!on && this.#savedCursor !== null) {
-      const { value, priority } = this.#savedCursor;
+      const { value, priority, hadStyle } = this.#savedCursor;
       this.#savedCursor = null;
       // The page changed the cursor itself meanwhile: its value stays.
       if (style.getPropertyValue("cursor") !== "crosshair" || style.getPropertyPriority("cursor") !== "important") return;
       if (value) style.setProperty("cursor", value, priority);
       else style.removeProperty("cursor");
-      if (style.length === 0) document.documentElement.removeAttribute("style");
+      if (style.length === 0 && !hadStyle) document.documentElement.removeAttribute("style");
     }
   }
 

@@ -122,7 +122,7 @@ describe("a cursor whose times are past the end of year 9999", () => {
 describe("batches from a daemon that predates them", () => {
   it("still returns only the batch's items when the daemon ignores the batchId filter", async () => {
     const base = Date.now() - 60_000;
-    const inBatch = { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 1 };
+    const inBatch = { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 1, batchIndex: 0 };
     const other = feedbackItem("feedback-b", base + 10);
     // The daemon ignores every filter and lists everything.
     const client = await connect(() => [inBatch, other]);
@@ -133,5 +133,19 @@ describe("batches from a daemon that predates them", () => {
     expect((listed.items as Feedback[]).map((item) => item.id)).toEqual(["feedback-a"]);
     const none = (await client.callTool({ name: "get_batch", arguments: { batchId: "batch-2" } })) as CallToolResult;
     expect(none.structuredContent).toMatchObject({ error: { code: "not_found" } });
+  });
+});
+
+describe("batch completeness", () => {
+  it("counts a comment stored twice once, by its batch index, and says when the newest arrived", async () => {
+    const base = Date.now() - 60_000;
+    const first = { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 2, batchIndex: 0 };
+    const retried = { ...feedbackItem("feedback-b", base + 10), batchId: "batch-1", batchSize: 2, batchIndex: 0 };
+    let items = [first, retried];
+    const client = await connect(() => items);
+    const partial = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect(partial).toMatchObject({ count: 2, expectedCount: 2, complete: false, lastArrivedAt: retried.createdAt });
+    items = [first, retried, { ...feedbackItem("feedback-c", base + 20), batchId: "batch-1", batchSize: 2, batchIndex: 1 }];
+    expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ count: 3, complete: true });
   });
 });
