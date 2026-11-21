@@ -77,14 +77,6 @@ const SHADOW_HOSTS = new Set([
   "p", "section", "span",
 ]);
 
-/** Whether `element` scrolls its content, so the keyboard may focus it to scroll. */
-function isScrollContainer(element: Element): boolean {
-  const { overflowX, overflowY } = getComputedStyle(element);
-  const scrolls = (overflow: string) => overflow === "auto" || overflow === "scroll";
-  return (scrolls(overflowY) && element.scrollHeight > element.clientHeight)
-    || (scrolls(overflowX) && element.scrollWidth > element.clientWidth);
-}
-
 /**
  * Whether a key typed at `target` may be text entry, which shortcuts must leave alone. A custom element whose shadow
  * root is closed hides what has focus inside it, so it counts as text entry too.
@@ -97,9 +89,9 @@ function isTextEntry(target: EventTarget | undefined): boolean {
   // buttons still work.
   if (target.localName !== BAR_TAG && target.shadowRoot === null && target.matches(":focus")) {
     if (target.localName.includes("-")) return true;
-    // Only these built-in elements can host a shadow root. One focused without a tabindex can only hold focus through
-    // its shadow tree, unless it is a scroll container, which browsers let the keyboard focus to scroll it.
-    if (SHADOW_HOSTS.has(target.localName) && !target.hasAttribute("tabindex") && !isScrollContainer(target)) return true;
+    // Only these built-in elements can host a shadow root. One focused without a tabindex may hold focus through its
+    // shadow tree. (A scroll container the keyboard focused to scroll it looks the same; it gives up the shortcuts.)
+    if (SHADOW_HOSTS.has(target.localName) && !target.hasAttribute("tabindex")) return true;
   }
   if (target instanceof HTMLElement && target.isContentEditable) return true;
   if (target.localName === "textarea" || target.localName === "select") return true;
