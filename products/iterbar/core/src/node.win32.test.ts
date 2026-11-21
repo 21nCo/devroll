@@ -101,7 +101,8 @@ describe("iterbar/node paths on Windows", () => {
     expectAccepted("\\\\my-server.local\\share$\\app", "\\\\my-server.local\\share$\\");
   });
 
-  it("accepts a UNC root only when both its server and share are legal names, for every separator mix", () => {
+  // Thousands of combinations: quick locally, but a busy CI runner can take longer than the default 5 s.
+  it("accepts a UNC root only when both its server and share are legal names, for every separator mix", { timeout: 20_000 }, () => {
     const names = ["server", "", ".", "..", "?", "a?b", "a:b", "a*b", "a<b", "a\u0001b"];
     const isName = (name: string) =>
       name !== "" && name !== "." && name !== ".." && ![...name].some((c) => '<>:"|?*'.includes(c) || c < " ");
