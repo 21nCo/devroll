@@ -243,6 +243,26 @@ test("Escape while editing a draft in comment mode cancels the edit and keeps co
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
 });
 
+test("with a draft waiting, waking the toolbar leaves Drafts under the pointer", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "card", "Waiting");
+  await page.keyboard.press("Escape");
+  // Focus leaves the toolbar (focus keeps it awake), and the pointer too.
+  await page.locator("#page-text").click();
+  await page.mouse.move(5, 5);
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
+  const box = (await inBar(page, "[data-role=drafts-toggle]").boundingBox())!;
+  const point = { x: box.x + 4, y: box.y + box.height / 2 };
+  await page.mouse.move(point.x, point.y);
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+  expect(await page.evaluate(({ x, y }) => {
+    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+    return (root.elementFromPoint(x, y)?.closest("[data-role]") as HTMLElement | null)?.dataset.role;
+  }, point)).toBe("drafts-toggle");
+});
+
 test("one draft is edited at a time", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await open(page, openFixture, daemon.url, daemon.token);

@@ -132,7 +132,17 @@ export const BAR_CSS = String.raw`
 .dock:not([data-awake]):not([data-hovered]):not(:focus-within) [data-role=drafts-toggle]:not([data-has]) { display: none; }
 .dock:not([data-awake]):not([data-hovered]):not(:focus-within) .toolbar { opacity: 0.92; }
 /* Asleep, the connection shows as its dot alone; the text stays for assistive technology. */
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status { font-size: 0; gap: 0; padding: 0 8px; }
+/* Asleep, the status text is left to assistive technology; its dot shows the connection. */
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+}
 
 .divider { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--ib-border); }
 
@@ -186,17 +196,18 @@ button:disabled { cursor: default; opacity: 0.55; }
 }
 [data-role=drafts-toggle] .count { background: #9a5b00; color: #ffffff; }
 
-.status { display: inline-flex; align-items: center; gap: 5px; padding: 0 6px; color: var(--ib-muted); font-size: 12px; white-space: nowrap; }
-.status::before {
+.status { display: inline-flex; align-items: center; padding: 0 6px 0 2px; color: var(--ib-muted); font-size: 12px; white-space: nowrap; }
+.status-dot { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 30px; }
+.status-dot::before {
   content: "";
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--ib-muted);
 }
-.status[data-status="connected"]::before { background: #2e9e5b; }
-.status[data-status="retrying"]::before, .status[data-status="connecting"]::before { background: #d69a1d; }
-.status[data-status="unauthorized"]::before, .status[data-status="invalid"]::before { background: #d24b4b; }
+.status-dot[data-status="connected"]::before { background: #2e9e5b; }
+.status-dot[data-status="retrying"]::before, .status-dot[data-status="connecting"]::before { background: #d69a1d; }
+.status-dot[data-status="unauthorized"]::before, .status-dot[data-status="invalid"]::before { background: #d24b4b; }
 /* Asleep, a connection problem still shows as a dot on the inbox button, drawn over its corner so the button keeps
    its size whether the dot shows or not. */
 [data-role=inbox-toggle] { position: relative; }

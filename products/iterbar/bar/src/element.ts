@@ -168,6 +168,8 @@ export class IterbarBarElement extends ElementBase {
   readonly #panelTitle = h("h2", { class: "panel-title", id: "iterbar-panel-title" });
   readonly #panelClose = h("button", { type: "button", class: "icon", "data-role": "panel-close", "aria-label": "Close panel", title: "Close (Esc)" }, icon("close"));
   readonly #status = h("span", { class: "status", role: "status", "data-role": "status" });
+  /** The connection's colour, a fixed-size dot among the sleeping pill's controls; the status text comes after them. */
+  readonly #statusDot = h("span", { class: "status-dot", "aria-hidden": "true", "data-role": "status-dot" });
   readonly #detail = h("p", { class: "detail", "data-role": "status-detail", hidden: true });
   readonly #announcer = h("div", { class: "sr-only", "aria-live": "polite", "data-role": "announce" });
   readonly #comment = h("button", {
@@ -269,7 +271,7 @@ export class IterbarBarElement extends ElementBase {
       // What the sleeping pill shows comes first and never changes size, so waking only adds controls beyond it (after
       // it, or before it on a right-docked toolbar) and nothing under the pointer moves. Drafts, shown asleep only
       // while there are drafts, comes after the status for the same reason.
-      this.#comment, this.#inboxButton, this.#status, this.#draftsButton,
+      this.#comment, this.#inboxButton, this.#statusDot, this.#draftsButton, this.#status,
       h("span", { class: "divider extra", "aria-hidden": "true" }),
       this.#versionsButton, this.#dockButton, this.#toggle);
     this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel);
@@ -299,8 +301,8 @@ export class IterbarBarElement extends ElementBase {
     this.#dockButton.addEventListener("click", () => this.#saveState({ ...this.#state, dock: nextDock(this.#state.dock) }));
     this.#dockButton.addEventListener("keydown", (event) => this.#moveWithKey(event));
     toolbar.addEventListener("pointerenter", () => this.#holdPlace(true));
-    this.addEventListener("pointerdown", () => {
-      this.#pressedInside = true;
+    this.addEventListener("pointerdown", (event) => {
+      this.#pressesInside.add(event);
     });
     // A touch leaves as the finger lifts; a tap keeps the toolbar awake until the next tap elsewhere instead.
     this.#dock.addEventListener("pointerleave", (event) => {
@@ -453,13 +455,11 @@ export class IterbarBarElement extends ElementBase {
    * been dispatched, by a listener on the bar itself, since a closed shadow root around the bar would hide the bar
    * from the event's composed path here.
    */
-  #pressedInside = false;
+  readonly #pressesInside = new WeakSet<Event>();
 
-  readonly #onPagePointerDown = (): void => {
-    this.#pressedInside = false;
+  readonly #onPagePointerDown = (event: PointerEvent): void => {
     setTimeout(() => {
-      if (!this.#pressedInside) this.#holdPlace(false);
-      this.#pressedInside = false;
+      if (!this.#pressesInside.has(event)) this.#holdPlace(false);
     }, 0);
   };
 
@@ -1019,6 +1019,8 @@ export class IterbarBarElement extends ElementBase {
 
   #renderStatus(status: ConnectionStatus): void {
     this.#status.dataset.status = status.kind;
+    this.#statusDot.dataset.status = status.kind;
+    this.#statusDot.title = STATUS_TEXT[status.kind];
     this.#status.textContent = STATUS_TEXT[status.kind];
     this.#dock.dataset.status = status.kind;
     const detail = "message" in status ? status.message

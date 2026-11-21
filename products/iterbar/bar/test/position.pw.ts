@@ -188,7 +188,7 @@ test("a tap on a page control that stops the event still ends a wake begun by a 
     await page.waitForFunction(() => window.fixture !== undefined);
     await page.evaluate(() => document.getElementById("page-button")!.addEventListener("pointerdown", (event) => event.stopPropagation()));
     await mountBar(page);
-    await inBar(page, "[data-role=status]").tap();
+    await inBar(page, "[data-role=status-dot]").tap();
     await expect(inBar(page, "[data-role=toggle]")).toBeVisible();
     await page.locator("#page-button").tap();
     await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
@@ -222,7 +222,7 @@ test("a tap on a bar inside a closed shadow root keeps it awake", async ({ brows
       host.attachShadow({ mode: "closed" }).append(bar);
       document.body.append(host);
       (window as unknown as { closedBar: Element }).closedBar = bar;
-      const rect = bar.shadowRoot!.querySelector("[data-role=status]")!.getBoundingClientRect();
+      const rect = bar.shadowRoot!.querySelector("[data-role=status-dot]")!.getBoundingClientRect();
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     });
     await page.touchscreen.tap(box.x, box.y);
@@ -244,7 +244,7 @@ test("a tap wakes the sleeping toolbar until the next tap elsewhere", async ({ b
     await page.waitForFunction(() => window.fixture !== undefined);
     await mountBar(page);
     await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
-    await inBar(page, "[data-role=status]").tap();
+    await inBar(page, "[data-role=status-dot]").tap();
     // The finger has lifted, and the toolbar stays awake: its pin is there to tap.
     await expect(inBar(page, "[data-role=toggle]")).toBeVisible();
     await inBar(page, "[data-role=toggle]").tap();
