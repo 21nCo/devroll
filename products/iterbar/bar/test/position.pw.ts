@@ -197,6 +197,23 @@ test("a tap on a page control that stops the event still ends a wake begun by a 
   }
 });
 
+test("a toolbar taken off the page and put back starts asleep at its dock", async ({ page, openFixture }) => {
+  await openFixture();
+  await mountBar(page);
+  const asleep = (await inBar(page, ".toolbar").boundingBox())!;
+  await inBar(page, "[data-role=comment]").hover();
+  await expect(inBar(page, ".dock")).toHaveAttribute("data-held", "");
+  await page.evaluate(() => {
+    const bar = document.querySelector("iterbar-bar")!;
+    bar.remove();
+    document.body.append(bar);
+  });
+  await page.mouse.move(5, 5);
+  await expect(inBar(page, ".dock")).not.toHaveAttribute("data-held", "");
+  await expect(inBar(page, ".dock")).not.toHaveAttribute("data-hovered", "");
+  expect(await inBar(page, ".toolbar").boundingBox()).toEqual(asleep);
+});
+
 test("the warning dot on a sleeping Inbox does not change its size", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin, [], { socket: false });
   await openFixture();

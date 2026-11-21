@@ -110,9 +110,8 @@ function readStoredState(): BarState {
 
 /** A lowercase id that is unique enough for a page's batches and drafts. */
 function localId(prefix: string): string {
-  const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID().replaceAll("-", "").slice(0, 12)
-    : Math.random().toString(36).slice(2, 14);
+  // getRandomValues works on plain http origins too, where randomUUID is missing.
+  const random = [...crypto.getRandomValues(new Uint8Array(6))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return `${prefix}-${Date.now().toString(36)}-${random}`;
 }
 
@@ -434,6 +433,8 @@ export class IterbarBarElement extends ElementBase {
     this.commentMode = false;
     this.#setCrosshair(false);
     this.#picker.mark(null);
+    // A wake and a held place belong to this stay on the page; reinserted, the toolbar starts asleep and docked.
+    this.#holdPlace(false);
     window.removeEventListener("keydown", this.#onKeydown, true);
     window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
     window.removeEventListener("resize", this.#releaseHold);
