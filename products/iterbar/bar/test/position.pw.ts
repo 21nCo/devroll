@@ -21,22 +21,36 @@ test("sleeps as a compact pill at the bottom centre and wakes on hover and focus
   expect(asleep.x + asleep.width / 2).toBeCloseTo(viewport.width / 2, 0);
   expect(asleep.width).toBeLessThan(200);
 
-  // Hover wakes it in place: what is under the pointer stays there. Leaving puts it back to sleep.
-  const commentBox = (await inBar(page, "[data-role=comment]").boundingBox())!;
-  await page.mouse.move(commentBox.x + commentBox.width / 2, commentBox.y + commentBox.height / 2);
-  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
-  const hit = await page.evaluate(({ x, y }) => {
+  // Hover wakes it in place: whichever sleeping button is under the pointer stays there, at every dock.
+  const roleAt = (x: number, y: number) => page.evaluate(({ x, y }) => {
     const root = document.querySelector("iterbar-bar")!.shadowRoot!;
     return (root.elementFromPoint(x, y)?.closest("[data-role]") as HTMLElement | null)?.dataset.role;
-  }, { x: commentBox.x + commentBox.width / 2, y: commentBox.y + commentBox.height / 2 });
-  expect(hit).toBe("comment");
+  }, { x, y });
+  for (const dock of ["center", "left", "right"] as const) {
+    if (dock !== "center") {
+      await page.evaluate((value) => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ dock: value })), dock);
+      await openFixture();
+      await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+      await expect(inBar(page, "[data-role=open-count]")).toHaveText("1");
+    }
+    for (const role of ["comment", "inbox-toggle"]) {
+      await page.mouse.move(5, 5);
+      await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
+      const box = (await inBar(page, `[data-role=${role}]`).boundingBox())!;
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      await page.mouse.move(point.x, point.y);
+      await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+      expect(await roleAt(point.x, point.y), `${role} at the ${dock} dock`).toBe(role);
+    }
+  }
+  await page.evaluate(() => localStorage.removeItem(window.fixture.BAR_STATE_STORAGE_KEY));
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await toolbar.hover();
   await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
   const awake = (await toolbar.boundingBox())!;
   expect(awake.width).toBeGreaterThan(asleep.width);
-  // It keeps its left edge, or moves left only as far as staying on screen needs.
-  expect(awake.x).toBeLessThanOrEqual(asleep.x + 0.5);
   expect(awake.x + awake.width).toBeLessThanOrEqual(viewport.width - 12 + 0.5);
-  if (awake.x < asleep.x - 0.5) expect(awake.x + awake.width).toBeCloseTo(viewport.width - 12, 0);
   await page.mouse.move(5, 5);
   await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
 
@@ -143,4 +157,25 @@ test("ignores a corrupt stored state and keeps working without storage", async (
   await inBar(page, ".toolbar").hover();
   await inBar(page, "[data-role=toggle]").click();
   await expect(inBar(page, ".dock")).toHaveAttribute("data-expanded", "");
+});
+
+test("a tap wakes the sleeping toolbar until the next tap elsewhere", async ({ browser, fixtureServer }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 700 } });
+  const page = await context.newPage();
+  try {
+    await page.goto(fixtureServer.origin);
+    await page.waitForFunction(() => window.fixture !== undefined);
+    await mountBar(page);
+    await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
+    await inBar(page, "[data-role=status]").tap();
+    // The finger has lifted, and the toolbar stays awake: its pin is there to tap.
+    await expect(inBar(page, "[data-role=toggle]")).toBeVisible();
+    await inBar(page, "[data-role=toggle]").tap();
+    await expect(inBar(page, "[data-role=toggle]")).toHaveAttribute("aria-expanded", "true");
+    await inBar(page, "[data-role=toggle]").tap();
+    await page.locator("#page-text").tap();
+    await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
+  } finally {
+    await context.close();
+  }
 });

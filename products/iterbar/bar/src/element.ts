@@ -172,17 +172,17 @@ export class IterbarBarElement extends ElementBase {
   readonly #announcer = h("div", { class: "sr-only", "aria-live": "polite", "data-role": "announce" });
   readonly #comment = h("button", {
     type: "button", class: "tool", "data-role": "comment", "aria-pressed": "false",
-    title: "Comment: pick an element and write a comment on it (C; Esc leaves)",
-  }, icon("comment"), h("span", { class: "tool-label extra" }, "Comment"), h("kbd", { class: "extra" }, "C"));
+    title: "Comment: pick an element and write a comment on it (C; Esc leaves)", "aria-label": "Comment", "aria-keyshortcuts": "C",
+  }, icon("comment"));
   readonly #draftsButton = h("button", {
     type: "button", class: "tool", "data-role": "drafts-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
     title: "Draft tray: comments waiting to be sent together",
-  }, icon("tray"), h("span", { class: "tool-label extra" }, "Drafts"));
+  }, icon("tray"));
   readonly #draftCount = h("span", { class: "count", "data-role": "draft-count", hidden: true });
   readonly #inboxButton = h("button", {
     type: "button", class: "tool", "data-role": "inbox-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
     title: "Inbox: feedback threads, their status and agent replies",
-  }, icon("inbox"), h("span", { class: "tool-label extra" }, "Inbox"));
+  }, icon("inbox"));
   readonly #openCount = h("span", { class: "count", "data-role": "open-count", hidden: true });
   readonly #versionsButton = h("button", {
     type: "button", class: "tool extra", "data-role": "versions-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
@@ -266,9 +266,11 @@ export class IterbarBarElement extends ElementBase {
     h("div", { class: "panel-header" }, this.#panelTitle, this.#panelClose),
     h("div", { class: "panel-body" }, this.#detail, this.#tray.element, this.#threads.element, this.#slots.element));
     const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
-      this.#comment, this.#draftsButton, this.#inboxButton, this.#versionsButton,
+      // The buttons the sleeping pill shows come first and never change size, so waking only adds controls beyond
+      // them (after them, or before them on a right-docked toolbar) and nothing under the pointer moves.
+      this.#comment, this.#inboxButton, this.#draftsButton, this.#status,
       h("span", { class: "divider extra", "aria-hidden": "true" }),
-      this.#status, this.#dockButton, this.#toggle);
+      this.#versionsButton, this.#dockButton, this.#toggle);
     this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel);
     this.#root.append(this.#zoomProbe, this.#dock, this.#composer.element, this.#announcer);
     this.#picker = new ElementPicker({
@@ -296,7 +298,10 @@ export class IterbarBarElement extends ElementBase {
     this.#dockButton.addEventListener("click", () => this.#saveState({ ...this.#state, dock: nextDock(this.#state.dock) }));
     this.#dockButton.addEventListener("keydown", (event) => this.#moveWithKey(event));
     toolbar.addEventListener("pointerenter", () => this.#holdPlace(true));
-    this.#dock.addEventListener("pointerleave", () => this.#holdPlace(false));
+    // A touch leaves as the finger lifts; a tap keeps the toolbar awake until the next tap elsewhere instead.
+    this.#dock.addEventListener("pointerleave", (event) => {
+      if (event.pointerType !== "touch") this.#holdPlace(false);
+    });
     this.#dock.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || event.isComposing || this.#state.panel === null || this.#commentMode) return;
       event.preventDefault();
@@ -410,6 +415,7 @@ export class IterbarBarElement extends ElementBase {
     }
     this.#watchZoom();
     window.addEventListener("keydown", this.#onKeydown, true);
+    window.addEventListener("pointerdown", this.#onPagePointerDown, true);
     this.#watchUrl(true);
     this.#slots.attach();
     this.#reconnect();
@@ -421,6 +427,7 @@ export class IterbarBarElement extends ElementBase {
     this.#setCrosshair(false);
     this.#picker.mark(null);
     window.removeEventListener("keydown", this.#onKeydown, true);
+    window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
     this.#zoomObserver = null;
@@ -431,6 +438,11 @@ export class IterbarBarElement extends ElementBase {
     this.#reportTimer = null;
     this.#followComposer(false);
   }
+
+  /** A press outside the toolbar ends a wake that a tap began (see the dock's pointerleave listener). */
+  readonly #onPagePointerDown = (event: PointerEvent): void => {
+    if (!event.composedPath().includes(this)) this.#holdPlace(false);
+  };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
     if (event.repeat || event.defaultPrevented) return;
@@ -1043,8 +1055,9 @@ export class IterbarBarElement extends ElementBase {
   }
 
   /**
-   * While the pointer wakes the sleeping toolbar, its left edge stays where it was, so the controls under the pointer
-   * do not move as the rest of the toolbar appears; it shifts left only as far as it must to stay on screen.
+   * The pointer (or a tap) wakes the sleeping toolbar. Docked left or right it grows away from its edge; centred, its
+   * left edge holds still while it wakes, shifting left only as far as staying in view needs, so the sleeping buttons
+   * stay under the pointer.
    */
   #holdPlace(on: boolean): void {
     const dock = this.#dock;
@@ -1055,19 +1068,19 @@ export class IterbarBarElement extends ElementBase {
       return;
     }
     if (dock.hasAttribute("data-hovered")) return;
-    // Measured before it wakes: awake, a centred toolbar is wider and centred again.
-    if (dock.hasAttribute("data-awake")) {
+    // Measured before it wakes; the dock cancels any page zoom, so its CSS pixels are viewport pixels.
+    if (this.#state.dock === "center" && !dock.hasAttribute("data-awake")) {
+      const left = dock.getBoundingClientRect().left;
+      dock.style.setProperty("--ib-held-left", `${left}px`);
+      dock.toggleAttribute("data-held", true);
       dock.toggleAttribute("data-hovered", true);
+      const visual = window.visualViewport;
+      const right = (visual?.offsetLeft ?? 0) + (visual?.width ?? window.innerWidth) - BAR_MARGIN_PX;
+      const width = dock.getBoundingClientRect().width;
+      if (left + width > right) dock.style.setProperty("--ib-held-left", `${Math.max((visual?.offsetLeft ?? 0) + BAR_MARGIN_PX, right - width)}px`);
       return;
     }
-    // The dock cancels any page zoom it inherits, so its CSS pixels are viewport pixels.
-    const left = dock.getBoundingClientRect().left;
-    dock.style.setProperty("--ib-held-left", `${left}px`);
-    dock.toggleAttribute("data-held", true);
     dock.toggleAttribute("data-hovered", true);
-    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-    const room = viewportWidth - BAR_MARGIN_PX - dock.getBoundingClientRect().width;
-    if (left > room) dock.style.setProperty("--ib-held-left", `${Math.max(BAR_MARGIN_PX, room)}px`);
   }
 
   /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */

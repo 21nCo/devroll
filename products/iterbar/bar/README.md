@@ -19,9 +19,12 @@ attributes. The bar never writes the token to an attribute.
 ## What it shows
 
 The bar is a toolbar docked at the bottom of the page. By default it sleeps as
-a small pill with the Comment and Inbox buttons and the count of open
-feedback; it wakes while the pointer or focus is on it, a panel is open or
-comment mode is on, and **Ctrl/Cmd+.** keeps it expanded. The inbox, the draft
+a small pill with the Comment and Inbox buttons (icons, named for assistive
+technology and in their tooltips) and the count of open feedback; it wakes
+while the pointer or focus is on it, after a tap until the next tap elsewhere,
+while a panel is open or comment mode is on, and **Ctrl/Cmd+.** keeps it
+expanded. Waking only adds controls beyond the sleeping buttons, away from the
+docked edge, so nothing under the pointer moves. The inbox, the draft
 tray and the versions open as a panel above the toolbar.
 
 - **Versions**: the slots on the current page, read through the `window.__ITERBAR__` page

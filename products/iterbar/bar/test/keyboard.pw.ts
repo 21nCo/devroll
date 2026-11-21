@@ -43,7 +43,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   expect(await focusedControl(page)).toMatchObject({ id: "comment" });
 
   // Every toolbar control is reachable by Tab, in order, and each shows a focus ring.
-  expect(await tabThrough(page)).toEqual(["comment", "drafts-toggle", "inbox-toggle", "versions-toggle", "dock", "toggle"]);
+  expect(await tabThrough(page)).toEqual(["comment", "inbox-toggle", "drafts-toggle", "versions-toggle", "dock", "toggle"]);
 
   // The versions panel: choose the second slot by typing, then switch its version with Enter.
   await inBar(page, "[data-role=versions-toggle]").focus();
@@ -67,7 +67,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   await inBar(page, "[data-role=inbox-toggle]").focus();
   await page.keyboard.press("Enter");
   expect(await tabThrough(page)).toEqual([
-    "inbox-toggle", "versions-toggle", "dock", "toggle", "panel-close", "all", "open", "progress", "done", "summary",
+    "inbox-toggle", "drafts-toggle", "versions-toggle", "dock", "toggle", "panel-close", "all", "open", "progress", "done", "summary",
   ]);
   await inBar(page, ".thread summary").focus();
   await page.keyboard.press("Enter");

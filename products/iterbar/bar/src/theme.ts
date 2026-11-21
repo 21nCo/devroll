@@ -107,7 +107,11 @@ export const BAR_CSS = String.raw`
 .dock[data-dock="left"] { left: var(--ib-margin); align-items: flex-start; }
 .dock[data-dock="right"] { right: var(--ib-margin); align-items: flex-end; }
 .dock[data-dock="center"] { left: 50%; transform: translateX(-50%); align-items: center; }
-/* Woken by the pointer: the left edge holds still (see #holdPlace). */
+/* Woken by the pointer: the left edge holds still (see #holdPlace). Docked right, the controls a wake adds come
+   before the sleeping buttons (the status too, whose text appears), so it grows leftward and they stay at the edge. */
+.dock[data-dock="right"] .toolbar > .extra,
+.dock[data-dock="right"] .toolbar > [data-role=status],
+.dock[data-dock="right"] .toolbar > [data-role=drafts-toggle]:not([data-has]) { order: -1; }
 .dock[data-held] { left: var(--ib-held-left); right: auto; transform: none; }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
@@ -168,13 +172,6 @@ button:disabled { cursor: default; opacity: 0.55; }
 .tool[aria-expanded="true"] { background: var(--ib-accent-soft); color: var(--ib-fg); }
 .tool[aria-pressed="true"] { background: var(--ib-accent); color: var(--ib-accent-fg); }
 .glyph { flex: none; display: block; }
-kbd {
-  font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  padding: 2px 4px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  opacity: 0.6;
-}
 .count {
   min-width: 18px;
   padding: 1px 5px;
