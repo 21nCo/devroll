@@ -1,0 +1,31 @@
+products/iterbar/skills/iterbar/SKILL.md
+  s_2cd8e700ac0da3::t_4a022dd127e5c4 98-99,102,104
+products/iterbar/cli/src/mcp/tools.ts
+  s_2cd8e700ac0da3::t_4a022dd127e5c4 215-216,218-219,229-233
+products/iterbar/bar/test/drafts.pw.ts
+  s_2cd8e700ac0da3::t_328233a982e64b 175-208
+products/iterbar/cli/src/mcp/tools.test.ts
+  s_2cd8e700ac0da3::t_328233a982e64b 151-161
+products/iterbar/skills/iterbar/references/tools.md
+  s_2cd8e700ac0da3::t_328233a982e64b 84-90
+products/iterbar/bar/src/pick/target.ts
+  s_2cd8e700ac0da3::t_4a022dd127e5c4 117-124,135
+products/iterbar/bar/src/element.ts
+  s_2cd8e700ac0da3::t_4a022dd127e5c4 199,620-625,662-664,667-669,671-672,697,700,720-723,883-891
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0603dd681bce24b292ea0c2a613d84d1648fc4ab",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
