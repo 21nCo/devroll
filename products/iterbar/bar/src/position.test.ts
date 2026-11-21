@@ -48,6 +48,11 @@ describe("anchorPopover", () => {
     expect(anchorPopover({ left: 100, top: 600, width: 200, height: 40 }, size, viewport, 60)).toEqual({ left: 100, top: 432 });
   });
 
+  it("stays inside the viewport for an element scrolled out of view", () => {
+    expect(anchorPopover({ left: 100, top: 1000, width: 200, height: 40 }, size, viewport).top).toBe(800 - BAR_MARGIN_PX - 160);
+    expect(anchorPopover({ left: 100, top: -500, width: 200, height: 40 }, size, viewport).top).toBe(BAR_MARGIN_PX);
+  });
+
   it("stays inside the margins for an element at the right edge or taller than the viewport", () => {
     expect(anchorPopover({ left: 950, top: 100, width: 40, height: 20 }, size, viewport).left).toBe(1000 - BAR_MARGIN_PX - 300);
     const tall = anchorPopover({ left: -50, top: -100, width: 2000, height: 2000 }, size, viewport);

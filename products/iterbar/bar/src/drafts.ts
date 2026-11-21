@@ -34,7 +34,7 @@ export class DraftTray {
     "No drafts. Press Comment (or C), pick an element and choose Add draft. Drafts stay in this tab until you send them.");
   readonly #error = h("p", { class: "composer-error", role: "alert", "data-role": "drafts-error", hidden: true });
   readonly #sendAll = h("button", { type: "button", class: "primary", "data-role": "drafts-send" }, "Send all");
-  readonly #footer = h("div", { class: "drafts-footer", hidden: true }, this.#error, h("div", { class: "composer-actions" }, h("span", { class: "spacer" }), this.#sendAll));
+  readonly #footer = h("div", { class: "drafts-footer", hidden: true }, h("div", { class: "composer-actions" }, h("span", { class: "spacer" }), this.#sendAll));
   #drafts: readonly DraftView[] = [];
   #busy = false;
   #editing: { id: string; value: string } | null = null;
@@ -42,7 +42,7 @@ export class DraftTray {
   constructor(options: DraftTrayOptions) {
     this.#options = options;
     this.element = h("section", { class: "section", "data-section": "drafts", "aria-labelledby": "iterbar-drafts-title" },
-      h("h2", { class: "sr-only", id: "iterbar-drafts-title" }, "Drafts"), this.#empty, this.#list, this.#footer);
+      h("h2", { class: "sr-only", id: "iterbar-drafts-title" }, "Drafts"), this.#empty, this.#list, this.#error, this.#footer);
     this.#sendAll.addEventListener("click", () => this.#options.onSendAll());
     this.#list.addEventListener("pointerleave", () => this.#options.onHighlight(null));
     this.#list.addEventListener("focusout", (event) => {

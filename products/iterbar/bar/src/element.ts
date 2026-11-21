@@ -192,8 +192,11 @@ export class IterbarBarElement extends ElementBase {
    */
   #postingPick: Pick | null = null;
   #drafts: Draft[] = [];
-  /** How many comments of each batch the daemon has stored, so a retry gives the batch's full size. */
-  readonly #delivered = new Map<string, number>();
+  /**
+   * How many comments each batch not yet fully sent holds: its size as last posted. A retry keeps the indexes it
+   * gave and numbers drafts new to the batch after them.
+   */
+  readonly #batchSizes = new Map<string, number>();
   #sendingBatch = false;
   #batchError: string | null = null;
   #daemonUrl: string | null = null;
@@ -248,8 +251,9 @@ export class IterbarBarElement extends ElementBase {
       onPick: (element) => this.#onPick(element),
       onEscape: (event) => {
         // A draft being edited in the tray takes Escape itself, to cancel the edit.
-        const target = event.composedPath()[0];
-        if (target instanceof Element && target.matches("[data-role=draft-text]")) return false;
+        const path = event.composedPath();
+        const target = path[0];
+        if (path.includes(this.#tray.element) && target instanceof Element && target.matches("[data-role=draft-text]")) return false;
         this.commentMode = false;
         return true;
       },
@@ -613,7 +617,7 @@ export class IterbarBarElement extends ElementBase {
     if (index < 0) return;
     const [draft] = this.#drafts.splice(index, 1);
     draft!.pick.withdraw.abort();
-    if (draft!.batchId && !this.#drafts.some((each) => each.batchId === draft!.batchId)) this.#delivered.delete(draft!.batchId);
+    if (draft!.batchId && !this.#drafts.some((each) => each.batchId === draft!.batchId)) this.#batchSizes.delete(draft!.batchId);
     this.#picker.mark(null);
     this.#renderDrafts();
     this.#announce("Draft removed.");
@@ -650,13 +654,13 @@ export class IterbarBarElement extends ElementBase {
     }
     const submitted = [...this.#drafts];
     const batchId = submitted.find((draft) => draft.batchId !== null)?.batchId ?? localId("batch");
-    const size = (this.#delivered.get(batchId) ?? 0) + submitted.length;
-    // Drafts new to the batch take the places after those it already has (stored, or failed and kept).
-    let nextIndex = Math.max(-1, ...submitted.map((draft) => draft.batchIndex ?? -1), (this.#delivered.get(batchId) ?? 0) - 1) + 1;
+    // Drafts new to the batch take the places after every one it has given out (stored, or failed and kept).
+    let size = this.#batchSizes.get(batchId) ?? 0;
     for (const draft of submitted) {
       draft.batchId = batchId;
-      draft.batchIndex ??= nextIndex++;
+      draft.batchIndex ??= size++;
     }
+    this.#batchSizes.set(batchId, size);
     let ungrouped = false;
     this.#sendingBatch = true;
     this.#batchError = null;
@@ -673,7 +677,6 @@ export class IterbarBarElement extends ElementBase {
         if (feedback.batchId !== batchId) ungrouped = true;
         if (this.#connection === connection) this.#threads.merge(feedback);
         this.#drafts = this.#drafts.filter((each) => each !== draft);
-        this.#delivered.set(batchId, (this.#delivered.get(batchId) ?? 0) + 1);
         sent += 1;
       } catch (error) {
         draft.state = "failed";
@@ -682,21 +685,30 @@ export class IterbarBarElement extends ElementBase {
     }
     this.#sendingBatch = false;
     const failed = submitted.length - sent;
-    if (failed === 0) this.#delivered.delete(batchId);
-    else this.#batchError = `${failed} of ${submitted.length} not sent. Send all tries ${failed === 1 ? "it" : "them"} again in the same batch.`;
+    if (failed === 0) this.#batchSizes.delete(batchId);
+    if (ungrouped) {
+      // The daemon drops batches, so what is left is not part of one either: a retry starts afresh.
+      this.#batchSizes.delete(batchId);
+      for (const draft of this.#drafts) {
+        if (draft.batchId !== batchId) continue;
+        draft.batchId = null;
+        draft.batchIndex = null;
+      }
+    }
+    const notSent = failed
+      ? `${failed} of ${submitted.length} not sent. Send all tries ${failed === 1 ? "it" : "them"} again${ungrouped ? "" : " in the same batch"}.`
+      : "";
+    const old = ungrouped
+      ? "The daemon is older than the draft tray, so the comments were filed one by one, not as a batch. Restart the dev server to update it."
+      : "";
+    this.#batchError = [notSent, old].filter(Boolean).join(" ") || null;
     this.#picker.mark(null);
     this.#renderDrafts();
-    if (ungrouped) {
-      this.#batchError = `${failed ? `${this.#batchError} ` : ""}The daemon is older than the draft tray, so the comments were filed one by one, not as a batch. Restart the dev server to update it.`;
-      this.#renderDrafts();
-    }
-    if (failed === 0 && ungrouped) {
-      this.#announce(this.#batchError ?? "");
-    } else if (failed === 0) {
+    if (this.#batchError) {
+      this.#announce(this.#batchError);
+    } else {
       this.#announce(`Sent ${sent} ${sent === 1 ? "comment" : "comments"} as one batch.`);
       if (this.#state.panel === "drafts" && this.#drafts.length === 0) this.#openPanel("inbox", true);
-    } else {
-      this.#announce(this.#batchError ?? "");
     }
   }
 

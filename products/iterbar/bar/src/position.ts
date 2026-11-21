@@ -102,6 +102,8 @@ export function anchorPopover(
   if (below + size.height <= bottomLimit) top = below;
   else if (above >= margin) top = above;
   else top = Math.max(margin, Math.min(bottomLimit - size.height, below));
+  // An element scrolled out of view still leaves the popover inside the viewport.
+  top = Math.max(margin, Math.min(top, bottomLimit - size.height));
   const maxLeft = Math.max(margin, viewport.width - margin - size.width);
   const left = Math.min(maxLeft, Math.max(margin, target.left));
   return { left: Math.round(left), top: Math.round(top) };

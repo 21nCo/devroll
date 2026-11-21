@@ -153,6 +153,25 @@ test("a draft added while a batch is being sent waits for the next batch and is 
   expect(third!.draft.batchSize).toBe(1);
 });
 
+test("a retry with a new draft keeps every comment's place in the batch distinct", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "suggest", "A fails first");
+  await draft(page, "card", "B");
+  daemon.failFeedbackText = "A fails first";
+  await openPanel(page, "drafts");
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect(inBar(page, "[data-role=drafts-error]")).toContainText("1 of 2 not sent");
+  await draft(page, "logo", "C, added before the retry");
+  daemon.failFeedbackText = null;
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(3);
+  const sent = Object.fromEntries(daemon.posts.map((post) => [post.draft.text, [post.draft.batchIndex, post.draft.batchSize]]));
+  expect(sent).toEqual({ "B": [1, 2], "A fails first": [0, 3], "C, added before the retry": [2, 3] });
+  expect(new Set(daemon.posts.map((post) => post.draft.batchId)).size).toBe(1);
+});
+
 test("Escape while editing a draft in comment mode cancels the edit and keeps comment mode", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await open(page, openFixture, daemon.url, daemon.token);
@@ -194,6 +213,8 @@ test("says so when an older daemon drops the batch", async ({ page, openFixture,
   await inBar(page, "[data-role=drafts-send]").click();
   await expect.poll(() => daemon.posts.length).toBe(1);
   await expect(inBar(page, "[data-role=announce]")).toContainText("filed one by one, not as a batch");
+  // The tray is empty, and the warning still shows there.
+  await expect(inBar(page, "[data-role=drafts-error]")).toBeVisible();
 });
 
 test("the page's own style attribute on the root survives comment mode", async ({ page, openFixture, fixtureServer }) => {

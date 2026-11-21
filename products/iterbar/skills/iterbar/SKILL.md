@@ -86,8 +86,9 @@ Work in a loop, one feedback item at a time, oldest first:
 ### Batches
 
 The user can collect several comments in the bar's draft tray and send them together. Every item of such a batch has
-the same `batchId` (items sent on their own have none). When a `created` event brings an item with a `batchId`, work
-through the whole batch as one change instead of item by item. A later user reply on one item of a batch is about
+the same `batchId` (items sent on their own have none). When a `created` event brings an item with a `batchId`, or the
+first listing of a session shows unfinished (`open` or `working`) items with one, work through that batch's unfinished
+items as one change instead of item by item; leave its items that are already done alone. A later user reply on one item of a batch is about
 that thread only: handle it like any reply, without reopening the rest of the batch.
 
 1. `get_batch` with that `batchId`, keeping `includeAttachments` at its default (`true`): look at the screenshots,
