@@ -159,6 +159,17 @@ describe("batch completeness", () => {
     expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ count: 3, complete: true });
   });
 
+  it("takes the newest item in the store's order, whatever offsets the timestamps carry", async () => {
+    // B arrived after A (05:00 UTC, then 06:00 UTC), though its timestamp text sorts first.
+    const items = [
+      { ...feedbackItem("feedback-a", 0), createdAt: "2026-11-21T10:00:00+05:00", updatedAt: "2026-11-21T10:00:00+05:00", batchId: "batch-1", batchSize: 3, batchIndex: 0 },
+      { ...feedbackItem("feedback-b", 0), createdAt: "2026-11-21T06:00:00Z", updatedAt: "2026-11-21T06:00:00Z", batchId: "batch-1", batchSize: 2, batchIndex: 2 },
+    ];
+    const client = await connect(() => items);
+    expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false }))
+      .toMatchObject({ expectedCount: 2, complete: true, lastArrivedAt: "2026-11-21T06:00:00Z" });
+  });
+
   it("takes the expected size from the newest item, which a withdrawn comment lowers", async () => {
     const base = Date.now() - 60_000;
     // A was stored as one of two; B failed and was withdrawn; C, added later, says the batch now holds two.

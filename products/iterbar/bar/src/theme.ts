@@ -138,7 +138,9 @@ button, select {
   padding: 3px 8px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: var(--ib-hover); }
+/* Accent buttons (primary, pressed) keep their colours on hover, so their text stays readable. */
+button:hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { background: var(--ib-hover); }
+button.primary:hover:not(:disabled), button[aria-pressed="true"]:hover:not(:disabled) { filter: brightness(1.08); }
 button[aria-pressed="true"] {
   background: var(--ib-accent);
   border-color: var(--ib-accent);

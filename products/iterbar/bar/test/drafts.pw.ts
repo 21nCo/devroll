@@ -252,7 +252,13 @@ test("one draft is edited at a time", async ({ page, openFixture, fixtureServer 
   await page.keyboard.press("Escape");
   await openPanel(page, "drafts");
   await inBar(page, "[data-role=draft-edit]").first().click();
+  await expect(inBar(page, "[data-role=draft-text]")).toBeFocused();
   await expect(inBar(page, "[data-role=draft-edit]")).toBeDisabled();
+  // A draft added meanwhile re-renders the tray without pulling focus back into the editor.
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "logo", "Three");
+  await expect(inBar(page, "[data-role=draft-text]")).not.toBeFocused();
+  await expect(inBar(page, "[data-role=draft-text]")).toHaveValue("One");
 });
 
 test("says so when an older daemon drops the batch", async ({ page, openFixture, fixtureServer }) => {

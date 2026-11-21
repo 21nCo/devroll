@@ -164,12 +164,29 @@ export function labelElement(element: Element, target: FeedbackTarget | null = d
   };
 }
 
+/** The last compound selector of `selector`: what follows its last child combinator outside quotes and brackets. */
+export function lastSelectorStep(selector: string): string {
+  let start = 0;
+  let quote: string | null = null;
+  let depth = 0;
+  for (let index = 0; index < selector.length; index++) {
+    const char = selector[index]!;
+    if (char === "\\") index += 1;
+    else if (quote) quote = char === quote ? null : quote;
+    else if (char === '"' || char === "'") quote = char;
+    else if (char === "[" || char === "(") depth += 1;
+    else if (char === "]" || char === ")") depth -= 1;
+    else if (char === ">" && depth === 0) start = index + 1;
+  }
+  return selector.slice(start).trim();
+}
+
 /** A readable label for a stored target (a thread's), from its text excerpt and source location. */
 export function labelTarget(target: FeedbackTarget | null): TargetLabel | null {
   if (!target) return null;
   const location = target.sourceLocation;
   return {
-    name: quoted(target.textExcerpt) || target.selector.split(">").at(-1)!.trim().slice(0, MAX_LABEL_NAME_LENGTH),
+    name: quoted(target.textExcerpt) || lastSelectorStep(target.selector).slice(0, MAX_LABEL_NAME_LENGTH),
     source: location ? shortSource(location) : null,
     sourcePath: location ? fullSource(location) : null,
     selector: target.selector,

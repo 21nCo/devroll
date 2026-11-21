@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_SCREENSHOT_PIXELS, pngDimensions, RenderSlot, screenshotScale, unavailableReason } from "./screenshot.js";
 import { cssString } from "./selector.js";
-import { formatLabel, labelTarget, labelTooltip, textExcerpt } from "./target.js";
+import { formatLabel, labelTarget, labelTooltip, lastSelectorStep, textExcerpt } from "./target.js";
 
 describe("textExcerpt", () => {
   it("collapses whitespace and keeps short text whole", () => {
@@ -117,6 +117,12 @@ describe("target labels", () => {
     const label = labelTarget({ selector: ":root > body > main > div.text-[12px]", textExcerpt: "", boundingBox: box, sourceLocation: null })!;
     expect(formatLabel(label)).toBe("div.text-[12px]");
     expect(labelTarget(null)).toBeNull();
+  });
+
+  it("finds the last selector step outside quoted attribute values", () => {
+    expect(lastSelectorStep('[data-testid="menu > save"]')).toBe('[data-testid="menu > save"]');
+    expect(lastSelectorStep('main > [aria-label="a > b"] > span.x')).toBe("span.x");
+    expect(lastSelectorStep(":root > body > p:nth-of-type(2)")).toBe("p:nth-of-type(2)");
   });
 
   it("cuts a long excerpt", () => {

@@ -37,7 +37,7 @@ export class DraftTray {
   readonly #footer = h("div", { class: "drafts-footer", hidden: true }, h("div", { class: "composer-actions" }, h("span", { class: "spacer" }), this.#sendAll));
   #drafts: readonly DraftView[] = [];
   #busy = false;
-  #editing: { id: string; value: string } | null = null;
+  #editing: { id: string; value: string; focus: boolean } | null = null;
 
   constructor(options: DraftTrayOptions) {
     this.#options = options;
@@ -118,9 +118,13 @@ export class DraftTray {
       save.addEventListener("click", commit);
       cancel.addEventListener("click", () => this.#stopEditing(draft.id));
       body.append(area, h("div", { class: "composer-actions" }, h("span", { class: "spacer" }), cancel, save));
-      queueMicrotask(() => {
-        if (area.isConnected && (this.element.getRootNode() as ShadowRoot).activeElement !== area) area.focus();
-      });
+      // Focus moves into the editor when editing starts, never on a later re-render (a new draft, a send).
+      if (editing.focus) {
+        editing.focus = false;
+        queueMicrotask(() => {
+          if (area.isConnected) area.focus();
+        });
+      }
     } else {
       body.append(h("p", { class: "draft-text" }, draft.text));
       if (draft.error) body.append(h("p", { class: "composer-error" }, draft.error));
@@ -130,7 +134,7 @@ export class DraftTray {
       }, "Edit");
       const remove = h("button", { type: "button", "data-role": "draft-remove", "aria-label": `Remove draft ${index + 1}`, disabled: this.#busy }, "Remove");
       edit.addEventListener("click", () => {
-        this.#editing = { id: draft.id, value: draft.text };
+        this.#editing = { id: draft.id, value: draft.text, focus: true };
         this.render(this.#drafts, this.#busy, this.#error.hidden ? null : this.#error.textContent);
       });
       remove.addEventListener("click", () => this.#options.onRemove(draft.id));

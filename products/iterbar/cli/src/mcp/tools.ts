@@ -240,17 +240,13 @@ export function registerTools(context: ToolContext): void {
     const items = inBatch(await client.listFeedback({ batchId: input.batchId }), input.batchId);
     if (items.length === 0) throw new IterbarToolError("not_found", `No feedback has batchId ${input.batchId}`);
     // The newest item's size is the latest the bar knew: a draft withdrawn after a failed send lowers it.
-    const sized = items.filter((item) => item.batchSize !== undefined);
-    const newestSized = sized.reduce<Feedback | undefined>((newest, item) =>
-      (!newest || item.createdAt >= newest.createdAt ? item : newest), undefined);
-    const expectedCount = newestSized?.batchSize ?? null;
+    // Items come in the store's time order, oldest first, whatever offsets their timestamps carry.
+    const expectedCount = [...items].reverse().find((item) => item.batchSize !== undefined)?.batchSize ?? null;
     // A comment stored twice (a retry after a lost answer) keeps its index, so it is counted once.
     const arrived = items.every((item) => item.batchIndex !== undefined)
       ? new Set(items.map((item) => item.batchIndex)).size
       : items.length;
-    // Timestamps may carry different offsets, so the newest is found by time, not by text.
-    const lastArrivedAt = items.reduce((newest, item) =>
-      (Date.parse(item.createdAt) > Date.parse(newest) ? item.createdAt : newest), items[0]!.createdAt);
+    const lastArrivedAt = items.at(-1)!.createdAt;
     const blocks: ContentBlock[] = [];
     const entries = [];
     // A comment sent again after a lost answer (perhaps edited) shares its batchIndex with the earlier copies; the
