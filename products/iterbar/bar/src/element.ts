@@ -6,6 +6,7 @@ import { DraftTray, type DraftView } from "./drafts.js";
 import { icon } from "./icons.js";
 import {
   anchorPopover,
+  BAR_MARGIN_PX,
   BAR_STATE_STORAGE_KEY,
   dockForKey,
   formatBarState,
@@ -76,10 +77,16 @@ function isToggleShortcut(event: KeyboardEvent): boolean {
  */
 function isTextEntry(target: EventTarget | undefined): boolean {
   if (!(target instanceof Element)) return false;
-  // Focus inside a closed shadow root shows as its host, and a focused custom element with no readable shadow root may
-  // be one, tabindex or not. A shortcut never takes a keystroke that might be typing; the toolbar's buttons still work.
-  if (target.localName.includes("-") && target.localName !== BAR_TAG && target.shadowRoot === null
-    && target.matches(":focus")) return true;
+  // Focus inside a closed shadow root shows as its host, a custom element or a built-in one such as a <div>. So a
+  // focused custom element with no readable shadow root may hold a field, tabindex or not, and so may any other
+  // element that is not focusable itself. A shortcut never takes a keystroke that might be typing; the toolbar's
+  // buttons still work.
+  if (target.localName !== BAR_TAG && target.shadowRoot === null && target.matches(":focus")) {
+    if (target.localName.includes("-")) return true;
+    const focusableItself = target.hasAttribute("tabindex")
+      || target.matches("a[href], area[href], button, input, select, textarea, iframe, summary, [contenteditable]");
+    if (!focusableItself) return true;
+  }
   if (target instanceof HTMLElement && target.isContentEditable) return true;
   if (target.localName === "textarea" || target.localName === "select") return true;
   if (target.localName !== "input") return false;
@@ -508,13 +515,16 @@ export class IterbarBarElement extends ElementBase {
     const pick = this.#pick;
     if (!pick || !this.#composer.open) return;
     const rect = pick.element.isConnected ? pick.element.getBoundingClientRect() : null;
-    const box = this.#composer.element.getBoundingClientRect();
     // The visual viewport is what the user sees: it leaves out scrollbars, is not scaled by a page zoom, and when
     // pinch-zoomed is a panned part of the layout viewport that rectangles and fixed positions are measured in. So
     // placement happens in its coordinates and is translated back.
     const visual = window.visualViewport;
     const offset = { left: visual?.offsetLeft ?? 0, top: visual?.offsetTop ?? 0 };
     const viewport = { width: visual?.width ?? window.innerWidth, height: visual?.height ?? window.innerHeight };
+    // It never outgrows what is visible, so none of it is cut off where panning cannot reach.
+    this.#composer.element.style.maxWidth = `${Math.max(0, viewport.width - 2 * BAR_MARGIN_PX)}px`;
+    this.#composer.element.style.maxHeight = `${Math.max(0, viewport.height - 2 * BAR_MARGIN_PX)}px`;
+    const box = this.#composer.element.getBoundingClientRect();
     const reserved = Math.max(0, offset.top + viewport.height - this.#dock.getBoundingClientRect().top);
     const target = rect
       ? { left: rect.left - offset.left, top: rect.top - offset.top, width: rect.width, height: rect.height }

@@ -375,7 +375,7 @@ p { margin: 0 0 6px; }
 }
 .composer-hint { margin: 0; font-size: 11px; }
 .composer-error { margin: 0; color: var(--ib-danger); overflow-wrap: anywhere; }
-.composer-actions { display: flex; align-items: center; gap: 6px; }
+.composer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
 /* Comment mode's outlines: a full-viewport top-layer layer that never takes pointer events. */
 .pick-layer {

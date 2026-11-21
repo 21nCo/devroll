@@ -146,6 +146,16 @@ test("the shortcuts ignore other modifier combinations and text entry", async ({
   await page.locator("x-tab").focus();
   await page.keyboard.press("c");
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
+  // So may a built-in element hosting a closed shadow root with a field in it.
+  await page.evaluate(() => {
+    const host = document.createElement("div");
+    host.id = "closed-div";
+    host.attachShadow({ mode: "closed" }).innerHTML = "<input>";
+    document.querySelector("main")!.append(host);
+  });
+  await page.locator("#closed-div").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("c");
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
   await page.locator("#page-button").focus();
   for (const keys of ["Control+KeyC", "Meta+KeyC", "Alt+KeyC"]) await page.keyboard.press(keys);
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
