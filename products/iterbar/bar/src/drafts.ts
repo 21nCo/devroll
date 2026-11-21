@@ -70,6 +70,13 @@ export class DraftTray {
     }
   }
 
+  /** Leaves the edit without saving; focus goes back to the draft's Edit button. */
+  #stopEditing(id: string): void {
+    this.#editing = null;
+    this.render(this.#drafts, this.#busy, this.#error.hidden ? null : this.#error.textContent);
+    this.#list.querySelector<HTMLElement>(`[data-draft-id="${CSS.escape(id)}"] [data-role=draft-edit]`)?.focus();
+  }
+
   #row(draft: DraftView, index: number): HTMLLIElement {
     const label = h("p", { class: "draft-target", title: labelTooltip(draft.label) }, formatLabel(draft.label));
     const editing = this.#editing?.id === draft.id ? this.#editing : null;
@@ -101,18 +108,14 @@ export class DraftTray {
         if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.isComposing) {
           event.preventDefault();
           commit();
-        } else if (event.key === "Escape") {
+        } else if (event.key === "Escape" && !event.isComposing) {
           event.preventDefault();
           event.stopPropagation();
-          this.#editing = null;
-          this.render(this.#drafts, this.#busy, this.#error.hidden ? null : this.#error.textContent);
+          this.#stopEditing(draft.id);
         }
       });
       save.addEventListener("click", commit);
-      cancel.addEventListener("click", () => {
-        this.#editing = null;
-        this.render(this.#drafts, this.#busy, this.#error.hidden ? null : this.#error.textContent);
-      });
+      cancel.addEventListener("click", () => this.#stopEditing(draft.id));
       body.append(area, h("div", { class: "composer-actions" }, h("span", { class: "spacer" }), cancel, save));
       queueMicrotask(() => {
         if (area.isConnected && (this.element.getRootNode() as ShadowRoot).activeElement !== area) area.focus();

@@ -118,3 +118,20 @@ describe("a cursor whose times are past the end of year 9999", () => {
     }
   });
 });
+
+describe("batches from a daemon that predates them", () => {
+  it("still returns only the batch's items when the daemon ignores the batchId filter", async () => {
+    const base = Date.now() - 60_000;
+    const inBatch = { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 1 };
+    const other = feedbackItem("feedback-b", base + 10);
+    // The daemon ignores every filter and lists everything.
+    const client = await connect(() => [inBatch, other]);
+    const batch = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect(batch).toMatchObject({ count: 1, expectedCount: 1, complete: true });
+    expect((batch.items as { feedback: Feedback }[]).map((entry) => entry.feedback.id)).toEqual(["feedback-a"]);
+    const listed = await ok(client, "list_feedback", { batchId: "batch-1" });
+    expect((listed.items as Feedback[]).map((item) => item.id)).toEqual(["feedback-a"]);
+    const none = (await client.callTool({ name: "get_batch", arguments: { batchId: "batch-2" } })) as CallToolResult;
+    expect(none.structuredContent).toMatchObject({ error: { code: "not_found" } });
+  });
+});

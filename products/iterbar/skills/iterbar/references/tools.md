@@ -33,7 +33,8 @@ Every tool that returns feedback returns full items:
   (`{ path, line, column }`, project relative, or `null`);
 - `screenshot` and `evidence` attachment references (or `null`), and `screenshotUnavailableReason`;
 - `replies`: `[{ id, author: { kind: "user" | "agent", name }, text, createdAt }]`, oldest first;
-- `batchId`, only on items the user sent together from the bar's draft tray: the same id on every item of that batch.
+- `batchId` and `batchSize`, only on items the user sent together from the bar's draft tray: the same id on every item
+  of that batch, and how many items the batch holds once all are sent.
 
 ## `list_feedback`
 
@@ -77,10 +78,12 @@ screenshot limit, so pass `includeAttachments: false` and read the `path` when y
 
 Inputs: `batchId` (any item's `batchId`); `includeAttachments` (default `true`).
 
-Result: `{ batchId, count, items }`, where each entry of `items` is `{ feedback, attachments }` as `get_feedback`
+Result: `{ batchId, count, expectedCount, complete, items }`, where each entry of `items` is `{ feedback, attachments }` as `get_feedback`
 returns them, in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
 as an `image` block and its evidence as a `resource` block, each group after a text block `Attachments of <id>:`.
-Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
+The bar posts a batch one item at a time, so `expectedCount` (the largest `batchSize` of its items) says how many it
+holds and `complete` whether all of them have arrived (`null` when no item gives a size). When `complete` is `false`,
+call `wait_for_feedback` briefly and `get_batch` again. Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
 your cursor.
 
 ## `reply`

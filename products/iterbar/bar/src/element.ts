@@ -64,9 +64,14 @@ function isToggleShortcut(event: KeyboardEvent): boolean {
   return event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === "KeyI";
 }
 
-/** Whether a key typed at `target` is text entry, which single-key shortcuts must leave alone. */
+/**
+ * Whether a key typed at `target` may be text entry, which shortcuts must leave alone. A custom element whose shadow
+ * root is closed hides what has focus inside it, so it counts as text entry too.
+ */
 function isTextEntry(target: EventTarget | undefined): boolean {
   if (!(target instanceof Element)) return false;
+  if (target.localName.includes("-") && target.localName !== BAR_TAG && target.shadowRoot === null
+    && target.matches(":focus-within, :focus")) return true;
   if (target instanceof HTMLElement && target.isContentEditable) return true;
   if (target.localName === "textarea" || target.localName === "select") return true;
   if (target.localName !== "input") return false;
@@ -115,6 +120,8 @@ interface Draft {
   text: string;
   state: DraftView["state"];
   error: string | null;
+  /** The batch a Send all first tried it in; kept while it is not sent, so a retry stays in that batch. */
+  batchId: string | null;
 }
 
 /**
@@ -184,8 +191,8 @@ export class IterbarBarElement extends ElementBase {
    */
   #postingPick: Pick | null = null;
   #drafts: Draft[] = [];
-  /** The batch the tray's drafts are sent in; kept until the tray empties, so a retry stays in the same batch. */
-  #batchId: string | null = null;
+  /** How many comments of each batch the daemon has stored, so a retry gives the batch's full size. */
+  readonly #delivered = new Map<string, number>();
   #sendingBatch = false;
   #batchError: string | null = null;
   #daemonUrl: string | null = null;
@@ -237,8 +244,11 @@ export class IterbarBarElement extends ElementBase {
       host: this,
       container: this.#root,
       onPick: (element) => this.#onPick(element),
-      onEscape: () => {
+      onEscape: (event) => {
+        // A draft being edited in the tray takes Escape itself, to cancel the edit.
+        if (event.composedPath().some((node) => node === this.#tray.element)) return false;
         this.commentMode = false;
+        return true;
       },
     });
 
@@ -389,6 +399,8 @@ export class IterbarBarElement extends ElementBase {
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
     if (event.repeat || event.defaultPrevented) return;
+    // Text fields keep both shortcuts: Ctrl/Cmd+. is an editor command in some (Quick Fix), C is a letter.
+    if (isTextEntry(event.composedPath()[0])) return;
     if (isToggleShortcut(event)) {
       event.preventDefault();
       const focusInside = this.#root.activeElement !== null;
@@ -399,7 +411,6 @@ export class IterbarBarElement extends ElementBase {
     }
     if (event.key !== "c" && event.key !== "C") return;
     if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
-    if (isTextEntry(event.composedPath()[0])) return;
     event.preventDefault();
     this.commentMode = !this.#commentMode;
   };
@@ -470,19 +481,19 @@ export class IterbarBarElement extends ElementBase {
     this.#applyAwake();
   }
 
-  /** Puts the composer next to the picked element: below it, or above when there is no room below. */
+  /**
+   * Puts the composer next to the picked element: below it, or above when there is no room below. The composer cancels
+   * any page zoom it inherits (see {@link #fitZoom}), so its CSS pixels are viewport pixels, as the rectangles are.
+   */
   #placeComposer(): void {
     const pick = this.#pick;
     if (!pick || !this.#composer.open) return;
-    const zoom = Number(this.#composer.element.style.zoom) || 1;
     const rect = pick.element.isConnected ? pick.element.getBoundingClientRect() : null;
     const box = this.#composer.element.getBoundingClientRect();
-    const viewport = { width: document.documentElement.clientWidth / zoom, height: window.innerHeight / zoom };
-    const reserved = (window.innerHeight - this.#dock.getBoundingClientRect().top) / zoom;
-    const target = rect
-      ? { left: rect.left / zoom, top: rect.top / zoom, width: rect.width / zoom, height: rect.height / zoom }
-      : { left: viewport.width / 2 - box.width / zoom / 2, top: viewport.height / 3, width: 0, height: 0 };
-    const { left, top } = anchorPopover(target, { width: box.width / zoom, height: box.height / zoom }, viewport, reserved + 8);
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const reserved = window.innerHeight - this.#dock.getBoundingClientRect().top;
+    const target = rect ?? { left: viewport.width / 2 - box.width / 2, top: viewport.height / 3, width: 0, height: 0 };
+    const { left, top } = anchorPopover(target, { width: box.width, height: box.height }, viewport, reserved + 8);
     this.#composer.moveTo(left, top);
   }
 
@@ -550,7 +561,9 @@ export class IterbarBarElement extends ElementBase {
     return null;
   }
 
-  #feedbackDraft(pick: Pick, text: string, screenshot: ScreenshotResult, batchId: string | null): FeedbackDraft {
+  #feedbackDraft(
+    pick: Pick, text: string, screenshot: ScreenshotResult, batch: { readonly id: string; readonly size: number } | null,
+  ): FeedbackDraft {
     return {
       schemaVersion: SCHEMA_VERSION,
       kind: "comment",
@@ -560,7 +573,7 @@ export class IterbarBarElement extends ElementBase {
       activeVariants: [...pick.activeVariants],
       screenshotUnavailableReason: screenshot.ok ? null : screenshot.reason,
       evidenceWindow: null,
-      ...(batchId ? { batchId } : {}),
+      ...(batch ? { batchId: batch.id, batchSize: batch.size } : {}),
     };
   }
 
@@ -572,7 +585,7 @@ export class IterbarBarElement extends ElementBase {
       this.#composer.showError("This page's URL is not http or https, so the daemon cannot file a comment for it.");
       return;
     }
-    this.#drafts.push({ id: localId("draft"), pick, text, state: "draft", error: null });
+    this.#drafts.push({ id: localId("draft"), pick, text, state: "draft", error: null, batchId: null });
     // The pick now belongs to the draft: its screenshot carries on.
     this.#pick = null;
     this.#closeComposer();
@@ -590,10 +603,14 @@ export class IterbarBarElement extends ElementBase {
     const [draft] = this.#drafts.splice(index, 1);
     draft!.pick.withdraw.abort();
     this.#picker.mark(null);
-    if (this.#drafts.length === 0) this.#batchId = null;
     this.#renderDrafts();
     this.#announce("Draft removed.");
-    if (this.#drafts.length === 0 && this.#state.panel === "drafts") this.#tray.element.querySelector<HTMLElement>("[data-role=drafts-empty]")?.focus();
+    // Focus goes to the next draft's Remove (or the previous one's), or to the panel when the tray is empty.
+    const next = this.#drafts[Math.min(index, this.#drafts.length - 1)];
+    const button = next
+      ? this.#tray.element.querySelector<HTMLElement>(`[data-draft-id="${CSS.escape(next.id)}"] [data-role=draft-remove]`)
+      : null;
+    (button ?? this.#panelClose).focus();
   }
 
   #editDraft(id: string, text: string): void {
@@ -605,8 +622,10 @@ export class IterbarBarElement extends ElementBase {
   }
 
   /**
-   * Posts every draft, in tray order, as one batch: each with the same `batchId`, its screenshot or the reason there is
-   * none. A sent draft leaves the tray; a failed one stays with its reason, and Send all retries it in the same batch.
+   * Posts every draft, in tray order, as one batch: each with the same `batchId` and the batch's size, its screenshot or
+   * the reason there is none. A sent draft leaves the tray; a failed one stays with its reason and its batch, and Send
+   * all retries it in that batch, together with drafts added since. A draft added while a batch is being sent waits for
+   * the next Send all.
    */
   async #sendAll(): Promise<void> {
     if (this.#sendingBatch || this.#drafts.length === 0) return;
@@ -617,20 +636,24 @@ export class IterbarBarElement extends ElementBase {
       this.#renderDrafts();
       return;
     }
-    const batchId = this.#batchId ??= localId("batch");
+    const submitted = [...this.#drafts];
+    const batchId = submitted.find((draft) => draft.batchId !== null)?.batchId ?? localId("batch");
+    const batch = { id: batchId, size: (this.#delivered.get(batchId) ?? 0) + submitted.length };
+    for (const draft of submitted) draft.batchId = batchId;
     this.#sendingBatch = true;
     this.#batchError = null;
     let sent = 0;
-    for (const draft of [...this.#drafts]) {
+    for (const draft of submitted) {
       draft.state = "sending";
       draft.error = null;
       this.#renderDrafts();
       try {
         const screenshot = await draft.pick.screenshot;
         const feedback = await connection.sendFeedback(
-          this.#feedbackDraft(draft.pick, draft.text, screenshot, batchId), screenshot.ok ? screenshot.png : null);
+          this.#feedbackDraft(draft.pick, draft.text, screenshot, batch), screenshot.ok ? screenshot.png : null);
         if (this.#connection === connection) this.#threads.merge(feedback);
         this.#drafts = this.#drafts.filter((each) => each !== draft);
+        this.#delivered.set(batchId, (this.#delivered.get(batchId) ?? 0) + 1);
         sent += 1;
       } catch (error) {
         draft.state = "failed";
@@ -638,14 +661,14 @@ export class IterbarBarElement extends ElementBase {
       }
     }
     this.#sendingBatch = false;
-    const left = this.#drafts.length;
-    if (left === 0) this.#batchId = null;
-    else this.#batchError = `${left} of ${left + sent} not sent. Send all tries them again in the same batch.`;
+    const failed = submitted.length - sent;
+    if (failed === 0) this.#delivered.delete(batchId);
+    else this.#batchError = `${failed} of ${submitted.length} not sent. Send all tries ${failed === 1 ? "it" : "them"} again in the same batch.`;
     this.#picker.mark(null);
     this.#renderDrafts();
-    if (left === 0) {
+    if (failed === 0) {
       this.#announce(`Sent ${sent} ${sent === 1 ? "comment" : "comments"} as one batch.`);
-      if (this.#state.panel === "drafts") this.#openPanel("inbox", true);
+      if (this.#state.panel === "drafts" && this.#drafts.length === 0) this.#openPanel("inbox", true);
     } else {
       this.#announce(this.#batchError ?? "");
     }
@@ -721,6 +744,8 @@ export class IterbarBarElement extends ElementBase {
     } else if (!on && this.#savedCursor !== null) {
       const { value, priority } = this.#savedCursor;
       this.#savedCursor = null;
+      // The page changed the cursor itself meanwhile: its value stays.
+      if (style.getPropertyValue("cursor") !== "crosshair" || style.getPropertyPriority("cursor") !== "important") return;
       if (value) style.setProperty("cursor", value, priority);
       else style.removeProperty("cursor");
       if (style.length === 0) document.documentElement.removeAttribute("style");

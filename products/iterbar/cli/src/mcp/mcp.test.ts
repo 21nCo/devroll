@@ -168,8 +168,8 @@ describe("iterbar mcp", { timeout: 60_000 }, () => {
     const daemon = await start();
     const { client } = await connect();
     const alone = await sendFeedback(daemon);
-    const first = await sendFeedback(daemon, { ...commentDraft, text: "First of the batch.", batchId: "batch-a1" });
-    const second = await sendFeedback(daemon, { ...commentDraft, text: "Second of the batch.", evidenceWindow: null, batchId: "batch-a1" }, false);
+    const first = await sendFeedback(daemon, { ...commentDraft, text: "First of the batch.", batchId: "batch-a1", batchSize: 3 });
+    const second = await sendFeedback(daemon, { ...commentDraft, text: "Second of the batch.", evidenceWindow: null, batchId: "batch-a1", batchSize: 3 }, false);
     await sendFeedback(daemon, { ...commentDraft, evidenceWindow: null, batchId: "batch-b2" }, false);
     expect(alone).not.toHaveProperty("batchId");
     expect(first.batchId).toBe("batch-a1");
@@ -179,9 +179,12 @@ describe("iterbar mcp", { timeout: 60_000 }, () => {
 
     const batch = await call(client, "get_batch", { batchId: "batch-a1" });
     expect(batch.isError, JSON.stringify(batch.content)).toBeFalsy();
+    // Two of three have arrived: the agent is told the batch is not complete yet.
     expect(batch.structuredContent).toMatchObject({
       batchId: "batch-a1",
       count: 2,
+      expectedCount: 3,
+      complete: false,
       items: [
         { feedback: { id: first.id, text: "First of the batch." }, attachments: [{ kind: "screenshot", inlined: true }, { kind: "evidence" }] },
         { feedback: { id: second.id, text: "Second of the batch." }, attachments: [] },

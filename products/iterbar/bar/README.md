@@ -39,9 +39,12 @@ tray and the versions open as a panel above the toolbar.
 - **Draft tray**: comments picked and written but kept in the page (in
   memory, for this tab) until **Send all** posts them, in order, as one batch.
   Each draft can be edited or removed first, and hovering one outlines its
-  element. Every comment of a batch carries the same `batchId`, which agents
-  read with the MCP `get_batch` tool. A draft the daemon refuses stays in the
-  tray with the reason, and Send all retries it in the same batch.
+  element. Every comment of a batch carries the same `batchId` and the
+  batch's `batchSize`, which agents read with the MCP `get_batch` tool (it
+  says whether the whole batch has arrived). A draft the daemon refuses stays
+  in the tray with the reason, and Send all retries it in the same batch,
+  with any drafts added since. A draft added while a batch is being sent
+  waits for the next Send all.
 - **Inbox**: the feedback threads, newest first, with status (Open, In
   progress, Needs info, Done, Resolved), the target and page, and replies,
   which arrive live. Filters show all threads, open ones (open or needing
@@ -222,8 +225,10 @@ Removing the element closes the stream and cancels every timer.
 
 - **Ctrl/Cmd+.** keeps the toolbar expanded or lets it sleep, from anywhere
   on the page, and moves focus to the Comment button (Alt+Shift+I does the
-  same). **C** toggles comment mode. **Escape** leaves comment mode, or
-  closes the open panel and returns focus to its button.
+  same). **C** toggles comment mode. Neither shortcut applies while focus is
+  in a text field, an editable element or a custom element with a closed
+  shadow root. **Escape** leaves comment mode, cancels a draft being edited,
+  or closes the open panel and returns focus to its button.
 - Every control is a native button, select or summary, so it can be reached
   with Tab in visual order (the toolbar, then the open panel), and each one
   shows a focus ring. Counts, the connection and what a send did are

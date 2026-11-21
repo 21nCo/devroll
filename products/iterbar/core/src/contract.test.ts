@@ -498,6 +498,8 @@ describe("feedback invariants", () => {
     expect(parseMessage(feedbackSchema, { ...comment, batchId: "batch-1" }).batchId).toBe("batch-1");
     expect(() => parseMessage(feedbackSchema, { ...comment, batchId: "Batch 1" })).toThrow(InvalidMessageError);
     expect(() => parseMessage(feedbackSchema, { ...comment, batchId: null })).toThrow(InvalidMessageError);
+    expect(parseMessage(feedbackSchema, { ...comment, batchId: "batch-1", batchSize: 3 }).batchSize).toBe(3);
+    expect(() => parseMessage(feedbackSchema, { ...comment, batchId: "batch-1", batchSize: 0 })).toThrow(InvalidMessageError);
   });
 
   it("rejects a screenshot together with a reason it is unavailable", () => {

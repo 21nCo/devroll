@@ -181,7 +181,7 @@ kbd {
   background: var(--ib-accent);
   color: var(--ib-accent-fg);
 }
-[data-role=drafts-toggle] .count { background: #c77700; color: #ffffff; }
+[data-role=drafts-toggle] .count { background: #9a5b00; color: #ffffff; }
 
 .status { display: inline-flex; align-items: center; gap: 5px; padding: 0 6px; color: var(--ib-muted); font-size: 12px; white-space: nowrap; }
 .status::before {
@@ -321,7 +321,7 @@ p { margin: 0 0 6px; }
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #c77700;
+  background: #9a5b00;
   color: #ffffff;
   font-size: 11px;
   font-weight: 600;

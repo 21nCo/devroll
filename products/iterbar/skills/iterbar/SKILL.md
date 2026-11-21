@@ -89,9 +89,11 @@ The user can collect several comments in the bar's draft tray and send them toge
 the same `batchId` (items sent on their own have none). When an item you are about to handle has a `batchId`, work
 through the whole batch as one change instead of item by item:
 
-1. `get_batch` with that `batchId`. It returns every item of the batch in the order they were sent, each with its
+1. `get_batch` with that `batchId`, keeping `includeAttachments` at its default (`true`): look at the screenshots,
+   since they show what the user saw. It returns every item of the batch in the order they were sent, each with its
    target, `sourceLocation`, selector, text excerpt and `activeVariants`, and every screenshot (each labelled with its
-   item's id). Read all of them before you change anything: comments in a batch often relate (the same component, a
+   item's id). If `complete` is `false`, the rest of the batch is still being sent: `wait_for_feedback` with your
+   cursor and call `get_batch` again. Read all of them before you change anything: comments in a batch often relate (the same component, a
    consistent style), and one edit may answer several.
 2. `set_status` `working` on every item of the batch.
 3. Make the changes.

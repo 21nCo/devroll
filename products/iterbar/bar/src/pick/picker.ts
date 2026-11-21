@@ -13,8 +13,11 @@ export interface PickerOptions {
   readonly container: ParentNode;
   /** A page element was clicked, or Enter or Space pressed on it. Returns whether it is now the picked element (`false` keeps the previous one). */
   readonly onPick: (element: Element) => boolean;
-  /** Escape was pressed: the caller leaves comment mode. */
-  readonly onEscape: () => void;
+  /**
+   * Escape was pressed: the caller leaves comment mode and returns `true`, or returns `false` to leave the key to
+   * whatever it was pressed in (a control of the bar that handles Escape itself).
+   */
+  readonly onEscape: (event: KeyboardEvent) => boolean;
 }
 
 /**
@@ -228,9 +231,9 @@ export class ElementPicker {
       return;
     }
     if (event.key !== "Escape" || event.isComposing) return;
+    if (!this.#options.onEscape(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    this.#options.onEscape();
   };
 
   readonly #onKeyup = (event: KeyboardEvent): void => {

@@ -126,6 +126,11 @@ const contentFields = {
    * feedback sent on its own and on feedback from bars that predate batches.
    */
   batchId: idSchema.optional(),
+  /**
+   * How many comments the batch holds once it is all sent; with {@link batchId}. The bar posts a batch's comments one
+   * at a time, so an agent that sees fewer items than this knows more are on their way.
+   */
+  batchSize: z.number().int().positive().max(1000).optional(),
 };
 
 const commentFields = { kind: z.literal("comment"), text: nonBlankText };

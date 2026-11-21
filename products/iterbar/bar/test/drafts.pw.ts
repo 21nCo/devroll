@@ -71,6 +71,8 @@ test("drafts several comments, edits and removes one, and sends the rest as one 
   await expect(rows.nth(1).locator(".draft-text")).toHaveText("Make the card text 14px");
   await rows.nth(2).locator("[data-role=draft-remove]").click();
   await expect(rows).toHaveCount(2);
+  // Focus moves to the Remove of the draft now last, not to the page.
+  await expect(rows.nth(1).locator("[data-role=draft-remove]")).toBeFocused();
   await expect(inBar(page, "[data-role=drafts-send]")).toHaveText("Send all 2");
 
   await inBar(page, "[data-role=drafts-send]").click();
@@ -78,9 +80,11 @@ test("drafts several comments, edits and removes one, and sends the rest as one 
   const [first, second] = daemon.posts;
   expect(first!.draft).toMatchObject({ text: "Use a friendlier label", target: { sourceLocation: { path: "src/components/AskBox.svelte", line: 45 } } });
   expect(second!.draft).toMatchObject({ text: "Make the card text 14px", target: { selector: '[data-testid="card"]' } });
-  const batchId = (first!.draft as { batchId?: string }).batchId;
+  const batchId = first!.draft.batchId;
   expect(batchId).toMatch(/^batch-[a-z0-9-]+$/);
-  expect((second!.draft as { batchId?: string }).batchId).toBe(batchId);
+  expect(second!.draft.batchId).toBe(batchId);
+  // Each comment says how many the batch holds, so an agent can tell when all of it has arrived.
+  expect([first!.draft.batchSize, second!.draft.batchSize]).toEqual([2, 2]);
   // Both screenshots were taken, the sprite icon's included.
   expect(first!.draft.screenshotUnavailableReason).toBeNull();
   expect(first!.screenshot).not.toBeNull();
@@ -111,9 +115,68 @@ test("keeps a draft the daemon refused and retries it in the same batch", async 
   daemon.failFeedback = null;
   await inBar(page, "[data-role=drafts-send]").click();
   await expect.poll(() => daemon.posts.length).toBe(2);
-  const ids = daemon.posts.map((post) => (post.draft as { batchId?: string }).batchId);
+  const ids = daemon.posts.map((post) => post.draft.batchId);
   expect(new Set(ids).size).toBe(1);
   await expect(inBar(page, ".draft")).toHaveCount(0);
+});
+
+test("a draft added while a batch is being sent waits for the next batch and is not reported as failed", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "suggest", "First");
+  await draft(page, "card", "Second");
+  let release!: () => void;
+  daemon.holdFeedback = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await openPanel(page, "drafts");
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect.poll(() => daemon.requests.filter((request) => request.method === "POST").length).toBe(1);
+  // Comment mode is still on: pick and draft another while the batch is on its way.
+  await draft(page, "logo", "Third, later");
+  release();
+  daemon.holdFeedback = null;
+  await expect.poll(() => daemon.posts.length).toBe(2);
+  await expect(inBar(page, ".draft")).toHaveCount(1);
+  await expect(inBar(page, ".draft[data-state=draft] .draft-text")).toHaveText("Third, later");
+  await expect(inBar(page, "[data-role=drafts-error]")).toBeHidden();
+  await expect(inBar(page, "[data-role=announce]")).toHaveText("Sent 2 comments as one batch.");
+
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(3);
+  const [first, , third] = daemon.posts;
+  expect(third!.draft.batchId).toMatch(/^batch-/);
+  expect(third!.draft.batchId).not.toBe(first!.draft.batchId);
+  expect(third!.draft.batchSize).toBe(1);
+});
+
+test("Escape while editing a draft in comment mode cancels the edit and keeps comment mode", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "card", "Original");
+  await openPanel(page, "drafts");
+  await inBar(page, "[data-role=draft-edit]").click();
+  await inBar(page, "[data-role=draft-text]").fill("Changed, then abandoned");
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-role=draft-text]")).toHaveCount(0);
+  await expect(inBar(page, ".draft-text")).toHaveText("Original");
+  await expect(inBar(page, "[data-role=draft-edit]")).toBeFocused();
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
+});
+
+test("the composer opens next to its element under a page zoom", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await page.addStyleTag({ content: "html { zoom: 1.5 }" });
+  await inBar(page, "[data-role=comment]").click();
+  await page.getByTestId("card").click();
+  const card = (await page.getByTestId("card").boundingBox())!;
+  const composer = (await inBar(page, ".composer").boundingBox())!;
+  expect(Math.abs(composer.x - card.x)).toBeLessThan(2);
+  expect(composer.y).toBeGreaterThanOrEqual(card.y + card.height);
+  expect(composer.y).toBeLessThan(card.y + card.height + 20);
 });
 
 test("a single comment is still sent on its own, without a batch", async ({ page, openFixture, fixtureServer }) => {

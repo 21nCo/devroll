@@ -108,6 +108,11 @@ const cursorInput = z.string().max(1_000_000).optional();
 
 const feedbackId = idSchema.describe("The feedback item's id, as returned by list_feedback or wait_for_feedback.");
 
+/** The items of `items` in batch `batchId`. */
+function inBatch(items: readonly Feedback[], batchId: string): Feedback[] {
+  return items.filter((item) => item.batchId === batchId);
+}
+
 /** Reads `feedback`'s attachment references and, when `inline`, their contents as content blocks. */
 async function readAttachments(client: DaemonClient, feedback: Feedback, inline: boolean) {
   const blocks: ContentBlock[] = [];
@@ -171,12 +176,14 @@ export function registerTools(context: ToolContext): void {
     // comes back unchanged. Without one, the cursor starts now; it is taken before the filtered listing, so an item
     // that arrives in between is handed over again by the next wait, never skipped.
     const next = cursor ?? (await observe(cursorProvenBy(await client.listFeedback()), await client.listFeedback(), relist)).cursor;
-    const items = await client.listFeedback({
+    const listed = await client.listFeedback({
       ...(input.status ? { status: input.status } : {}),
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.since ? { since: input.since } : {}),
       ...(input.batchId ? { batchId: input.batchId } : {}),
     });
+    // A daemon from before batches ignores the batchId filter, so it is applied here as well.
+    const items = input.batchId ? inBatch(listed, input.batchId) : listed;
     return success({ items, cursor: encodeCursor(next) });
   }));
 
@@ -203,16 +210,21 @@ export function registerTools(context: ToolContext): void {
       "Read every feedback item the user sent together in one batch from the bar's draft tray, in the order they were " +
       "sent, each with its thread, target element, source location and active variants. Items share a batchId (shown on " +
       "each item by list_feedback and wait_for_feedback). By default each item's screenshot is included as an image, " +
-      "labelled with the item's id, and evidence as JSON. Work through the batch as one change: read all of it first, " +
-      "then set each item working, make the edits, reply on each item and set each one done.",
+      "labelled with the item's id, and evidence as JSON. The bar posts a batch one comment at a time: expectedCount is " +
+      "how many it holds once all are sent, and complete says whether all have arrived; when complete is false, " +
+      "wait_for_feedback briefly and call get_batch again. Work through the batch as one change: read all of it " +
+      "first, then set each item working, make the edits, reply on each item and set each one done.",
     inputSchema: {
       batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
       includeAttachments: z.boolean().default(true).describe("Return each item's screenshot and evidence contents (default true)."),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, (input) => run(context, async () => {
-    const items = await client.listFeedback({ batchId: input.batchId });
+    // A daemon from before batches ignores the filter and lists everything, so membership is checked here too.
+    const items = inBatch(await client.listFeedback({ batchId: input.batchId }), input.batchId);
     if (items.length === 0) throw new IterbarToolError("not_found", `No feedback has batchId ${input.batchId}`);
+    const sizes = items.map((item) => item.batchSize).filter((size): size is number => size !== undefined);
+    const expectedCount = sizes.length ? Math.max(...sizes) : null;
     const blocks: ContentBlock[] = [];
     const entries = [];
     for (const feedback of items) {
@@ -220,7 +232,13 @@ export function registerTools(context: ToolContext): void {
       if (read.blocks.length) blocks.push({ type: "text", text: `Attachments of ${feedback.id}:` }, ...read.blocks);
       entries.push({ feedback, attachments: read.attachments });
     }
-    return success({ batchId: input.batchId, count: items.length, items: entries }, blocks);
+    return success({
+      batchId: input.batchId,
+      count: items.length,
+      expectedCount,
+      complete: expectedCount === null ? null : items.length >= expectedCount,
+      items: entries,
+    }, blocks);
   }));
 
   server.registerTool("reply", {

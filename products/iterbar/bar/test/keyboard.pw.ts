@@ -119,11 +119,27 @@ test("the shortcuts ignore other modifier combinations and text entry", async ({
   await page.keyboard.press("Alt+Shift+KeyI");
   await expect(expanded).toHaveAttribute("aria-expanded", "true");
 
-  // C typed into a field, with a modifier, or held down does not enter comment mode.
+  // In a text field neither shortcut applies: Ctrl/Cmd+. is an editor command there, C is a letter. That includes a
+  // field inside a closed shadow root, which only shows its host.
+  await page.evaluate(() => {
+    class ClosedField extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: "closed" }).innerHTML = '<input id="inner">';
+      }
+    }
+    customElements.define("closed-field", ClosedField);
+    document.querySelector("main")!.append(document.createElement("closed-field"));
+  });
+  await page.locator("#field").focus();
+  await page.keyboard.press("Control+Period");
+  await expect(expanded).toHaveAttribute("aria-expanded", "true");
   for (const target of ["#field", "#editor"]) {
     await page.locator(target).focus();
     await page.keyboard.press("c");
   }
+  await page.locator("closed-field").click();
+  await page.keyboard.press("c");
   await page.locator("#page-button").focus();
   for (const keys of ["Control+KeyC", "Meta+KeyC", "Alt+KeyC"]) await page.keyboard.press(keys);
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
