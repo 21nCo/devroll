@@ -101,7 +101,8 @@ that thread only: handle it like any reply, without reopening the rest of the ba
    consistent style), and one edit may answer several.
 2. `set_status` `working` on every unfinished item of the batch (leave items already done alone). An entry with
    `supersededBy` is an earlier copy of a comment the user sent again (perhaps edited): act on the copy it names, and
-   on this one reply that it was sent again and set it `resolved`.
+   on this one reply that it was sent again and set it `resolved`. If the newest copy asks for the same thing as a
+   copy you already finished, do not redo the work: reply on the newest copy that it was already done and set it `done`.
 3. Make the changes.
 4. For each item you worked on: read it again with `get_feedback` (`includeAttachments: false`), `reply` with what you changed for
    that comment, and `set_status` `done`, or ask and set `needs-info` for that item alone.

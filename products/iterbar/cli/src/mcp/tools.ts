@@ -218,7 +218,8 @@ export function registerTools(context: ToolContext): void {
       "first, then set each unfinished item working, make the edits, reply on each of those items and set each one " +
       "done. Leave items already done alone: a comment retried later arrives on its own. An entry with supersededBy " +
       "is an earlier copy of a comment the user sent again (perhaps edited): act on the copy it names, and on this one " +
-      "reply that it was sent again and set it resolved.",
+      "reply that it was sent again and set it resolved. If the copy it names asks for the same thing as a copy you " +
+      "already finished, do not redo the work: reply on the newest copy that it was already done and set it done.",
     inputSchema: {
       batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
       includeAttachments: z.boolean().default(true).describe("Return each item's screenshot and evidence contents (default true)."),
