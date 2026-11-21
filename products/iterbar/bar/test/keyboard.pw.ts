@@ -156,6 +156,18 @@ test("the shortcuts ignore other modifier combinations and text entry", async ({
   await page.locator("#closed-div").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("c");
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
+  // A modal dialog that took focus itself takes no text: C applies there.
+  await page.evaluate(() => {
+    const dialog = document.createElement("dialog");
+    dialog.id = "modal";
+    dialog.textContent = "Nothing focusable";
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+  await page.keyboard.press("c");
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => (document.getElementById("modal") as HTMLDialogElement).close());
   await page.locator("#page-button").focus();
   for (const keys of ["Control+KeyC", "Meta+KeyC", "Alt+KeyC"]) await page.keyboard.press(keys);
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
