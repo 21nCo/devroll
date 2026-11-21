@@ -84,9 +84,10 @@ const SHADOW_HOSTS = new Set([
 function isTextEntry(target: EventTarget | undefined): boolean {
   if (!(target instanceof Element)) return false;
   // Focus inside a closed shadow root shows as its host, a custom element or a built-in one such as a <div>. So a
-  // focused custom element with no readable shadow root may hold a field, tabindex or not, and so may any other
-  // element that is not focusable itself. A shortcut never takes a keystroke that might be typing; the toolbar's
-  // buttons still work.
+  // focused custom element with no readable shadow root may hold a field, tabindex or not, and so may a built-in
+  // element that can host a shadow root and has no tabindex. Other elements (a dialog, a list item, media) cannot host
+  // one, so their focus is their own. A shortcut never takes a keystroke that might be typing; the toolbar's buttons
+  // still work.
   if (target.localName !== BAR_TAG && target.shadowRoot === null && target.matches(":focus")) {
     if (target.localName.includes("-")) return true;
     // Only these built-in elements can host a shadow root. One focused without a tabindex may hold focus through its
