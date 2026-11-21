@@ -76,8 +76,10 @@ function isToggleShortcut(event: KeyboardEvent): boolean {
  */
 function isTextEntry(target: EventTarget | undefined): boolean {
   if (!(target instanceof Element)) return false;
+  // Focus inside a closed shadow root shows as its host. A custom element focusable itself (with a tabindex) is
+  // not taken for one: without a tabindex, a focused custom element with no readable shadow root holds focus inside.
   if (target.localName.includes("-") && target.localName !== BAR_TAG && target.shadowRoot === null
-    && target.matches(":focus-within, :focus")) return true;
+    && !target.hasAttribute("tabindex") && target.matches(":focus")) return true;
   if (target instanceof HTMLElement && target.isContentEditable) return true;
   if (target.localName === "textarea" || target.localName === "select") return true;
   if (target.localName !== "input") return false;
@@ -507,7 +509,9 @@ export class IterbarBarElement extends ElementBase {
     if (!pick || !this.#composer.open) return;
     const rect = pick.element.isConnected ? pick.element.getBoundingClientRect() : null;
     const box = this.#composer.element.getBoundingClientRect();
-    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    // The visual viewport leaves out scrollbars and, unlike the root's client size, is not scaled by a page zoom.
+    const visual = window.visualViewport;
+    const viewport = { width: visual?.width ?? window.innerWidth, height: visual?.height ?? window.innerHeight };
     const reserved = window.innerHeight - this.#dock.getBoundingClientRect().top;
     const target = rect ?? { left: viewport.width / 2 - box.width / 2, top: viewport.height / 3, width: 0, height: 0 };
     const { left, top } = anchorPopover(target, { width: box.width, height: box.height }, viewport, reserved + 8);

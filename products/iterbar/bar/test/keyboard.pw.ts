@@ -140,6 +140,13 @@ test("the shortcuts ignore other modifier combinations and text entry", async ({
   }
   await page.locator("closed-field").click();
   await page.keyboard.press("c");
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
+  // A custom element focusable itself, with no shadow root, is not text entry: C still applies there.
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("beforeend", '<x-tab tabindex="0">Tab</x-tab>'));
+  await page.locator("x-tab").focus();
+  await page.keyboard.press("c");
+  await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await page.locator("#page-button").focus();
   for (const keys of ["Control+KeyC", "Meta+KeyC", "Alt+KeyC"]) await page.keyboard.press(keys);
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
