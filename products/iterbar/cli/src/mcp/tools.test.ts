@@ -145,12 +145,12 @@ describe("batch completeness", () => {
     const client = await connect(() => items);
     const partial = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
     expect(partial).toMatchObject({ count: 2, expectedCount: 2, complete: false, lastArrivedAt: retried.createdAt });
-    expect((partial.items as { duplicateOf?: string }[]).map((entry) => entry.duplicateOf)).toEqual([undefined, "feedback-a"]);
-    // Sent again with edited text, it is a revision, not a duplicate.
-    items = [first, { ...retried, text: "Edited before the retry" }];
-    const revised = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
-    expect((revised.items as { revisionOf?: string; duplicateOf?: string }[]).map((entry) => [entry.revisionOf, entry.duplicateOf]))
-      .toEqual([[undefined, undefined], ["feedback-a", undefined]]);
+    // The newest copy of a comment sent again is the one to act on, whatever its text.
+    expect((partial.items as { supersededBy?: string }[]).map((entry) => entry.supersededBy)).toEqual(["feedback-b", undefined]);
+    const third = { ...feedbackItem("feedback-d", base + 15), text: "Edited, then sent a third time", batchId: "batch-1", batchSize: 2, batchIndex: 0 };
+    items = [first, retried, third];
+    const resent = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect((resent.items as { supersededBy?: string }[]).map((entry) => entry.supersededBy)).toEqual(["feedback-d", "feedback-d", undefined]);
     items = [first, retried, { ...feedbackItem("feedback-c", base + 20), batchId: "batch-1", batchSize: 2, batchIndex: 1 }];
     expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ count: 3, complete: true });
   });

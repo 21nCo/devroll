@@ -100,9 +100,8 @@ that thread only: handle it like any reply, without reopening the rest of the ba
    what is there. Read all of them before you change anything: comments in a batch often relate (the same component, a
    consistent style), and one edit may answer several.
 2. `set_status` `working` on every unfinished item of the batch (leave items already done alone). An entry with
-   `duplicateOf` is the same comment stored twice: act on the first copy only, reply on the duplicate that it was
-   filed twice and set it `resolved`. An entry with `revisionOf` is that comment edited and sent again: act on the
-   revision, and on the earlier copy reply that it was replaced and set it `resolved`.
+   `supersededBy` is an earlier copy of a comment the user sent again (perhaps edited): act on the copy it names, and
+   on this one reply that it was sent again and set it `resolved`.
 3. Make the changes.
 4. For each item you worked on: read it again with `get_feedback` (`includeAttachments: false`), `reply` with what you changed for
    that comment, and `set_status` `done`, or ask and set `needs-info` for that item alone.

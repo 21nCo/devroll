@@ -79,10 +79,9 @@ screenshot limit, so pass `includeAttachments: false` and read the `path` when y
 Inputs: `batchId` (any item's `batchId`); `includeAttachments` (default `true`).
 
 Result: `{ batchId, count, expectedCount, complete, lastArrivedAt, items }`, where each entry of `items` is
-`{ feedback, attachments }` as `get_feedback` returns them, plus `duplicateOf` (the first copy's id) on a comment
-stored twice after a retry (act on the first copy only, reply on the duplicate that it was filed twice and set it
-`resolved`), or `revisionOf` on one edited and sent again (act on the revision; reply on the earlier copy that it was
-replaced and set it `resolved`). Entries come in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
+`{ feedback, attachments }` as `get_feedback` returns them, plus `supersededBy` (the newest copy's id) on an earlier copy
+of a comment the user sent again after a lost answer, perhaps edited: act on the copy it names, reply on this one that
+it was sent again and set it `resolved`. Entries come in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
 as an `image` block and its evidence as a `resource` block, each group after a text block `Attachments of <id>:`.
 The bar posts a batch one item at a time. `expectedCount` is how many items the batch holds (the newest item's
 `batchSize`, since a comment the user withdrew after a failed send lowers it), and `complete` says whether all of them
