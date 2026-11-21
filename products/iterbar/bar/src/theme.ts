@@ -31,123 +31,102 @@ export const BAR_CSS = String.raw`
   pointer-events: none;
 }
 
-.bar {
+.bar, .composer {
   --ib-bg: #ffffff;
-  --ib-fg: #1b1d21;
-  --ib-muted: #5d6470;
-  --ib-border: #cfd5de;
-  --ib-surface: #f2f4f7;
-  --ib-accent: #2f4fd0;
+  --ib-fg: #16181d;
+  --ib-muted: #5a616d;
+  --ib-border: #d4d9e1;
+  --ib-surface: #f3f5f8;
+  --ib-hover: #e8ebf0;
+  --ib-accent: #3346c9;
   --ib-accent-fg: #ffffff;
-  --ib-focus: #2f4fd0;
+  --ib-accent-soft: rgba(51, 70, 201, 0.12);
+  --ib-focus: #3346c9;
   --ib-warn: #8a5a00;
-  --ib-shadow: 0 8px 28px rgba(15, 20, 30, 0.2);
+  --ib-danger: #b3261e;
+  --ib-shadow: 0 10px 32px rgba(15, 20, 30, 0.18), 0 1px 3px rgba(15, 20, 30, 0.12);
   --ib-margin: 12px;
-  --ib-offset: 1;
   color-scheme: light;
-  position: fixed;
-  inset: auto;
-  z-index: 2147483647;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  width: min(320px, calc(100% - 2 * var(--ib-margin)));
-  max-width: calc(100% - 2 * var(--ib-margin));
-  height: auto;
-  max-height: calc(100% - 2 * var(--ib-margin));
-  margin: 0;
-  padding: 0;
-  overflow: visible;
   font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-weight: 400;
   letter-spacing: normal;
   text-align: left;
   text-transform: none;
   color: var(--ib-fg);
-  background: var(--ib-bg);
-  border: 1px solid var(--ib-border);
-  border-radius: 10px;
-  box-shadow: var(--ib-shadow);
   cursor: auto;
   visibility: visible;
   opacity: 1;
-  pointer-events: auto;
 }
 
 @media (prefers-color-scheme: dark) {
-  .bar {
-    --ib-bg: #1c1f25;
-    --ib-fg: #e8eaee;
-    --ib-muted: #a3aab6;
+  .bar, .composer {
+    --ib-bg: #1b1e24;
+    --ib-fg: #eceef2;
+    --ib-muted: #a6adb9;
     --ib-border: #3a404b;
-    --ib-surface: #272b33;
-    --ib-accent: #7d97ff;
-    --ib-accent-fg: #0d1020;
-    --ib-focus: #9cb0ff;
+    --ib-surface: #252930;
+    --ib-hover: #30353e;
+    --ib-accent: #8ea2ff;
+    --ib-accent-fg: #0c1024;
+    --ib-accent-soft: rgba(142, 162, 255, 0.18);
+    --ib-focus: #a9b8ff;
     --ib-warn: #f2c26b;
-    --ib-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+    --ib-danger: #ff8a80;
+    --ib-shadow: 0 10px 32px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
   }
 }
 
-/* Its header's one-line width, capped by max-width; "auto" would shrink to the narrowest wrap at the far edge. */
-.bar[data-collapsed] { width: max-content; }
-
-.bar[data-edge="top"], .bar[data-edge="bottom"] {
-  left: calc(var(--ib-margin) + var(--ib-offset) * (100% - 2 * var(--ib-margin)));
-  transform: translateX(calc(var(--ib-offset) * -100%));
-}
-.bar[data-edge="top"] { top: var(--ib-margin); }
-.bar[data-edge="bottom"] { bottom: var(--ib-margin); }
-.bar[data-edge="left"], .bar[data-edge="right"] {
-  top: calc(var(--ib-margin) + var(--ib-offset) * (100% - 2 * var(--ib-margin)));
-  transform: translateY(calc(var(--ib-offset) * -100%));
-}
-.bar[data-edge="left"] { left: var(--ib-margin); }
-.bar[data-edge="right"] { right: var(--ib-margin); }
-.bar[data-dragging] {
-  top: var(--ib-drag-top);
-  left: var(--ib-drag-left);
-  right: auto;
-  bottom: auto;
-  transform: none;
-  opacity: 0.9;
-}
-
 *, *::before, *::after { box-sizing: border-box; }
 
-/* Wraps rather than overflowing a narrow screen, expanded or collapsed. */
-.header {
+/*
+ * The dock: a column at the bottom of the viewport, the panel stacked above the toolbar. It is a manual popover in the
+ * top layer; the user-agent popover rules (inset, margin, size, border, padding, overflow, colours) are overridden.
+ * Only the toolbar and the panel take pointer events, so the dock covers no more of the page than they do.
+ */
+.dock {
+  position: fixed;
+  inset: auto;
+  bottom: var(--ib-margin);
+  z-index: 2147483647;
+  display: flex;
+  /* The toolbar comes first for the keyboard; the panel shows above it. */
+  flex-direction: column-reverse;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 2 * var(--ib-margin));
+  height: auto;
+  max-height: calc(100% - 2 * var(--ib-margin));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: transparent;
+  pointer-events: none;
+}
+.dock[data-dock="left"] { left: var(--ib-margin); align-items: flex-start; }
+.dock[data-dock="right"] { right: var(--ib-margin); align-items: flex-end; }
+.dock[data-dock="center"] { left: 50%; transform: translateX(-50%); align-items: center; }
+
+.toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
+
+.toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 6px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  max-width: 100%;
 }
-.title { font-weight: 600; margin-right: auto; white-space: nowrap; }
-.status { display: inline-flex; align-items: center; gap: 4px; color: var(--ib-muted); font-size: 12px; white-space: nowrap; }
-.status::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ib-muted);
-}
-.status[data-status="connected"]::before { background: #2e9e5b; }
-.status[data-status="retrying"]::before, .status[data-status="connecting"]::before { background: #d69a1d; }
-.status[data-status="unauthorized"]::before, .status[data-status="invalid"]::before { background: #d24b4b; }
+/* Asleep: only the essentials. Awake (hover, focus, pinned, a panel, the composer or comment mode): everything. */
+.dock:not([data-awake]):not(:hover):not(:focus-within) .extra { display: none; }
+.dock:not([data-awake]):not(:hover):not(:focus-within) [data-role=drafts-toggle]:not([data-has]) { display: none; }
+.dock:not([data-awake]):not(:hover):not(:focus-within) .toolbar { opacity: 0.92; }
+/* Asleep, the connection shows as its dot alone; the text stays for assistive technology. */
+.dock:not([data-awake]):not(:hover):not(:focus-within) .status { font-size: 0; gap: 0; padding: 0 8px; }
 
-.body {
-  overflow: auto;
-  padding: 0 10px 10px;
-  border-top: 1px solid var(--ib-border);
-}
-
-.section { margin: 10px 0 0; }
-.section-title { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
-p { margin: 0 0 6px; }
-.muted { color: var(--ib-muted); }
-.detail { color: var(--ib-warn); margin-top: 8px; }
+.divider { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--ib-border); }
 
 button, select {
   font: inherit;
@@ -159,20 +138,119 @@ button, select {
   padding: 3px 8px;
   cursor: pointer;
 }
+button:hover:not(:disabled) { background: var(--ib-hover); }
 button[aria-pressed="true"] {
   background: var(--ib-accent);
   border-color: var(--ib-accent);
   color: var(--ib-accent-fg);
 }
 button[aria-pressed="true"] .muted { color: inherit; }
-.icon { padding: 3px 6px; line-height: 1; }
-.handle { cursor: grab; touch-action: none; }
-.bar[data-dragging] .handle { cursor: grabbing; }
+button.primary { background: var(--ib-accent); border-color: var(--ib-accent); color: var(--ib-accent-fg); }
+button:disabled { cursor: default; opacity: 0.55; }
+
+.tool, .icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border-color: transparent;
+  background: transparent;
+  white-space: nowrap;
+}
+.icon { padding: 4px 7px; }
+.tool[aria-expanded="true"] { background: var(--ib-accent-soft); color: var(--ib-fg); }
+.tool[aria-pressed="true"] { background: var(--ib-accent); color: var(--ib-accent-fg); }
+.glyph { flex: none; display: block; }
+kbd {
+  font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 4px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+.count {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  background: var(--ib-accent);
+  color: var(--ib-accent-fg);
+}
+[data-role=drafts-toggle] .count { background: #c77700; color: #ffffff; }
+
+.status { display: inline-flex; align-items: center; gap: 5px; padding: 0 6px; color: var(--ib-muted); font-size: 12px; white-space: nowrap; }
+.status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ib-muted);
+}
+.status[data-status="connected"]::before { background: #2e9e5b; }
+.status[data-status="retrying"]::before, .status[data-status="connecting"]::before { background: #d69a1d; }
+.status[data-status="unauthorized"]::before, .status[data-status="invalid"]::before { background: #d24b4b; }
+/* Asleep, a connection problem still shows as a dot on the inbox button. */
+.dock:not([data-awake]):not(:hover):not(:focus-within):is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) [data-role=inbox-toggle]::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d24b4b;
+}
+
+/* The panel: inbox, draft tray or versions, opening upward from the toolbar. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 2 * var(--ib-margin)));
+  max-height: min(70vh, 560px);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--ib-border);
+}
+.panel-title { margin: 0 auto 0 0; font-size: 13px; font-weight: 600; }
+.panel-body {
+  overflow: auto;
+  /* Room for a scrollbar is kept whether or not one shows, so opening a thread never shifts the content sideways. */
+  scrollbar-gutter: stable;
+  padding: 10px 8px 12px 14px;
+}
+
+.section { margin: 0; }
+.section-title { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
+p { margin: 0 0 6px; }
+.muted { color: var(--ib-muted); }
+.detail { color: var(--ib-warn); margin: 0 0 10px; overflow-wrap: anywhere; }
+.spacer { flex: 1; }
 
 :focus { outline: none; }
 :focus-visible {
   outline: 2px solid var(--ib-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--ib-bg);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .field { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -181,56 +259,121 @@ button[aria-pressed="true"] .muted { color: inherit; }
 .versions { display: flex; flex-wrap: wrap; gap: 4px; }
 .warnings { margin: 6px 0 0; padding-left: 16px; color: var(--ib-warn); font-size: 12px; }
 
-.threads { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.thread details { border: 1px solid var(--ib-border); border-radius: 6px; background: var(--ib-surface); }
+.filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
+.chip { border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+
+.threads, .drafts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.thread details { border: 1px solid var(--ib-border); border-radius: 8px; background: var(--ib-surface); }
 .thread summary {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 4px 6px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
   cursor: pointer;
   list-style: none;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 .thread summary::-webkit-details-marker { display: none; }
-.thread-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-count { color: var(--ib-muted); font-size: 11px; white-space: nowrap; }
-.thread-body { padding: 4px 8px 8px; }
-.thread-full { white-space: pre-wrap; overflow-wrap: anywhere; }
-.replies { margin: 0; padding-left: 16px; }
-.reply { margin: 0 0 4px; overflow-wrap: anywhere; }
-.reply-author { font-weight: 600; margin-right: 4px; }
+.thread-head { display: flex; align-items: center; gap: 6px; }
+/* Long comments wrap rather than being cut at the panel's edge; closed threads show the first three lines. */
+.thread-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.thread details[open] .thread-text { display: block; -webkit-line-clamp: none; overflow: visible; }
+.thread-count { margin-left: auto; color: var(--ib-muted); font-size: 11px; white-space: nowrap; }
+.thread-body { padding: 0 10px 10px; display: grid; gap: 6px; }
+.thread-meta { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.replies { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.reply { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--ib-bg); border: 1px solid var(--ib-border); min-width: 0; }
+.reply[data-author="agent"] { border-left: 3px solid var(--ib-accent); }
+.reply-author { display: block; font-size: 11px; font-weight: 600; color: var(--ib-muted); }
+.reply-text { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .badge {
   flex: none;
   font-size: 11px;
   font-weight: 600;
-  padding: 0 6px;
+  padding: 0 7px;
   border-radius: 999px;
   background: var(--ib-border);
+  color: var(--ib-fg);
 }
 .badge[data-status="working"] { background: #d69a1d; color: #1b1300; }
 .badge[data-status="needs-info"] { background: #d24b4b; color: #ffffff; }
 .badge[data-status="done"], .badge[data-status="resolved"] { background: #2e9e5b; color: #ffffff; }
 
-.composer { display: grid; gap: 6px; }
+.draft {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ib-border);
+  border-radius: 8px;
+  background: var(--ib-surface);
+}
+.draft[data-state="failed"] { border-color: var(--ib-danger); }
+.draft[data-state="sending"] { opacity: 0.7; }
+.draft-index {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #c77700;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+}
+.draft-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.draft-target { margin: 0; font-size: 12px; color: var(--ib-muted); overflow-wrap: anywhere; }
+.draft-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.draft-actions { display: flex; gap: 6px; }
+.draft-actions button { padding: 1px 8px; font-size: 12px; }
+.drafts-footer { margin-top: 10px; display: grid; gap: 6px; }
+.empty { margin: 0; }
+
+/* The composer: a popover anchored next to the picked element. */
+.composer {
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  z-index: 2147483647;
+  display: grid;
+  gap: 6px;
+  width: min(340px, calc(100vw - 2 * var(--ib-margin)));
+  height: auto;
+  margin: 0;
+  padding: 10px;
+  overflow: visible;
+  color: var(--ib-fg);
+  background: var(--ib-bg);
+  border: 1px solid var(--ib-border);
+  border-radius: 10px;
+  box-shadow: var(--ib-shadow);
+  pointer-events: auto;
+}
 .composer .section-title { margin: 0; }
-.composer-target { margin: 0; color: var(--ib-muted); overflow-wrap: anywhere; }
+.composer-target { margin: 0; color: var(--ib-muted); overflow-wrap: anywhere; cursor: help; }
 .composer-text {
   font: inherit;
   color: inherit;
   width: 100%;
   min-height: 4.5em;
   margin: 0;
-  padding: 4px 6px;
+  padding: 6px 8px;
   resize: vertical;
   background: var(--ib-bg);
   border: 1px solid var(--ib-border);
   border-radius: 6px;
 }
-.composer-error { margin: 0; color: var(--ib-warn); overflow-wrap: anywhere; }
-.composer-actions { display: flex; justify-content: flex-end; gap: 6px; }
-button.primary { background: var(--ib-accent); border-color: var(--ib-accent); color: var(--ib-accent-fg); }
-button:disabled { cursor: default; opacity: 0.6; }
+.composer-hint { margin: 0; font-size: 11px; }
+.composer-error { margin: 0; color: var(--ib-danger); overflow-wrap: anywhere; }
+.composer-actions { display: flex; align-items: center; gap: 6px; }
 
 /* Comment mode's outlines: a full-viewport top-layer layer that never takes pointer events. */
 .pick-layer {
@@ -248,7 +391,7 @@ button:disabled { cursor: default; opacity: 0.6; }
   color: inherit;
   pointer-events: none;
 }
-.pick-layer:not([data-active]) { display: none; }
+.pick-layer:not([data-active]):not([data-marking]) { display: none; }
 .pick-box {
   position: absolute;
   top: 0;
@@ -259,6 +402,7 @@ button:disabled { cursor: default; opacity: 0.6; }
   pointer-events: none;
 }
 .pick-box.picked { border-style: solid; background: rgba(47, 79, 208, 0.14); }
+.pick-box.marked { border: 2px solid #c77700; background: rgba(199, 119, 0, 0.12); }
 `;
 
 let shared: CSSStyleSheet | null = null;

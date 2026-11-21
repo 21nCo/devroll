@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { startDaemon, type RunningDaemon } from "@iterbar/cli/daemon";
 import { attachmentFileName, bearerAuthorization, SCHEMA_VERSION, type Feedback } from "iterbar";
 import { attachmentsDirectoryPath, feedbackRecordPath } from "iterbar/node";
-import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
+import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 import { pngSize } from "./support/png.js";
 
 // The bar against the real daemon from @iterbar/cli: its token check, origin allow-list, CORS preflights and
@@ -66,17 +66,19 @@ test("connects once its origin is registered, reports slots and follows an agent
   await expect(thread.locator(".badge")).toHaveText("Open");
 
   await call("POST", `/feedback/${created.id}/status`, { schemaVersion: SCHEMA_VERSION, status: "working" });
-  await expect(thread.locator(".badge")).toHaveText("Working");
+  await expect(thread.locator(".badge")).toHaveText("In progress");
   await call("POST", `/feedback/${created.id}/replies`, {
     schemaVersion: SCHEMA_VERSION, author: { kind: "agent", name: "Codex" }, text: "Raised the contrast.",
   });
   await call("POST", `/feedback/${created.id}/status`, { schemaVersion: SCHEMA_VERSION, status: "done" });
   await expect(thread.locator(".badge")).toHaveText("Done");
   await expect(thread.locator(".thread-count")).toHaveText("1 reply");
+  await openPanel(page, "inbox");
   await thread.locator("summary").click();
   await expect(thread.locator(".reply")).toHaveText("Agent (Codex)Raised the contrast.");
 
   // Switching a version reaches the daemon too.
+  await openPanel(page, "versions");
   await inBar(page, "[data-version=v3]").click();
   await expect.poll(async () => {
     const { pages } = await call<{ pages: { slots: { activeVersion: string }[] }[] }>("GET", "/slots");

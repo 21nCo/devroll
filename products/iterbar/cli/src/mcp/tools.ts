@@ -108,7 +108,26 @@ const cursorInput = z.string().max(1_000_000).optional();
 
 const feedbackId = idSchema.describe("The feedback item's id, as returned by list_feedback or wait_for_feedback.");
 
-/** Registers the six Iterbar tools on `context.server`; each one is a client of the project's daemon. */
+/** Reads `feedback`'s attachment references and, when `inline`, their contents as content blocks. */
+async function readAttachments(client: DaemonClient, feedback: Feedback, inline: boolean) {
+  const blocks: ContentBlock[] = [];
+  const attachments = [];
+  for (const ref of attachmentsOf(feedback)) {
+    const path = attachmentPath(client.paths.projectRoot, feedback.id, ref);
+    let inlined = false;
+    if (inline && (ref.kind === "screenshot" || ref.byteLength <= MAX_INLINE_EVIDENCE_BYTES)) {
+      const data = Buffer.from(await client.getAttachment(feedback.id, ref.id));
+      blocks.push(ref.kind === "screenshot"
+        ? { type: "image", data: data.toString("base64"), mimeType: ref.mediaType }
+        : { type: "resource", resource: { uri: pathToFileURL(path).href, mimeType: ref.mediaType, text: data.toString("utf8") } });
+      inlined = true;
+    }
+    attachments.push({ id: ref.id, kind: ref.kind, mediaType: ref.mediaType, byteLength: ref.byteLength, path, inlined });
+  }
+  return { attachments, blocks };
+}
+
+/** Registers the seven Iterbar tools on `context.server`; each one is a client of the project's daemon. */
 export function registerTools(context: ToolContext): void {
   const { server, client } = context;
 
@@ -125,12 +144,16 @@ export function registerTools(context: ToolContext): void {
       status: feedbackStatusSchema.optional().describe("Only items with this status (a lookup; it leaves your cursor unchanged)."),
       kind: feedbackKindSchema.optional().describe("\"comment\" or \"choose_variant\"."),
       since: timestampSchema.optional().describe("Only items updated at or after this ISO 8601 timestamp."),
+      batchId: idSchema.optional().describe(
+        "Only items the user sent together in this batch (an item's batchId). Use get_batch to read a batch in full.",
+      ),
       cursor: cursorInput.describe("Your latest cursor from list_feedback or wait_for_feedback."),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, (input) => run(context, async () => {
     const cursor = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
-    const filtered = input.status !== undefined || input.kind !== undefined || input.since !== undefined;
+    const filtered = input.status !== undefined || input.kind !== undefined || input.since !== undefined
+      || input.batchId !== undefined;
     // Lists every item updated at or after `since`; observe() uses it to keep a cursor small enough to issue.
     const relist = (since: string | undefined) => client.listFeedback(since === undefined ? {} : { since });
     if (!filtered) {
@@ -152,6 +175,7 @@ export function registerTools(context: ToolContext): void {
       ...(input.status ? { status: input.status } : {}),
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.since ? { since: input.since } : {}),
+      ...(input.batchId ? { batchId: input.batchId } : {}),
     });
     return success({ items, cursor: encodeCursor(next) });
   }));
@@ -169,21 +193,34 @@ export function registerTools(context: ToolContext): void {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, (input) => run(context, async () => {
     const feedback = await client.getFeedback(input.feedbackId);
-    const blocks: ContentBlock[] = [];
-    const attachments = [];
-    for (const ref of attachmentsOf(feedback)) {
-      const path = attachmentPath(client.paths.projectRoot, feedback.id, ref);
-      let inlined = false;
-      if (input.includeAttachments && (ref.kind === "screenshot" || ref.byteLength <= MAX_INLINE_EVIDENCE_BYTES)) {
-        const data = Buffer.from(await client.getAttachment(feedback.id, ref.id));
-        blocks.push(ref.kind === "screenshot"
-          ? { type: "image", data: data.toString("base64"), mimeType: ref.mediaType }
-          : { type: "resource", resource: { uri: pathToFileURL(path).href, mimeType: ref.mediaType, text: data.toString("utf8") } });
-        inlined = true;
-      }
-      attachments.push({ id: ref.id, kind: ref.kind, mediaType: ref.mediaType, byteLength: ref.byteLength, path, inlined });
-    }
+    const { attachments, blocks } = await readAttachments(client, feedback, input.includeAttachments);
     return success({ feedback, attachments }, blocks);
+  }));
+
+  server.registerTool("get_batch", {
+    title: "Read an Iterbar batch",
+    description:
+      "Read every feedback item the user sent together in one batch from the bar's draft tray, in the order they were " +
+      "sent, each with its thread, target element, source location and active variants. Items share a batchId (shown on " +
+      "each item by list_feedback and wait_for_feedback). By default each item's screenshot is included as an image, " +
+      "labelled with the item's id, and evidence as JSON. Work through the batch as one change: read all of it first, " +
+      "then set each item working, make the edits, reply on each item and set each one done.",
+    inputSchema: {
+      batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
+      includeAttachments: z.boolean().default(true).describe("Return each item's screenshot and evidence contents (default true)."),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (input) => run(context, async () => {
+    const items = await client.listFeedback({ batchId: input.batchId });
+    if (items.length === 0) throw new IterbarToolError("not_found", `No feedback has batchId ${input.batchId}`);
+    const blocks: ContentBlock[] = [];
+    const entries = [];
+    for (const feedback of items) {
+      const read = await readAttachments(client, feedback, input.includeAttachments);
+      if (read.blocks.length) blocks.push({ type: "text", text: `Attachments of ${feedback.id}:` }, ...read.blocks);
+      entries.push({ feedback, attachments: read.attachments });
+    }
+    return success({ batchId: input.batchId, count: items.length, items: entries }, blocks);
   }));
 
   server.registerTool("reply", {

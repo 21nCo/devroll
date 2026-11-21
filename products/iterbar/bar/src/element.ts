@@ -2,19 +2,24 @@ import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackTa
 import { Composer } from "./composer.js";
 import { DaemonConnection, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
 import { h } from "./dom.js";
+import { DraftTray, type DraftView } from "./drafts.js";
+import { icon } from "./icons.js";
 import {
+  anchorPopover,
   BAR_STATE_STORAGE_KEY,
-  edgeForKey,
+  dockForKey,
   formatBarState,
+  nextDock,
   parseBarState,
-  placementForDrop,
   type BarState,
+  type Dock,
+  type PanelName,
 } from "./position.js";
 import { reportPageUrl, SlotsPanel } from "./slots.js";
 import { applyBarStyles } from "./theme.js";
 import { ElementPicker } from "./pick/picker.js";
 import { captureScreenshot, RenderSlot, type ScreenshotResult } from "./pick/screenshot.js";
-import { describeElement, describeTarget, readActiveVariants } from "./pick/target.js";
+import { describeTarget, labelElement, readActiveVariants, type TargetLabel } from "./pick/target.js";
 import { ThreadsPanel } from "./threads.js";
 
 /** The bar's tag name. */
@@ -26,9 +31,6 @@ export const COMMENT_MODE_EVENT = "iterbar-comment-mode";
 export interface CommentModeEventDetail {
   readonly active: boolean;
 }
-
-/** Pointer travel, in CSS pixels, before pressing the handle becomes a drag. */
-const DRAG_THRESHOLD_PX = 4;
 
 /** Delay that coalesces bursts of registry changes into one slot report. */
 const REPORT_DELAY_MS = 150;
@@ -51,9 +53,24 @@ const STATUS_TEXT: Readonly<Record<ConnectionStatus["kind"], string>> = {
   unauthorized: "Token rejected",
 };
 
+const PANEL_TITLES: Readonly<Record<PanelName, string>> = { inbox: "Inbox", drafts: "Drafts", versions: "Versions" };
+
+const DOCK_LABELS: Readonly<Record<Dock, string>> = { left: "left", center: "centre", right: "right" };
+
+/** Ctrl+. or Cmd+. toggles the full toolbar; Alt+Shift+I, the earlier shortcut, still does. */
 function isToggleShortcut(event: KeyboardEvent): boolean {
+  if (event.key === "." && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) return true;
   // `code`, not `key`: with Alt held, macOS turns the I key into another character.
   return event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === "KeyI";
+}
+
+/** Whether a key typed at `target` is text entry, which single-key shortcuts must leave alone. */
+function isTextEntry(target: EventTarget | undefined): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLElement && target.isContentEditable) return true;
+  if (target.localName === "textarea" || target.localName === "select") return true;
+  if (target.localName !== "input") return false;
+  return !["button", "checkbox", "radio", "range", "color", "file", "image", "reset", "submit"].includes((target as HTMLInputElement).type);
 }
 
 function readStoredState(): BarState {
@@ -64,6 +81,14 @@ function readStoredState(): BarState {
   }
 }
 
+/** A lowercase id that is unique enough for a page's batches and drafts. */
+function localId(prefix: string): string {
+  const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID().replaceAll("-", "").slice(0, 12)
+    : Math.random().toString(36).slice(2, 14);
+  return `${prefix}-${Date.now().toString(36)}-${random}`;
+}
+
 // Lets the module load where there is no DOM (a server render importing it by accident); defining the element
 // still needs a browser.
 const ElementBase: typeof HTMLElement = (globalThis as { HTMLElement?: typeof HTMLElement }).HTMLElement
@@ -71,7 +96,9 @@ const ElementBase: typeof HTMLElement = (globalThis as { HTMLElement?: typeof HT
 
 /** A picked element, described when it was picked so the comment matches what the user saw. */
 interface Pick {
+  readonly element: Element;
   readonly target: FeedbackTarget | null;
+  readonly label: TargetLabel;
   /** The page URL as slot reports file it, or `null` for a page the contract cannot name (such as `file:`). */
   readonly pageUrl: string | null;
   readonly activeVariants: readonly ActiveVariant[];
@@ -81,19 +108,22 @@ interface Pick {
   readonly withdraw: AbortController;
 }
 
-interface DragState {
-  readonly pointerId: number;
-  readonly startX: number;
-  readonly startY: number;
-  readonly left: number;
-  readonly top: number;
-  moved: boolean;
+/** A comment in the draft tray, kept in the page until Send all. */
+interface Draft {
+  readonly id: string;
+  readonly pick: Pick;
+  text: string;
+  state: DraftView["state"];
+  error: string | null;
 }
 
 /**
- * `<iterbar-bar>`: the Iterbar dev bar. Give it the daemon's URL and token through the `daemonUrl` and `token`
- * properties (or the `daemon-url` and `token` attributes); without them it still switches slots, but shows no
- * feedback. Everything it renders lives in its shadow root.
+ * `<iterbar-bar>`: the Iterbar dev bar, a toolbar docked at the bottom of the page. Give it the daemon's URL and token
+ * through the `daemonUrl` and `token` properties (or the `daemon-url` and `token` attributes); without them it still
+ * switches slots, but shows no feedback. Everything it renders lives in its shadow root.
+ *
+ * It sleeps as a compact pill (comment and inbox buttons, the open-feedback count) and wakes on hover or focus, or
+ * stays expanded with Ctrl/Cmd+. ; C enters comment mode. The inbox, draft tray and versions open as a panel above it.
  */
 export class IterbarBarElement extends ElementBase {
   static get observedAttributes(): string[] {
@@ -101,25 +131,45 @@ export class IterbarBarElement extends ElementBase {
   }
 
   readonly #root: ShadowRoot;
-  readonly #bar: HTMLDivElement;
-  readonly #body: HTMLDivElement;
+  readonly #dock: HTMLDivElement;
+  readonly #panel: HTMLDivElement;
+  readonly #panelTitle = h("h2", { class: "panel-title", id: "iterbar-panel-title" });
+  readonly #panelClose = h("button", { type: "button", class: "icon", "data-role": "panel-close", "aria-label": "Close panel", title: "Close (Esc)" }, icon("close"));
   readonly #status = h("span", { class: "status", role: "status", "data-role": "status" });
   readonly #detail = h("p", { class: "detail", "data-role": "status-detail", hidden: true });
-  readonly #handle = h("button", {
-    type: "button", class: "icon handle", "data-role": "handle", "aria-label": "Move Iterbar",
-    title: "Drag to a screen edge, or press an arrow key to move to that edge",
-  }, "⠿");
-  readonly #toggle = h("button", { type: "button", class: "icon", "data-role": "toggle", "aria-controls": "iterbar-body" });
+  readonly #announcer = h("div", { class: "sr-only", "aria-live": "polite", "data-role": "announce" });
   readonly #comment = h("button", {
-    type: "button", "data-role": "comment", "aria-pressed": "false", title: "Comment mode: click an element to comment on it (Esc leaves)",
-  }, "Comment");
+    type: "button", class: "tool", "data-role": "comment", "aria-pressed": "false",
+    title: "Comment: pick an element and write a comment on it (C; Esc leaves)",
+  }, icon("comment"), h("span", { class: "tool-label extra" }, "Comment"), h("kbd", { class: "extra" }, "C"));
+  readonly #draftsButton = h("button", {
+    type: "button", class: "tool", "data-role": "drafts-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+    title: "Draft tray: comments waiting to be sent together",
+  }, icon("tray"), h("span", { class: "tool-label extra" }, "Drafts"));
+  readonly #draftCount = h("span", { class: "count", "data-role": "draft-count", hidden: true });
+  readonly #inboxButton = h("button", {
+    type: "button", class: "tool", "data-role": "inbox-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+    title: "Inbox: feedback threads, their status and agent replies",
+  }, icon("inbox"), h("span", { class: "tool-label extra" }, "Inbox"));
+  readonly #openCount = h("span", { class: "count", "data-role": "open-count", hidden: true });
+  readonly #versionsButton = h("button", {
+    type: "button", class: "tool extra", "data-role": "versions-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+    title: "Versions: switch the variants of slots on this page",
+  }, icon("layers"), h("span", { class: "tool-label" }, "Versions"));
+  readonly #slotCount = h("span", { class: "count", "data-role": "slot-count", hidden: true });
+  readonly #dockButton = h("button", {
+    type: "button", class: "icon extra", "data-role": "dock", title: "Dock the toolbar left, centre or right (or press ← →)",
+  }, icon("dock"));
+  readonly #toggle = h("button", { type: "button", class: "icon extra", "data-role": "toggle", "aria-controls": "iterbar-toolbar" });
   /** Inherits the page's effective `zoom`, which the bar cancels; see {@link #fitZoom}. */
   readonly #zoomProbe = h("span", { class: "zoom-probe", "aria-hidden": "true" });
   #zoomObserver: ResizeObserver | null = null;
   readonly #slots: SlotsPanel;
-  readonly #threads = new ThreadsPanel();
+  readonly #threads: ThreadsPanel;
+  readonly #tray: DraftTray;
   readonly #composer = new Composer({
     onSend: (text) => void this.#send(text),
+    onDraft: (text) => this.#addDraft(text),
     onCancel: () => this.#cancelPick(),
   });
   readonly #picker: ElementPicker;
@@ -133,6 +183,11 @@ export class IterbarBarElement extends ElementBase {
    * Cancel is disabled and leaving comment mode keeps the composer open, saying "Sending…", until the answer.
    */
   #postingPick: Pick | null = null;
+  #drafts: Draft[] = [];
+  /** The batch the tray's drafts are sent in; kept until the tray empties, so a retry stays in the same batch. */
+  #batchId: string | null = null;
+  #sendingBatch = false;
+  #batchError: string | null = null;
   #daemonUrl: string | null = null;
   #token: string | null = null;
   #connection: DaemonConnection | null = null;
@@ -140,28 +195,44 @@ export class IterbarBarElement extends ElementBase {
   #connectionKey: string | null = null;
   #reconnectQueued = false;
   #state: BarState = parseBarState(null);
-  /** A `collapsed` assigned while disconnected, applied over the stored state on the next connection. */
-  #pendingCollapsed: boolean | undefined;
+  /** An `expanded` assigned while disconnected, applied over the stored state on the next connection. */
+  #pendingExpanded: boolean | undefined;
   #commentMode = false;
+  /** The page root's inline `cursor` before comment mode set the crosshair. */
+  #savedCursor: { value: string; priority: string } | null = null;
   #slotsForReport: readonly SlotState[] | null = null;
   #reportTimer: ReturnType<typeof setTimeout> | null = null;
   /** The page URL of the last slot report, so a single-page navigation that keeps the slots is reported too. */
   #reportedUrl: string | null = null;
   #urlPoll: ReturnType<typeof setInterval> | null = null;
-  #drag: DragState | null = null;
+  #composerFrame: number | null = null;
 
   constructor() {
     super();
     this.#root = this.attachShadow({ mode: "open" });
     applyBarStyles(this.#root);
-    this.#slots = new SlotsPanel({ onSlots: (slots) => this.#queueReport(slots) });
-    this.#body = h("div", { class: "body", id: "iterbar-body" },
-      this.#detail, this.#composer.element, this.#slots.element, this.#threads.element);
-    this.#bar = h("div", { class: "bar", role: "region", "aria-label": "Iterbar", popover: "manual" },
-      h("div", { class: "header" },
-        this.#handle, h("span", { class: "title" }, "Iterbar"), this.#status, this.#comment, this.#toggle),
-      this.#body);
-    this.#root.append(this.#zoomProbe, this.#bar);
+    this.#slots = new SlotsPanel({ onSlots: (slots) => this.#onSlots(slots) });
+    this.#threads = new ThreadsPanel(() => this.#renderCounts(), (filter) => this.#saveState({ ...this.#state, filter }));
+    this.#tray = new DraftTray({
+      onSendAll: () => void this.#sendAll(),
+      onRemove: (id) => this.#removeDraft(id),
+      onEdit: (id, text) => this.#editDraft(id, text),
+      onHighlight: (id) => this.#picker.mark(this.#drafts.find((draft) => draft.id === id)?.pick.element ?? null),
+    });
+    this.#draftsButton.append(this.#draftCount);
+    this.#inboxButton.append(this.#openCount);
+    this.#versionsButton.append(this.#slotCount);
+    this.#panel = h("div", {
+      class: "panel", id: "iterbar-panel", role: "region", "aria-labelledby": "iterbar-panel-title", "data-role": "panel", hidden: true,
+    },
+    h("div", { class: "panel-header" }, this.#panelTitle, this.#panelClose),
+    h("div", { class: "panel-body" }, this.#detail, this.#tray.element, this.#threads.element, this.#slots.element));
+    const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
+      this.#comment, this.#draftsButton, this.#inboxButton, this.#versionsButton,
+      h("span", { class: "divider extra", "aria-hidden": "true" }),
+      this.#status, this.#dockButton, this.#toggle);
+    this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel);
+    this.#root.append(this.#zoomProbe, this.#dock, this.#composer.element, this.#announcer);
     this.#picker = new ElementPicker({
       host: this,
       container: this.#root,
@@ -171,17 +242,25 @@ export class IterbarBarElement extends ElementBase {
       },
     });
 
-    this.#toggle.addEventListener("click", () => this.#setCollapsed(!this.#state.collapsed));
+    this.#toggle.addEventListener("click", () => this.#setExpanded(!this.#state.expanded));
     this.#comment.addEventListener("click", () => {
       this.commentMode = !this.#commentMode;
     });
-    this.#handle.addEventListener("keydown", (event) => this.#moveWithKey(event));
-    this.#handle.addEventListener("pointerdown", (event) => this.#dragStart(event));
-    this.#handle.addEventListener("pointermove", (event) => this.#dragMove(event));
-    this.#handle.addEventListener("pointerup", (event) => this.#dragEnd(event, true));
-    this.#handle.addEventListener("pointercancel", (event) => this.#dragEnd(event, false));
+    this.#draftsButton.addEventListener("click", () => this.#togglePanel("drafts"));
+    this.#inboxButton.addEventListener("click", () => this.#togglePanel("inbox"));
+    this.#versionsButton.addEventListener("click", () => this.#togglePanel("versions"));
+    this.#panelClose.addEventListener("click", () => this.#closePanel(true));
+    this.#dockButton.addEventListener("click", () => this.#saveState({ ...this.#state, dock: nextDock(this.#state.dock) }));
+    this.#dockButton.addEventListener("keydown", (event) => this.#moveWithKey(event));
+    this.#dock.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.isComposing || this.#state.panel === null || this.#commentMode) return;
+      event.preventDefault();
+      this.#closePanel(true);
+    });
     this.#applyState();
     this.#renderStatus({ kind: "unconfigured" });
+    this.#renderDrafts();
+    this.#renderCounts();
   }
 
   /** `http://127.0.0.1:<port>` of the daemon. */
@@ -205,8 +284,9 @@ export class IterbarBarElement extends ElementBase {
   }
 
   /**
-   * Whether comment mode is on: hovering outlines page elements and clicking one opens the composer instead of
-   * reaching the page. Escape turns it off, as does sending a comment. Changing it dispatches {@link COMMENT_MODE_EVENT}.
+   * Whether comment mode is on: the pointer is a crosshair, hovering outlines page elements and clicking one opens the
+   * composer instead of reaching the page. Escape turns it off, as does sending a comment on its own. Changing it
+   * dispatches {@link COMMENT_MODE_EVENT}.
    */
   get commentMode(): boolean {
     return this.#commentMode;
@@ -219,26 +299,42 @@ export class IterbarBarElement extends ElementBase {
     this.#comment.setAttribute("aria-pressed", String(active));
     if (active && this.isConnected) this.#picker.start();
     if (!active) this.#leavePicking();
+    this.#setCrosshair(active && this.isConnected);
+    this.#applyAwake();
     this.dispatchEvent(new CustomEvent<CommentModeEventDetail>(COMMENT_MODE_EVENT, {
       bubbles: true, composed: true, detail: { active },
     }));
   }
 
-  /** Whether only the header is shown. Alt+Shift+I toggles it from anywhere on the page. */
-  get collapsed(): boolean {
-    return this.#state.collapsed;
+  /** Whether the full toolbar stays shown; when `false` it sleeps as a pill until hovered or focused. Ctrl/Cmd+. toggles it. */
+  get expanded(): boolean {
+    return this.#state.expanded;
   }
 
-  set collapsed(value: boolean) {
-    const collapsed = Boolean(value);
+  set expanded(value: boolean) {
+    const expanded = Boolean(value);
     if (this.isConnected) {
-      this.#setCollapsed(collapsed);
+      this.#setExpanded(expanded);
       return;
     }
     // The stored state is read on connection and would replace this, so remember it, even when it equals the default.
-    this.#pendingCollapsed = collapsed;
-    this.#state = { ...this.#state, collapsed };
+    this.#pendingExpanded = expanded;
+    this.#state = { ...this.#state, expanded };
     this.#applyState();
+  }
+
+  /** The opposite of {@link expanded}, kept for pages written against the earlier, collapsible bar. */
+  get collapsed(): boolean {
+    return !this.expanded;
+  }
+
+  set collapsed(value: boolean) {
+    this.expanded = !value;
+  }
+
+  /** How many comments wait in the draft tray. */
+  get draftCount(): number {
+    return this.#drafts.length;
   }
 
   attributeChangedCallback(name: string, _previous: string | null, value: string | null): void {
@@ -249,20 +345,24 @@ export class IterbarBarElement extends ElementBase {
 
   connectedCallback(): void {
     this.#state = readStoredState();
+    this.#threads.filter = this.#state.filter;
     this.#applyState();
-    const pending = this.#pendingCollapsed;
-    this.#pendingCollapsed = undefined;
-    if (pending !== undefined) this.#saveState({ ...this.#state, collapsed: pending });
+    const pending = this.#pendingExpanded;
+    this.#pendingExpanded = undefined;
+    if (pending !== undefined) this.#saveState({ ...this.#state, expanded: pending });
     // Properties set on the element before it was upgraded are own properties that hide the accessors. They are
-    // applied after the stored state, so an assigned `collapsed` wins over the saved one.
-    for (const property of ["daemonUrl", "token", "commentMode", "collapsed"] as const) {
+    // applied after the stored state, so an assigned `expanded` or `collapsed` wins over the saved one.
+    for (const property of ["daemonUrl", "token", "commentMode", "expanded", "collapsed"] as const) {
       if (!Object.hasOwn(this, property)) continue;
       const value = (this as Record<string, unknown>)[property];
       delete (this as Record<string, unknown>)[property];
       (this as Record<string, unknown>)[property] = value;
     }
     this.#raise();
-    if (this.#commentMode) this.#picker.start();
+    if (this.#commentMode) {
+      this.#picker.start();
+      this.#setCrosshair(true);
+    }
     this.#watchZoom();
     window.addEventListener("keydown", this.#onKeydown, true);
     this.#watchUrl(true);
@@ -273,6 +373,8 @@ export class IterbarBarElement extends ElementBase {
   disconnectedCallback(): void {
     // Leaving comment mode withdraws a screenshot still being taken (see #leavePicking).
     this.commentMode = false;
+    this.#setCrosshair(false);
+    this.#picker.mark(null);
     window.removeEventListener("keydown", this.#onKeydown, true);
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
@@ -282,16 +384,24 @@ export class IterbarBarElement extends ElementBase {
     this.#connection = null;
     if (this.#reportTimer) clearTimeout(this.#reportTimer);
     this.#reportTimer = null;
-    this.#cancelDrag();
+    this.#followComposer(false);
   }
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
-    if (!isToggleShortcut(event) || event.repeat) return;
+    if (event.repeat || event.defaultPrevented) return;
+    if (isToggleShortcut(event)) {
+      event.preventDefault();
+      const focusInside = this.#root.activeElement !== null;
+      this.#setExpanded(!this.#state.expanded);
+      // Expanding moves focus into the toolbar so keyboard users can carry on; sleeping keeps focus where it was inside.
+      if (this.#state.expanded || focusInside) this.#comment.focus();
+      return;
+    }
+    if (event.key !== "c" && event.key !== "C") return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    if (isTextEntry(event.composedPath()[0])) return;
     event.preventDefault();
-    const focusInside = this.#root.activeElement !== null;
-    this.#setCollapsed(!this.#state.collapsed);
-    // Expanding moves focus into the bar so keyboard users can carry on; collapsing keeps focus off hidden controls.
-    if (!this.#state.collapsed || focusInside) this.#toggle.focus();
+    this.commentMode = !this.#commentMode;
   };
 
   /** Takes a click in comment mode; refused while the current pick's comment is being sent. */
@@ -299,15 +409,20 @@ export class IterbarBarElement extends ElementBase {
     if (this.#sendingPick !== null && this.#sendingPick === this.#pick) return false;
     this.#pick?.withdraw.abort();
     const withdraw = new AbortController();
+    const target = describeTarget(element);
     this.#pick = {
-      target: describeTarget(element),
+      element,
+      target,
+      label: labelElement(element, target),
       pageUrl: /^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null,
       activeVariants: readActiveVariants(),
       screenshot: captureScreenshot(element, this, this.#renderSlot, withdraw.signal),
       withdraw,
     };
-    this.#setCollapsed(false);
-    this.#composer.show(describeElement(element));
+    this.#composer.show(this.#pick.label);
+    this.#placeComposer();
+    this.#followComposer(true);
+    this.#applyAwake();
     return true;
   }
 
@@ -350,24 +465,58 @@ export class IterbarBarElement extends ElementBase {
   #closeComposer(): void {
     const focused = this.#root.activeElement;
     this.#composer.close();
+    this.#followComposer(false);
     if (focused && this.#composer.element.contains(focused)) this.#comment.focus();
+    this.#applyAwake();
+  }
+
+  /** Puts the composer next to the picked element: below it, or above when there is no room below. */
+  #placeComposer(): void {
+    const pick = this.#pick;
+    if (!pick || !this.#composer.open) return;
+    const zoom = Number(this.#composer.element.style.zoom) || 1;
+    const rect = pick.element.isConnected ? pick.element.getBoundingClientRect() : null;
+    const box = this.#composer.element.getBoundingClientRect();
+    const viewport = { width: document.documentElement.clientWidth / zoom, height: window.innerHeight / zoom };
+    const reserved = (window.innerHeight - this.#dock.getBoundingClientRect().top) / zoom;
+    const target = rect
+      ? { left: rect.left / zoom, top: rect.top / zoom, width: rect.width / zoom, height: rect.height / zoom }
+      : { left: viewport.width / 2 - box.width / zoom / 2, top: viewport.height / 3, width: 0, height: 0 };
+    const { left, top } = anchorPopover(target, { width: box.width / zoom, height: box.height / zoom }, viewport, reserved + 8);
+    this.#composer.moveTo(left, top);
+  }
+
+  readonly #queuePlaceComposer = (): void => {
+    if (this.#composerFrame !== null) return;
+    this.#composerFrame = requestAnimationFrame(() => {
+      this.#composerFrame = null;
+      this.#placeComposer();
+    });
+  };
+
+  /** Keeps the composer next to its element while the page scrolls or resizes. */
+  #followComposer(on: boolean): void {
+    window.removeEventListener("scroll", this.#queuePlaceComposer, true);
+    window.removeEventListener("resize", this.#queuePlaceComposer);
+    if (this.#composerFrame !== null) cancelAnimationFrame(this.#composerFrame);
+    this.#composerFrame = null;
+    if (!on) return;
+    window.addEventListener("scroll", this.#queuePlaceComposer, { capture: true, passive: true });
+    window.addEventListener("resize", this.#queuePlaceComposer, { passive: true });
   }
 
   /**
-   * Sends a comment on the current pick, with its screenshot or the reason there is none. On success the thread is
-   * shown and comment mode ends; on failure the composer keeps the text and shows why. Cancel or Escape while the
-   * screenshot is being taken stops it and withdraws the comment before anything is posted.
+   * Sends a comment on the current pick on its own, with its screenshot or the reason there is none. On success the
+   * thread is shown and comment mode ends; on failure the composer keeps the text and shows why. Cancel or Escape while
+   * the screenshot is being taken stops it and withdraws the comment before anything is posted.
    */
   async #send(text: string): Promise<void> {
     const pick = this.#pick;
     if (!pick || this.#sendingPick === pick) return;
     const connection = this.#connection;
-    if (!connection) {
-      this.#composer.showError("Comments need the Iterbar daemon, and the bar has none. Start the dev server with the Iterbar plugin.");
-      return;
-    }
-    if (pick.pageUrl === null) {
-      this.#composer.showError("This page's URL is not http or https, so the daemon cannot file a comment for it.");
+    const problem = this.#sendProblem(pick);
+    if (!connection || problem) {
+      this.#composer.showError(problem ?? "");
       return;
     }
     this.#sendingPick = pick;
@@ -376,21 +525,12 @@ export class IterbarBarElement extends ElementBase {
       const screenshot = await pick.screenshot;
       // Cancelled, Escaped or replaced while the screenshot was being taken: the comment was withdrawn.
       if (this.#pick !== pick) return;
-      const draft: FeedbackDraft = {
-        schemaVersion: SCHEMA_VERSION,
-        kind: "comment",
-        text,
-        pageUrl: pick.pageUrl,
-        target: pick.target,
-        activeVariants: [...pick.activeVariants],
-        screenshotUnavailableReason: screenshot.ok ? null : screenshot.reason,
-        evidenceWindow: null,
-      };
       this.#postingPick = pick;
       this.#composer.setBusy(true, false);
-      const feedback = await connection.sendFeedback(draft, screenshot.ok ? screenshot.png : null);
+      const feedback = await connection.sendFeedback(this.#feedbackDraft(pick, text, screenshot, null), screenshot.ok ? screenshot.png : null);
       this.#postingPick = null;
       if (this.#connection === connection) this.#threads.merge(feedback);
+      this.#announce("Comment sent.");
       this.#finishPick(pick);
     } catch (error) {
       if (this.#pick === pick) this.#composer.showError((error as Error).message);
@@ -398,6 +538,192 @@ export class IterbarBarElement extends ElementBase {
       if (this.#postingPick === pick) this.#postingPick = null;
       if (this.#sendingPick === pick) this.#sendingPick = null;
       if (this.#pick === pick) this.#composer.setBusy(false);
+    }
+  }
+
+  /** Why a comment on `pick` cannot be sent, or `null` when it can. */
+  #sendProblem(pick: Pick): string | null {
+    if (!this.#connection) {
+      return "Comments need the Iterbar daemon, and the bar has none. Start the dev server with the Iterbar plugin.";
+    }
+    if (pick.pageUrl === null) return "This page's URL is not http or https, so the daemon cannot file a comment for it.";
+    return null;
+  }
+
+  #feedbackDraft(pick: Pick, text: string, screenshot: ScreenshotResult, batchId: string | null): FeedbackDraft {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      kind: "comment",
+      text,
+      pageUrl: pick.pageUrl!,
+      target: pick.target,
+      activeVariants: [...pick.activeVariants],
+      screenshotUnavailableReason: screenshot.ok ? null : screenshot.reason,
+      evidenceWindow: null,
+      ...(batchId ? { batchId } : {}),
+    };
+  }
+
+  /** Moves the current pick and `text` into the draft tray; comment mode stays on for the next pick. */
+  #addDraft(text: string): void {
+    const pick = this.#pick;
+    if (!pick || this.#sendingPick === pick) return;
+    if (pick.pageUrl === null) {
+      this.#composer.showError("This page's URL is not http or https, so the daemon cannot file a comment for it.");
+      return;
+    }
+    this.#drafts.push({ id: localId("draft"), pick, text, state: "draft", error: null });
+    // The pick now belongs to the draft: its screenshot carries on.
+    this.#pick = null;
+    this.#closeComposer();
+    this.#picker.clearPick();
+    this.#batchError = null;
+    this.#renderDrafts();
+    const count = this.#drafts.length;
+    this.#announce(`Draft added. ${count} ${count === 1 ? "draft" : "drafts"} waiting; Send all is in the draft tray.`);
+  }
+
+  #removeDraft(id: string): void {
+    if (this.#sendingBatch) return;
+    const index = this.#drafts.findIndex((draft) => draft.id === id);
+    if (index < 0) return;
+    const [draft] = this.#drafts.splice(index, 1);
+    draft!.pick.withdraw.abort();
+    this.#picker.mark(null);
+    if (this.#drafts.length === 0) this.#batchId = null;
+    this.#renderDrafts();
+    this.#announce("Draft removed.");
+    if (this.#drafts.length === 0 && this.#state.panel === "drafts") this.#tray.element.querySelector<HTMLElement>("[data-role=drafts-empty]")?.focus();
+  }
+
+  #editDraft(id: string, text: string): void {
+    const draft = this.#drafts.find((each) => each.id === id);
+    if (!draft || this.#sendingBatch || text.trim().length === 0) return;
+    draft.text = text;
+    this.#renderDrafts();
+    this.#tray.element.querySelector<HTMLElement>(`[data-draft-id="${CSS.escape(id)}"] [data-role=draft-edit]`)?.focus();
+  }
+
+  /**
+   * Posts every draft, in tray order, as one batch: each with the same `batchId`, its screenshot or the reason there is
+   * none. A sent draft leaves the tray; a failed one stays with its reason, and Send all retries it in the same batch.
+   */
+  async #sendAll(): Promise<void> {
+    if (this.#sendingBatch || this.#drafts.length === 0) return;
+    const connection = this.#connection;
+    const problem = this.#sendProblem(this.#drafts[0]!.pick);
+    if (!connection || problem) {
+      this.#batchError = problem;
+      this.#renderDrafts();
+      return;
+    }
+    const batchId = this.#batchId ??= localId("batch");
+    this.#sendingBatch = true;
+    this.#batchError = null;
+    let sent = 0;
+    for (const draft of [...this.#drafts]) {
+      draft.state = "sending";
+      draft.error = null;
+      this.#renderDrafts();
+      try {
+        const screenshot = await draft.pick.screenshot;
+        const feedback = await connection.sendFeedback(
+          this.#feedbackDraft(draft.pick, draft.text, screenshot, batchId), screenshot.ok ? screenshot.png : null);
+        if (this.#connection === connection) this.#threads.merge(feedback);
+        this.#drafts = this.#drafts.filter((each) => each !== draft);
+        sent += 1;
+      } catch (error) {
+        draft.state = "failed";
+        draft.error = (error as Error).message;
+      }
+    }
+    this.#sendingBatch = false;
+    const left = this.#drafts.length;
+    if (left === 0) this.#batchId = null;
+    else this.#batchError = `${left} of ${left + sent} not sent. Send all tries them again in the same batch.`;
+    this.#picker.mark(null);
+    this.#renderDrafts();
+    if (left === 0) {
+      this.#announce(`Sent ${sent} ${sent === 1 ? "comment" : "comments"} as one batch.`);
+      if (this.#state.panel === "drafts") this.#openPanel("inbox", true);
+    } else {
+      this.#announce(this.#batchError ?? "");
+    }
+  }
+
+  #renderDrafts(): void {
+    this.#tray.render(this.#drafts.map((draft) => ({
+      id: draft.id, label: draft.pick.label, text: draft.text, state: draft.state, error: draft.error,
+    })), this.#sendingBatch, this.#batchError);
+    const count = this.#drafts.length;
+    this.#draftCount.textContent = String(count);
+    this.#draftCount.hidden = count === 0;
+    this.#draftsButton.toggleAttribute("data-has", count > 0);
+    this.#draftsButton.setAttribute("aria-label", count ? `Drafts, ${count} waiting` : "Drafts");
+  }
+
+  /** Updates the toolbar's open-feedback count from the inbox. */
+  #renderCounts(): void {
+    // The inbox renders once while it is being constructed, before it is assigned.
+    if (!this.#threads) return;
+    const open = this.#threads.openCount;
+    this.#openCount.textContent = String(open);
+    this.#openCount.hidden = open === 0;
+    this.#inboxButton.setAttribute("aria-label", open ? `Inbox, ${open} open` : "Inbox");
+  }
+
+  #onSlots(slots: readonly SlotState[]): void {
+    this.#slotCount.textContent = String(slots.length);
+    this.#slotCount.hidden = slots.length === 0;
+    this.#versionsButton.toggleAttribute("data-has", slots.length > 0);
+    this.#queueReport(slots);
+  }
+
+  /** Says `text` to screen readers through a polite live region. */
+  #announce(text: string): void {
+    this.#announcer.textContent = "";
+    if (!text) return;
+    // A fresh text node in a later task, so the same message twice is read twice.
+    setTimeout(() => {
+      this.#announcer.textContent = text;
+    }, 50);
+  }
+
+  #togglePanel(panel: PanelName): void {
+    if (this.#state.panel === panel) this.#closePanel(false);
+    else this.#openPanel(panel, false);
+  }
+
+  #openPanel(panel: PanelName, focus: boolean): void {
+    this.#saveState({ ...this.#state, panel });
+    if (focus) this.#panelClose.focus();
+  }
+
+  /** Closes the panel; with `refocus`, focus goes back to the toolbar button that opens it. */
+  #closePanel(refocus: boolean): void {
+    const panel = this.#state.panel;
+    if (panel === null) return;
+    this.#saveState({ ...this.#state, panel: null });
+    if (refocus) this.#panelButton(panel).focus();
+  }
+
+  #panelButton(panel: PanelName): HTMLButtonElement {
+    return panel === "drafts" ? this.#draftsButton : panel === "inbox" ? this.#inboxButton : this.#versionsButton;
+  }
+
+  /** Sets (or restores) the crosshair pointer on the page root while comment mode is on. */
+  #setCrosshair(on: boolean): void {
+    const style = document.documentElement?.style;
+    if (!style) return;
+    if (on && this.#savedCursor === null) {
+      this.#savedCursor = { value: style.getPropertyValue("cursor"), priority: style.getPropertyPriority("cursor") };
+      style.setProperty("cursor", "crosshair", "important");
+    } else if (!on && this.#savedCursor !== null) {
+      const { value, priority } = this.#savedCursor;
+      this.#savedCursor = null;
+      if (value) style.setProperty("cursor", value, priority);
+      else style.removeProperty("cursor");
+      if (style.length === 0) document.documentElement.removeAttribute("style");
     }
   }
 
@@ -418,29 +744,31 @@ export class IterbarBarElement extends ElementBase {
   }
 
   /**
-   * Shows the bar in the top layer, outside every page stacking context and containing block, so a `transform`,
+   * Shows the toolbar in the top layer, outside every page stacking context and containing block, so a `transform`,
    * `filter`, `opacity`, `contain` or `will-change` on an ancestor cannot move, clip or hide it. Removing the element
-   * from the page takes it out of the top layer, so this runs on every connect. Without popover support the bar stays
-   * an ordinary fixed-position element.
+   * from the page takes it out of the top layer, so this runs on every connect. Without popover support the toolbar
+   * stays an ordinary fixed-position element.
    */
   #raise(): void {
-    const bar = this.#bar;
-    if (typeof bar.showPopover !== "function" || bar.matches(":popover-open")) return;
+    const dock = this.#dock;
+    if (typeof dock.showPopover !== "function" || dock.matches(":popover-open")) return;
     try {
-      bar.showPopover();
+      dock.showPopover();
     } catch {
       // Left as a fixed-position element.
     }
   }
 
-  /** The top layer still inherits `zoom`, so the bar and the pick layer apply the inverse of what the page gives them. */
+  /** The top layer still inherits `zoom`, so the toolbar, composer and pick layer apply the inverse of what the page gives them. */
   #fitZoom(): void {
     const zoom = (this.#zoomProbe as { currentCSSZoom?: number }).currentCSSZoom;
     if (typeof zoom !== "number" || !Number.isFinite(zoom) || zoom <= 0) return;
     const inverse = zoom === 1 ? "" : String(1 / zoom);
-    this.#bar.style.zoom = inverse;
+    this.#dock.style.zoom = inverse;
+    this.#composer.element.style.zoom = inverse;
     // The pick layer outlines viewport rectangles, so it cancels the inherited zoom too.
     this.#picker.setZoom(inverse);
+    this.#placeComposer();
   }
 
   /** Refits on every change of the page's zoom, which changes the probe's size in device pixels. */
@@ -496,10 +824,12 @@ export class IterbarBarElement extends ElementBase {
   #renderStatus(status: ConnectionStatus): void {
     this.#status.dataset.status = status.kind;
     this.#status.textContent = STATUS_TEXT[status.kind];
+    this.#dock.dataset.status = status.kind;
     const detail = "message" in status ? status.message
       : status.kind === "unconfigured" ? "No daemon URL and token were given, so feedback is unavailable." : "";
     this.#detail.textContent = detail;
     this.#detail.hidden = !detail;
+    this.#status.title = detail;
   }
 
   #queueReport(slots: readonly SlotState[]): void {
@@ -514,9 +844,9 @@ export class IterbarBarElement extends ElementBase {
     }, REPORT_DELAY_MS);
   }
 
-  #setCollapsed(collapsed: boolean): void {
-    if (collapsed === this.#state.collapsed) return;
-    this.#saveState({ ...this.#state, collapsed });
+  #setExpanded(expanded: boolean): void {
+    if (expanded === this.#state.expanded) return;
+    this.#saveState({ ...this.#state, expanded });
   }
 
   #saveState(state: BarState): void {
@@ -525,65 +855,41 @@ export class IterbarBarElement extends ElementBase {
     try {
       localStorage.setItem(BAR_STATE_STORAGE_KEY, formatBarState(state));
     } catch {
-      // Without storage the position simply is not remembered.
+      // Without storage the state simply is not remembered.
     }
   }
 
   #applyState(): void {
-    const { edge, offset, collapsed } = this.#state;
-    this.#bar.dataset.edge = edge;
-    this.#bar.style.setProperty("--ib-offset", String(offset));
-    this.#bar.toggleAttribute("data-collapsed", collapsed);
-    this.#body.hidden = collapsed;
-    this.#toggle.setAttribute("aria-expanded", String(!collapsed));
-    this.#toggle.setAttribute("aria-label", collapsed ? "Expand Iterbar" : "Collapse Iterbar");
-    this.#toggle.title = `${collapsed ? "Expand" : "Collapse"} (Alt+Shift+I)`;
-    this.#toggle.textContent = collapsed ? "▴" : "▾";
+    const { dock, expanded, panel } = this.#state;
+    this.#dock.dataset.dock = dock;
+    this.#dock.toggleAttribute("data-expanded", expanded);
+    this.#toggle.setAttribute("aria-expanded", String(expanded));
+    this.#toggle.setAttribute("aria-label", expanded ? "Let the toolbar sleep" : "Keep the toolbar expanded");
+    this.#toggle.title = `${expanded ? "Sleep" : "Keep expanded"} (Ctrl/⌘+.)`;
+    this.#toggle.replaceChildren(icon(expanded ? "collapse" : "expand"));
+    this.#dockButton.setAttribute("aria-label", `Toolbar docked ${DOCK_LABELS[dock]}; move it`);
+    this.#panel.hidden = panel === null;
+    this.#panelTitle.textContent = panel ? PANEL_TITLES[panel] : "";
+    this.#tray.element.hidden = panel !== "drafts";
+    this.#threads.element.hidden = panel !== "inbox";
+    this.#slots.element.hidden = panel !== "versions";
+    for (const name of ["drafts", "inbox", "versions"] as const) {
+      this.#panelButton(name).setAttribute("aria-expanded", String(panel === name));
+    }
+    this.#applyAwake();
+  }
+
+  /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */
+  #applyAwake(): void {
+    const awake = this.#state.expanded || this.#state.panel !== null || this.#commentMode || this.#composer.open;
+    this.#dock.toggleAttribute("data-awake", awake);
   }
 
   #moveWithKey(event: KeyboardEvent): void {
-    const edge = edgeForKey(event.key);
-    if (!edge || event.altKey || event.ctrlKey || event.metaKey) return;
-    event.preventDefault();
-    if (edge !== this.#state.edge) this.#saveState({ ...this.#state, edge });
-  }
-
-  #dragStart(event: PointerEvent): void {
-    if (event.button !== 0 || this.#drag) return;
-    const box = this.#bar.getBoundingClientRect();
-    this.#drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: box.left, top: box.top, moved: false };
-    this.#handle.setPointerCapture(event.pointerId);
-  }
-
-  #dragMove(event: PointerEvent): void {
-    const drag = this.#drag;
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const dx = event.clientX - drag.startX;
-    const dy = event.clientY - drag.startY;
-    if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-    drag.moved = true;
-    this.#bar.toggleAttribute("data-dragging", true);
-    this.#bar.style.setProperty("--ib-drag-left", `${drag.left + dx}px`);
-    this.#bar.style.setProperty("--ib-drag-top", `${drag.top + dy}px`);
-  }
-
-  #dragEnd(event: PointerEvent, drop: boolean): void {
-    const drag = this.#drag;
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const box = this.#bar.getBoundingClientRect();
-    this.#cancelDrag();
-    if (!drop || !drag.moved) return;
-    const placement = placementForDrop(box, { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight });
-    this.#saveState({ ...this.#state, ...placement });
-  }
-
-  #cancelDrag(): void {
-    const drag = this.#drag;
-    this.#drag = null;
-    this.#bar.removeAttribute("data-dragging");
-    this.#bar.style.removeProperty("--ib-drag-left");
-    this.#bar.style.removeProperty("--ib-drag-top");
-    if (drag && this.#handle.hasPointerCapture(drag.pointerId)) this.#handle.releasePointerCapture(drag.pointerId);
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const dock = dockForKey(this.#state.dock, event.key);
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") event.preventDefault();
+    if (dock) this.#saveState({ ...this.#state, dock });
   }
 }
 

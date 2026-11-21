@@ -7,7 +7,7 @@ import { iterbarPaths } from "iterbar/node";
 import { APPS, buildApp, projectRoot, readTree, startVite, type ExampleApp } from "./support/apps.js";
 
 /** Text the bar's own code contains; a build that has the bar has these, a build without it does not. */
-const BAR_MARKERS = ["iterbar-bar", "iterbar-comment-mode", "Move Iterbar", "Token rejected"];
+const BAR_MARKERS = ["iterbar-bar", "iterbar-comment-mode", "Add draft", "Token rejected"];
 /** Text of the plugin's client module, which mounts the bar. */
 const CLIENT_MARKERS = ["__iterbar/config"];
 

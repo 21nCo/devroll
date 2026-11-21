@@ -305,6 +305,7 @@ class FileFeedbackStore implements FeedbackStore {
       if (!feedback) continue;
       if (filter.status !== undefined && feedback.status !== filter.status) continue;
       if (filter.kind !== undefined && feedback.kind !== filter.kind) continue;
+      if (filter.batchId !== undefined && feedback.batchId !== filter.batchId) continue;
       if (since !== undefined && Date.parse(feedback.updatedAt) < since) continue;
       items.push(feedback);
     }

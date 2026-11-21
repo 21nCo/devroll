@@ -28,7 +28,7 @@ const HOSTILE_CSS = `
     all: unset !important; background: rgb(255, 0, 0) !important; border: 9px solid red !important;
     font-size: 40px !important; padding: 30px !important; outline: none !important;
   }
-  .bar, .header, .version, .thread, .badge, #iterbar-body { background: rgb(255, 0, 0) !important; display: none !important; }
+  .bar, .dock, .toolbar, .panel, .version, .thread, .badge, #iterbar-panel { background: rgb(255, 0, 0) !important; display: none !important; }
   :focus-visible { outline: none !important; }
 `;
 
@@ -40,9 +40,9 @@ const PROPERTIES = [
 ];
 
 const SELECTORS = [
-  ".bar", ".header", ".title", "[data-role=status]", "[data-role=handle]", "[data-role=comment]", "[data-role=toggle]",
-  "#iterbar-body", ".section-title", "[data-role=slot-name]", "[data-version=v1]", "[data-version=v2]", ".thread",
-  ".thread summary", ".badge", ".thread-text",
+  ".dock", ".toolbar", "[data-role=status]", "[data-role=comment]", "[data-role=inbox-toggle]", "[data-role=open-count]",
+  "[data-role=dock]", "[data-role=toggle]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
+  "[data-version=v1]", "[data-version=v2]", ".thread", ".thread summary", ".badge", ".thread-text",
 ];
 
 async function barStyles(page: Page) {
@@ -55,7 +55,7 @@ async function barStyles(page: Page) {
       const style = getComputedStyle(element);
       result[selector] = Object.fromEntries(properties.map((property) => [property, style.getPropertyValue(property)]));
     }
-    const box = root.querySelector(".bar")!.getBoundingClientRect();
+    const box = root.querySelector(".toolbar")!.getBoundingClientRect();
     result.box = { x: String(box.x), y: String(box.y), width: String(box.width), height: String(box.height) };
     return result;
   }, { selectors: SELECTORS, properties: PROPERTIES });
@@ -72,9 +72,12 @@ async function pageStyles(page: Page) {
   }, PROPERTIES);
 }
 
+/** Mounts the bar with a thread and a slot, pinned expanded with the versions panel open, the pointer off it. */
 async function mountWithContent(page: Page, daemonUrl: string, token: string) {
+  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ expanded: true, panel: "versions" })));
   await registerSlots(page, [PRICING]);
   await mountBar(page, { daemonUrl, token });
+  await page.mouse.move(0, 0);
   await expect(inBar(page, ".thread")).toHaveCount(1);
   await expect(inBar(page, "[data-version=v2]")).toBeVisible();
 }
@@ -117,10 +120,10 @@ const HOSTILE_ANCESTORS = [
 ];
 
 async function barSnapshot(page: Page) {
-  const bar = page.locator("iterbar-bar .bar");
+  const bar = page.locator("iterbar-bar .toolbar");
   const box = await bar.boundingBox();
   if (!box) throw new Error("the bar has no box");
-  const clip = { x: box.x + 12, y: box.y + 12, width: box.width - 24, height: box.height - 24 };
+  const clip = { x: box.x + 16, y: box.y + 4, width: box.width - 32, height: box.height - 8 };
   const pixels = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
   const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.localName ?? null, { x: box.x + box.width / 2, y: box.y + 8 });
   return { box, pixels, hit };
@@ -147,6 +150,7 @@ test("hostile ancestor CSS cannot move, scale, hide or cover the bar", async ({ 
     // The choice outlives the page load; switch back so the next case starts from the same pixels.
     await inBar(page, "[data-version=v1]").click();
     await expect(inBar(page, "[data-version=v1]"), css).toHaveAttribute("aria-pressed", "true");
+    await page.mouse.move(0, 0);
   }
 
   // Moving the bar in the page takes it out of the top layer; connecting it again puts it back.
@@ -155,7 +159,7 @@ test("hostile ancestor CSS cannot move, scale, hide or cover the bar", async ({ 
     document.documentElement.append(bar);
   });
   expect((await barSnapshot(page)).box).toEqual(clean.box);
-  expect(await inBar(page, ".bar").evaluate((element) => element.matches(":popover-open"))).toBe(true);
+  expect(await inBar(page, ".dock").evaluate((element) => element.matches(":popover-open"))).toBe(true);
 });
 
 test("the bar's styles do not leak into the page", async ({ page, openFixture, fixtureServer }) => {
@@ -171,14 +175,14 @@ test("the bar's styles do not leak into the page", async ({ page, openFixture, f
 test("follows prefers-color-scheme", async ({ page, openFixture }) => {
   await openFixture();
   await mountBar(page);
-  const colors = () => inBar(page, ".bar").evaluate((element) => {
+  const colors = () => inBar(page, ".toolbar").evaluate((element) => {
     const style = getComputedStyle(element);
     return { background: style.backgroundColor, color: style.color, scheme: style.colorScheme };
   });
   await page.emulateMedia({ colorScheme: "light" });
-  expect(await colors()).toEqual({ background: "rgb(255, 255, 255)", color: "rgb(27, 29, 33)", scheme: "light" });
+  expect(await colors()).toEqual({ background: "rgb(255, 255, 255)", color: "rgb(22, 24, 29)", scheme: "light" });
   await page.emulateMedia({ colorScheme: "dark" });
-  expect(await colors()).toEqual({ background: "rgb(28, 31, 37)", color: "rgb(232, 234, 238)", scheme: "dark" });
+  expect(await colors()).toEqual({ background: "rgb(27, 30, 36)", color: "rgb(236, 238, 242)", scheme: "dark" });
 });
 
 test("loads nothing but the page and the daemon", async ({ page, openFixture, fixtureServer }) => {
@@ -190,6 +194,7 @@ test("loads nothing but the page and the daemon", async ({ page, openFixture, fi
   await mountWithContent(page, daemon.url, daemon.token);
   await page.emulateMedia({ colorScheme: "dark" });
   await inBar(page, "[data-version=v2]").click();
+  await inBar(page, "[data-role=inbox-toggle]").click();
   await inBar(page, ".thread summary").click();
   const allowed = [fixtureServer.origin, daemon.url, daemon.url.replace("http:", "ws:")];
   expect(requested.filter((url) => !allowed.some((origin) => url.startsWith(`${origin}/`)))).toEqual([]);

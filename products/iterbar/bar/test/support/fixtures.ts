@@ -92,6 +92,15 @@ export async function mountBar(page: Page, options: { daemonUrl?: string; token?
   }, options);
 }
 
+/** Opens the toolbar's `inbox`, `drafts` or `versions` panel, unless it is already open. */
+export async function openPanel(page: Page, panel: "inbox" | "drafts" | "versions"): Promise<void> {
+  const button = page.locator(`iterbar-bar [data-role=${panel}-toggle]`);
+  // Asleep, the versions button shows only on hover; the toolbar wakes for the keyboard too.
+  await page.locator("iterbar-bar [data-role=comment]").hover();
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+  await page.mouse.move(0, 0);
+}
+
 /** A locator inside the bar's shadow root (Playwright's CSS engine pierces open shadow roots). */
 export function inBar(page: Page, selector: string) {
   return page.locator(`iterbar-bar ${selector}`);

@@ -6,6 +6,10 @@
 
 <https://github.com/qq15725/modern-screenshot>
 
+Modified: the bundled copy escapes `<use>` target ids with `CSS.escape` before
+building selectors from them (see `patches/modern-screenshot@4.7.0.patch` in the
+repository root).
+
 ```text
 The MIT License (MIT)
 

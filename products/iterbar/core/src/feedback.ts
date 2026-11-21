@@ -121,6 +121,11 @@ const contentFields = {
   activeVariants: activeVariantsSchema,
   /** Why no screenshot was captured; `null` when one was, or none was attempted. */
   screenshotUnavailableReason: screenshotUnavailableReasonSchema,
+  /**
+   * Groups feedback the user sent together from the bar's draft tray, so an agent can take it as one unit. Absent on
+   * feedback sent on its own and on feedback from bars that predate batches.
+   */
+  batchId: idSchema.optional(),
 };
 
 const commentFields = { kind: z.literal("comment"), text: nonBlankText };

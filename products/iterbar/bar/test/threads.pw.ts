@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION } from "iterbar";
 import { comment, fakeDaemon } from "./support/fake-daemon.js";
-import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
+import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 
 test.describe("threads from the daemon", () => {
   test("lists threads, then follows created and updated events from the event stream", async ({ page, openFixture, fixtureServer }) => {
@@ -8,6 +8,7 @@ test.describe("threads from the daemon", () => {
     const daemon = await fakeDaemon(page, fixtureServer.origin, [first]);
     await openFixture();
     await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+    await openPanel(page, "inbox");
 
     await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
     const threads = inBar(page, ".thread");
@@ -30,7 +31,7 @@ test.describe("threads from the daemon", () => {
         replies: [{ id: "r1", author: { kind: "agent", name: "Codex" }, text: "On it.", createdAt: first.updatedAt }],
       },
     });
-    await expect(threads.first().locator(".badge")).toHaveText("Working");
+    await expect(threads.first().locator(".badge")).toHaveText("In progress");
     await expect(threads.first().locator(".reply")).toHaveText("Agent (Codex)On it.");
     await expect(threads.first().locator(".thread-count")).toHaveText("1 reply");
     await expect(threads.first().locator("details")).toHaveAttribute("open", "");
@@ -75,7 +76,7 @@ test.describe("threads from the daemon", () => {
     const daemon = await fakeDaemon(page, fixtureServer.origin, [item]);
     await openFixture();
     await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
-    await expect(inBar(page, ".thread .badge")).toHaveText("Working");
+    await expect(inBar(page, ".thread .badge")).toHaveText("In progress");
 
     daemon.send("not json");
     daemon.send({ schemaVersion: 2, type: "feedback.updated", feedback: { ...item, status: "done" } } as never);
@@ -87,7 +88,7 @@ test.describe("threads from the daemon", () => {
     // A valid event after the bad ones proves they were processed (and skipped) before it.
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.created", feedback: comment("Marker") });
     await expect(inBar(page, ".thread")).toHaveCount(2);
-    await expect(inBar(page, `[data-feedback-id=${item.id}] .badge`)).toHaveText("Working");
+    await expect(inBar(page, `[data-feedback-id=${item.id}] .badge`)).toHaveText("In progress");
   });
 
   test("reconnects after the stream drops and lists again to catch up", async ({ page, openFixture, fixtureServer }) => {
@@ -117,6 +118,7 @@ test.describe("threads from the daemon", () => {
     await expect.poll(() => second.requests.filter((request) => request.path === "/feedback").length).toBe(1);
     await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
     await expect(inBar(page, ".thread")).toHaveCount(0);
+    await openPanel(page, "inbox");
     await expect(inBar(page, "[data-role=threads-empty]")).toBeVisible();
     await expect.poll(() => first.closedSockets.length).toBe(1);
 
@@ -169,6 +171,7 @@ test.describe("threads from the daemon", () => {
       pageUrl: `${fixtureServer.origin}/shop`,
       slots: [{ slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 }],
     });
+    await openPanel(page, "versions");
     await inBar(page, "[data-version=v3]").click();
     await expect.poll(() => daemon.slotReports.at(-1)?.slots[0]?.activeVersion).toBe("v3");
     expect(daemon.slotReports.at(-1)?.pageUrl).toBe(`${fixtureServer.origin}/shop`);

@@ -205,7 +205,7 @@ async function readFeedbackForm(request: IncomingMessage) {
 /** The `GET /feedback` filters; a filter given more than once is refused rather than guessed. */
 function listQuery(url: URL) {
   const query: Record<string, string> = {};
-  for (const name of ["status", "kind", "since"] as const) {
+  for (const name of ["status", "kind", "since", "batchId"] as const) {
     const values = url.searchParams.getAll(name);
     if (values.length > 1) throw invalidRequest(`The ${name} filter was given more than once`);
     if (values[0] !== undefined) query[name] = values[0];

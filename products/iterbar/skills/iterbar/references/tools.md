@@ -32,11 +32,13 @@ Every tool that returns feedback returns full items:
 - `target`: `null`, or the element: `selector`, `textExcerpt`, `boundingBox` and `sourceLocation`
   (`{ path, line, column }`, project relative, or `null`);
 - `screenshot` and `evidence` attachment references (or `null`), and `screenshotUnavailableReason`;
-- `replies`: `[{ id, author: { kind: "user" | "agent", name }, text, createdAt }]`, oldest first.
+- `replies`: `[{ id, author: { kind: "user" | "agent", name }, text, createdAt }]`, oldest first;
+- `batchId`, only on items the user sent together from the bar's draft tray: the same id on every item of that batch.
 
 ## `list_feedback`
 
-Inputs, all optional: `status`, `kind`, `since` (ISO 8601; items updated at or after it); `cursor` (your latest one,
+Inputs, all optional: `status`, `kind`, `since` (ISO 8601; items updated at or after it), `batchId` (only the items of
+that batch); `cursor` (your latest one,
 from `list_feedback` or `wait_for_feedback`).
 
 Result: `{ items, cursor }`, oldest first; with a `cursor` and no filters, also `events` (as in
@@ -70,6 +72,16 @@ With `includeAttachments`, the content also has the screenshot as an `image` blo
 `resource` block (JSON text, `file://` URI of its file). Evidence larger than 1 MiB is not inlined; read the file at
 its `path` instead. Screenshots are always inlined when attachments are requested; they can be up to the store's
 screenshot limit, so pass `includeAttachments: false` and read the `path` when you do not need the image.
+
+## `get_batch`
+
+Inputs: `batchId` (any item's `batchId`); `includeAttachments` (default `true`).
+
+Result: `{ batchId, count, items }`, where each entry of `items` is `{ feedback, attachments }` as `get_feedback`
+returns them, in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
+as an `image` block and its evidence as a `resource` block, each group after a text block `Attachments of <id>:`.
+Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
+your cursor.
 
 ## `reply`
 

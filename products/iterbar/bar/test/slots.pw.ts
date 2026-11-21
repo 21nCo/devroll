@@ -1,10 +1,11 @@
-import { expect, HERO, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
+import { expect, HERO, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 
 test.describe("slot dropdown", () => {
   test("says so when the page has a registry but no slots", async ({ page, openFixture }) => {
     await openFixture();
     await page.evaluate(() => window.fixture.getVariantsRegistry());
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(inBar(page, "[data-role=slots-message]")).toHaveText("No slots on this page.");
     await expect(inBar(page, "[data-role=slot-select]")).toBeHidden();
     await expect(inBar(page, "[data-role=slot-name]")).toBeHidden();
@@ -14,6 +15,7 @@ test.describe("slot dropdown", () => {
   test("waits for a registry installed after the bar", async ({ page, openFixture }) => {
     await openFixture();
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(inBar(page, "[data-role=slots-message]")).toHaveText("No Iterbar variants on this page.");
     await registerSlots(page, [PRICING]);
     await expect(inBar(page, "[data-role=slot-name]")).toHaveText("Slot pricing");
@@ -23,6 +25,7 @@ test.describe("slot dropdown", () => {
     await openFixture();
     await registerSlots(page, [PRICING]);
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(inBar(page, "[data-role=slot-name]")).toHaveText("Slot pricing");
     await expect(inBar(page, "[data-role=slot-select]")).toBeHidden();
     await expect(inBar(page, "[data-role=versions] button")).toHaveText(["v1 (default)", "v2", "v3"]);
@@ -34,6 +37,7 @@ test.describe("slot dropdown", () => {
     await openFixture("/?iterbar=hero:b");
     await registerSlots(page, [PRICING, HERO]);
     await mountBar(page);
+    await openPanel(page, "versions");
     const select = inBar(page, "[data-role=slot-select]");
     await expect(select).toBeVisible();
     await expect(select.locator("option")).toHaveText(["pricing", "hero"]);
@@ -48,6 +52,7 @@ test.describe("slot dropdown", () => {
     await openFixture();
     await registerSlots(page, [PRICING]);
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(inBar(page, "[data-role=slot-select]")).toBeHidden();
     const unregister = await page.evaluateHandle(() => window.fixture.getVariantsRegistry().register({ slot: "hero", versions: ["a", "b"], defaultVersion: "a" }));
     await expect(inBar(page, "[data-role=slot-select] option")).toHaveText(["pricing", "hero"]);
@@ -71,6 +76,7 @@ test.describe("switching a version", () => {
       render();
     });
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(page.locator("#pricing-view")).toHaveText("pricing v1");
 
     await inBar(page, "[data-version=v2]").click();
@@ -97,6 +103,7 @@ test.describe("switching a version", () => {
     await page.waitForFunction(() => window.fixture !== undefined);
     await registerSlots(page, [PRICING, HERO]);
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(inBar(page, "[data-version=v3]")).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -112,6 +119,7 @@ test.describe("switching a version", () => {
       });
     });
     await mountBar(page);
+    await openPanel(page, "versions");
     await inBar(page, "[data-version=v2]").click();
     await expect(inBar(page, "[data-version=v1]")).toHaveAttribute("aria-pressed", "true");
     expect(await page.evaluate(() => location.search)).toBe("?q=1");
@@ -123,6 +131,7 @@ test.describe("switching a version", () => {
       Object.defineProperty(window, "__ITERBAR__", { configurable: true, value: { schemaVersion: 2 } });
     });
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(inBar(page, "[data-role=slots-message]")).toContainText("not compatible");
   });
 
@@ -136,6 +145,7 @@ test.describe("switching a version", () => {
       });
     });
     await mountBar(page);
+    await openPanel(page, "versions");
     await expect(inBar(page, "[data-role=slots-message]")).toContainText("invalid snapshot");
     await expect(inBar(page, "[data-role=versions]")).toBeHidden();
   });

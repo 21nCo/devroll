@@ -14,8 +14,8 @@ open an attachment file whose `path` a tool gave you.
 
 ## Prerequisites
 
-1. The `iterbar` MCP tools are available (`list_feedback`, `get_feedback`, `reply`, `set_status`, `list_slots`,
-   `wait_for_feedback`). If they are not, stop and ask the user to add the server; see
+1. The `iterbar` MCP tools are available (`list_feedback`, `get_feedback`, `get_batch`, `reply`, `set_status`,
+   `list_slots`, `wait_for_feedback`). If they are not, stop and ask the user to add the server; see
    [references/setup.md](references/setup.md).
 2. The daemon runs. Call `list_feedback`. If it fails with error code `daemon_unavailable`, ask the user to run
    `iterbar dev` in the project root (or the app's dev server, when its Iterbar plugin starts the daemon), then
@@ -82,6 +82,23 @@ Work in a loop, one feedback item at a time, oldest first:
    guessing (read the thread again first, as above). Their answer arrives as a user reply in the same thread.
 7. When the user says a thread is finished, or you have answered a question that needs no change, `set_status` to
    `resolved`.
+
+### Batches
+
+The user can collect several comments in the bar's draft tray and send them together. Every item of such a batch has
+the same `batchId` (items sent on their own have none). When an item you are about to handle has a `batchId`, work
+through the whole batch as one change instead of item by item:
+
+1. `get_batch` with that `batchId`. It returns every item of the batch in the order they were sent, each with its
+   target, `sourceLocation`, selector, text excerpt and `activeVariants`, and every screenshot (each labelled with its
+   item's id). Read all of them before you change anything: comments in a batch often relate (the same component, a
+   consistent style), and one edit may answer several.
+2. `set_status` `working` on every item of the batch.
+3. Make the changes.
+4. For each item: read it again with `get_feedback` (`includeAttachments: false`), `reply` with what you changed for
+   that comment, and `set_status` `done`, or ask and set `needs-info` for that item alone.
+5. The batch's items also arrive as separate `created` events; once you have handled the batch, treat those events as
+   handled.
 
 When nothing new is left, call `wait_for_feedback` with the latest `cursor` (from the unfiltered `list_feedback`
 or the previous wait). It returns when a user sends new feedback or replies in a thread:

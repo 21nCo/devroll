@@ -1,28 +1,41 @@
-/** Local storage key, per origin, holding where the bar sits and whether it is collapsed. */
-export const BAR_STATE_STORAGE_KEY = "iterbar:bar";
+/** Local storage key, per origin, holding where the toolbar sits, whether it is pinned open and which panel is open. */
+export const BAR_STATE_STORAGE_KEY = "iterbar:toolbar";
 
-export type Edge = "top" | "right" | "bottom" | "left";
+/** Where along the bottom edge the toolbar is docked. */
+export type Dock = "left" | "center" | "right";
 
-const EDGES: readonly Edge[] = ["top", "right", "bottom", "left"];
+export const DOCKS: readonly Dock[] = ["left", "center", "right"];
 
-/** Where the bar sits: the screen edge it is docked to and how far along that edge, from 0 (start) to 1 (end). */
-export interface BarPlacement {
-  readonly edge: Edge;
-  readonly offset: number;
+/** The panel that opens upward from the toolbar. */
+export type PanelName = "inbox" | "drafts" | "versions";
+
+export const PANELS: readonly PanelName[] = ["inbox", "drafts", "versions"];
+
+/** Which threads the inbox lists. */
+export type InboxFilter = "all" | "open" | "progress" | "done";
+
+export const INBOX_FILTERS: readonly InboxFilter[] = ["all", "open", "progress", "done"];
+
+export interface BarState {
+  readonly dock: Dock;
+  /**
+   * Whether the full toolbar stays shown. When `false` the toolbar sleeps: a compact pill that wakes while the pointer
+   * or focus is on it, a panel is open or comment mode is on.
+   */
+  readonly expanded: boolean;
+  /** The open panel, or `null`. */
+  readonly panel: PanelName | null;
+  readonly filter: InboxFilter;
 }
 
-export interface BarState extends BarPlacement {
-  readonly collapsed: boolean;
-}
-
-/** Gap, in CSS pixels, the bar keeps from the screen edges; the stylesheet's `--ib-margin`. */
+/** Gap, in CSS pixels, the toolbar keeps from the screen edges; the stylesheet's `--ib-margin`. */
 export const BAR_MARGIN_PX = 12;
 
-/** Bottom right, expanded. */
-export const DEFAULT_BAR_STATE: BarState = Object.freeze({ edge: "bottom", offset: 1, collapsed: false });
+/** Bottom centre, sleeping, no panel, every thread. */
+export const DEFAULT_BAR_STATE: BarState = Object.freeze({ dock: "center", expanded: false, panel: null, filter: "all" });
 
-function clampOffset(value: number): number {
-  return Math.min(1, Math.max(0, value));
+function oneOf<T extends string>(values: readonly T[], value: unknown, fallback: T): T {
+  return values.includes(value as T) ? value as T : fallback;
 }
 
 /** Reads a stored state; anything malformed falls back field by field to {@link DEFAULT_BAR_STATE}. Never throws. */
@@ -34,16 +47,30 @@ export function parseBarState(text: string | null | undefined): BarState {
     return DEFAULT_BAR_STATE;
   }
   if (typeof value !== "object" || value === null) return DEFAULT_BAR_STATE;
-  const { edge, offset, collapsed } = value as Record<string, unknown>;
+  const { dock, expanded, panel, filter } = value as Record<string, unknown>;
   return {
-    edge: EDGES.includes(edge as Edge) ? edge as Edge : DEFAULT_BAR_STATE.edge,
-    offset: typeof offset === "number" && Number.isFinite(offset) ? clampOffset(offset) : DEFAULT_BAR_STATE.offset,
-    collapsed: typeof collapsed === "boolean" ? collapsed : DEFAULT_BAR_STATE.collapsed,
+    dock: oneOf(DOCKS, dock, DEFAULT_BAR_STATE.dock),
+    expanded: typeof expanded === "boolean" ? expanded : DEFAULT_BAR_STATE.expanded,
+    panel: PANELS.includes(panel as PanelName) ? panel as PanelName : null,
+    filter: oneOf(INBOX_FILTERS, filter, DEFAULT_BAR_STATE.filter),
   };
 }
 
 export function formatBarState(state: BarState): string {
-  return JSON.stringify({ edge: state.edge, offset: clampOffset(state.offset), collapsed: state.collapsed });
+  return JSON.stringify({ dock: state.dock, expanded: state.expanded, panel: state.panel, filter: state.filter });
+}
+
+/** The next dock in left, centre, right order, wrapping round. */
+export function nextDock(dock: Dock): Dock {
+  return DOCKS[(DOCKS.indexOf(dock) + 1) % DOCKS.length]!;
+}
+
+/** The dock an arrow key moves the toolbar to from `dock`, or `null` for any other key or at the end of the edge. */
+export function dockForKey(dock: Dock, key: string): Dock | null {
+  const index = DOCKS.indexOf(dock);
+  if (key === "ArrowLeft") return index > 0 ? DOCKS[index - 1]! : null;
+  if (key === "ArrowRight") return index < DOCKS.length - 1 ? DOCKS[index + 1]! : null;
+  return null;
 }
 
 export interface Rect {
@@ -53,34 +80,29 @@ export interface Rect {
   readonly height: number;
 }
 
-/**
- * Where a bar dropped with its box at `box` docks in a `viewport` of the given size: the edge nearest to the box's
- * centre, and the box's position along that edge as a fraction of the room it can move in between the
- * {@link BAR_MARGIN_PX} margins, which is how the stylesheet turns the offset back into a position.
- */
-export function placementForDrop(box: Rect, viewport: { readonly width: number; readonly height: number }): BarPlacement {
-  const centerX = box.left + box.width / 2;
-  const centerY = box.top + box.height / 2;
-  const distances: Record<Edge, number> = {
-    top: centerY,
-    bottom: viewport.height - centerY,
-    left: centerX,
-    right: viewport.width - centerX,
-  };
-  const edge = EDGES.reduce((best, candidate) => (distances[candidate] < distances[best] ? candidate : best));
-  const horizontal = edge === "top" || edge === "bottom";
-  const room = (horizontal ? viewport.width - box.width : viewport.height - box.height) - 2 * BAR_MARGIN_PX;
-  const position = (horizontal ? box.left : box.top) - BAR_MARGIN_PX;
-  return { edge, offset: room > 0 ? clampOffset(position / room) : 0 };
-}
+/** Room the comment popover keeps from the element it is anchored to. */
+const ANCHOR_GAP_PX = 8;
 
-/** The edge an arrow key moves the bar to, or `null` for any other key. */
-export function edgeForKey(key: string): Edge | null {
-  switch (key) {
-    case "ArrowUp": return "top";
-    case "ArrowRight": return "right";
-    case "ArrowDown": return "bottom";
-    case "ArrowLeft": return "left";
-    default: return null;
-  }
+/**
+ * Where to put a `size` popover anchored to `target` in a `viewport`: below the target when it fits there, else above
+ * it, else wherever along the viewport's height it fits best; left-aligned with the target, kept inside the margins.
+ * `reserved` is the height at the bottom of the viewport the toolbar takes, which the popover avoids when it can.
+ */
+export function anchorPopover(
+  target: Rect,
+  size: { readonly width: number; readonly height: number },
+  viewport: { readonly width: number; readonly height: number },
+  reserved = 0,
+): { left: number; top: number } {
+  const margin = BAR_MARGIN_PX;
+  const bottomLimit = viewport.height - Math.max(margin, reserved);
+  const below = target.top + target.height + ANCHOR_GAP_PX;
+  const above = target.top - ANCHOR_GAP_PX - size.height;
+  let top: number;
+  if (below + size.height <= bottomLimit) top = below;
+  else if (above >= margin) top = above;
+  else top = Math.max(margin, Math.min(bottomLimit - size.height, below));
+  const maxLeft = Math.max(margin, viewport.width - margin - size.width);
+  const left = Math.min(maxLeft, Math.max(margin, target.left));
+  return { left: Math.round(left), top: Math.round(top) };
 }

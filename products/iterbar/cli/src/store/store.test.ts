@@ -151,6 +151,19 @@ describe("records", () => {
     await expect(store.list({ status: "closed" as never })).rejects.toMatchObject({ code: "invalid_message" });
   });
 
+  it("keeps a draft's batchId and filters the list by it", async () => {
+    const store = await open();
+    const plain = { ...commentDraft, evidenceWindow: null };
+    const alone = await store.create(plain);
+    const first = await store.create({ ...plain, batchId: "batch-1" });
+    const second = await store.create({ ...chooseVariantDraft, batchId: "batch-1" });
+    await store.create({ ...plain, batchId: "batch-2" });
+    expect(alone).not.toHaveProperty("batchId");
+    expect((await store.get(first.id)).batchId).toBe("batch-1");
+    expect((await store.list({ batchId: "batch-1" })).map((item) => item.id)).toEqual([first.id, second.id]);
+    await expect(store.create({ ...plain, batchId: "Batch 1" })).rejects.toMatchObject({ code: "invalid_message" });
+  });
+
   it("keeps a reply from every concurrent writer in one process", async () => {
     const store = await open();
     const item = await store.create(chooseVariantDraft);
