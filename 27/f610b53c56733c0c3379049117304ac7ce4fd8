@@ -1,0 +1,31 @@
+products/iterbar/bar/src/threads.ts
+  s_2cd8e700ac0da3::t_c55f1f73fef6f7 44-48,89
+products/iterbar/bar/src/element.ts
+  s_2cd8e700ac0da3::t_c55f1f73fef6f7 764-766
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_2cd8e700ac0da3::t_36ac8b13cfbf8f 105-108,112,156-161,165-170
+products/iterbar/bar/src/pick/target.ts
+  s_2cd8e700ac0da3::t_d08e85123b398f 172
+products/iterbar/cli/src/mcp/tools.ts
+  s_2cd8e700ac0da3::t_d08e85123b398f 251-253
+products/iterbar/cli/src/store/store.ts
+  s_2cd8e700ac0da3::t_a86cf6fa2d1f2d 213-220,313
+products/iterbar/bar/src/drafts.ts
+  s_2cd8e700ac0da3::t_c55f1f73fef6f7 64-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "27f610b53c56733c0c3379049117304ac7ce4fd8",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
