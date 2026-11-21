@@ -1,0 +1,39 @@
+products/iterbar/bar/test/drafts.pw.ts
+  s_2cd8e700ac0da3::t_4934572ff7a387 88,121,169-205
+products/iterbar/bar/src/theme.ts
+  s_2cd8e700ac0da3::t_f03bb720f950a2 350-351,354
+products/iterbar/bar/src/element.ts
+  s_2cd8e700ac0da3::t_4934572ff7a387 217,515-516,522-526
+  s_2cd8e700ac0da3::t_f03bb720f950a2 123,125,209-210,251-252,575-576,587,599,616,653-660,670-673,689-695,768-772,775,781
+products/iterbar/core/src/feedback.ts
+  s_2cd8e700ac0da3::t_f03bb720f950a2 134-135
+products/iterbar/cli/src/mcp/tools.test.ts
+  s_2cd8e700ac0da3::t_75334fcf5b2fc2 125,138-149
+  s_2cd8e700ac0da3::t_2924d5da1d58be 150-151
+products/iterbar/skills/iterbar/references/tools.md
+  s_2cd8e700ac0da3::t_f03bb720f950a2 36,81,85-88
+products/iterbar/bar/src/drafts.ts
+  s_2cd8e700ac0da3::t_f03bb720f950a2 126-129
+products/iterbar/cli/src/mcp/tools.ts
+  s_2cd8e700ac0da3::t_f03bb720f950a2 214-216,229-233,245-246
+products/iterbar/skills/iterbar/SKILL.md
+  s_2cd8e700ac0da3::t_f03bb720f950a2 89-91,96-98
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_2cd8e700ac0da3::t_4fbad69627587a 28-29,64,109-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b0e78a84043421a07bb63a6f949036c6fde6b39f",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
