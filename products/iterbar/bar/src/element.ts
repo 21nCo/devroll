@@ -76,10 +76,10 @@ function isToggleShortcut(event: KeyboardEvent): boolean {
  */
 function isTextEntry(target: EventTarget | undefined): boolean {
   if (!(target instanceof Element)) return false;
-  // Focus inside a closed shadow root shows as its host. A custom element focusable itself (with a tabindex) is
-  // not taken for one: without a tabindex, a focused custom element with no readable shadow root holds focus inside.
+  // Focus inside a closed shadow root shows as its host, and a focused custom element with no readable shadow root may
+  // be one, tabindex or not. A shortcut never takes a keystroke that might be typing; the toolbar's buttons still work.
   if (target.localName.includes("-") && target.localName !== BAR_TAG && target.shadowRoot === null
-    && !target.hasAttribute("tabindex") && target.matches(":focus")) return true;
+    && target.matches(":focus")) return true;
   if (target instanceof HTMLElement && target.isContentEditable) return true;
   if (target.localName === "textarea" || target.localName === "select") return true;
   if (target.localName !== "input") return false;
@@ -509,13 +509,18 @@ export class IterbarBarElement extends ElementBase {
     if (!pick || !this.#composer.open) return;
     const rect = pick.element.isConnected ? pick.element.getBoundingClientRect() : null;
     const box = this.#composer.element.getBoundingClientRect();
-    // The visual viewport leaves out scrollbars and, unlike the root's client size, is not scaled by a page zoom.
+    // The visual viewport is what the user sees: it leaves out scrollbars, is not scaled by a page zoom, and when
+    // pinch-zoomed is a panned part of the layout viewport that rectangles and fixed positions are measured in. So
+    // placement happens in its coordinates and is translated back.
     const visual = window.visualViewport;
+    const offset = { left: visual?.offsetLeft ?? 0, top: visual?.offsetTop ?? 0 };
     const viewport = { width: visual?.width ?? window.innerWidth, height: visual?.height ?? window.innerHeight };
-    const reserved = window.innerHeight - this.#dock.getBoundingClientRect().top;
-    const target = rect ?? { left: viewport.width / 2 - box.width / 2, top: viewport.height / 3, width: 0, height: 0 };
+    const reserved = Math.max(0, offset.top + viewport.height - this.#dock.getBoundingClientRect().top);
+    const target = rect
+      ? { left: rect.left - offset.left, top: rect.top - offset.top, width: rect.width, height: rect.height }
+      : { left: viewport.width / 2 - box.width / 2, top: viewport.height / 3, width: 0, height: 0 };
     const { left, top } = anchorPopover(target, { width: box.width, height: box.height }, viewport, reserved + 8);
-    this.#composer.moveTo(left, top);
+    this.#composer.moveTo(left + offset.left, top + offset.top);
   }
 
   readonly #queuePlaceComposer = (): void => {
@@ -530,6 +535,8 @@ export class IterbarBarElement extends ElementBase {
   #followComposer(on: boolean): void {
     window.removeEventListener("scroll", this.#queuePlaceComposer, true);
     window.removeEventListener("resize", this.#queuePlaceComposer);
+    window.visualViewport?.removeEventListener("scroll", this.#queuePlaceComposer);
+    window.visualViewport?.removeEventListener("resize", this.#queuePlaceComposer);
     this.#composerObserver?.disconnect();
     this.#composerObserver = null;
     if (this.#composerFrame !== null) cancelAnimationFrame(this.#composerFrame);
@@ -537,6 +544,9 @@ export class IterbarBarElement extends ElementBase {
     if (!on) return;
     window.addEventListener("scroll", this.#queuePlaceComposer, { capture: true, passive: true });
     window.addEventListener("resize", this.#queuePlaceComposer, { passive: true });
+    // Pinch-zooming and panning move the visual viewport without scrolling the page.
+    window.visualViewport?.addEventListener("scroll", this.#queuePlaceComposer, { passive: true });
+    window.visualViewport?.addEventListener("resize", this.#queuePlaceComposer, { passive: true });
     // An error or a resized text area changes its height, which can change where it fits.
     if (typeof ResizeObserver === "function") {
       this.#composerObserver = new ResizeObserver(this.#queuePlaceComposer);

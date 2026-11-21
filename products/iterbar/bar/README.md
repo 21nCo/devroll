@@ -228,8 +228,8 @@ Removing the element closes the stream and cancels every timer.
 - **Ctrl/Cmd+.** keeps the toolbar expanded or lets it sleep, from anywhere
   on the page, and moves focus to the Comment button (Alt+Shift+I does the
   same). **C** toggles comment mode. Neither shortcut applies while focus is
-  in a text field, an editable element or a custom element with a closed
-  shadow root. **Escape** leaves comment mode, cancels a draft being edited,
+  in a text field, an editable element or a custom element whose shadow root
+  the bar cannot read (it may hold a field); the toolbar's buttons still work. **Escape** leaves comment mode, cancels a draft being edited,
   or closes the open panel and returns focus to its button.
 - Every control is a native button, select or summary, so it can be reached
   with Tab in visual order (the toolbar, then the open panel), and each one
