@@ -236,6 +236,24 @@ test("a tap on a bar inside a closed shadow root keeps it awake", async ({ brows
   }
 });
 
+test("a press outside followed at once by one inside leaves the toolbar awake", async ({ page, openFixture }) => {
+  await openFixture();
+  await mountBar(page);
+  // Both presses are dispatched before either one's decision runs.
+  const awake = await page.evaluate(async () => {
+    const bar = document.querySelector("iterbar-bar")!;
+    const dot = bar.shadowRoot!.querySelector("[data-role=status-dot]")!;
+    const dock = bar.shadowRoot!.querySelector(".dock")!;
+    document.getElementById("page-text")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true, pointerType: "touch" }));
+    dot.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" }));
+    bar.shadowRoot!.querySelector(".toolbar")!.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" }));
+    dot.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true, pointerType: "touch" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return dock.hasAttribute("data-hovered");
+  });
+  expect(awake).toBe(true);
+});
+
 test("a tap wakes the sleeping toolbar until the next tap elsewhere", async ({ browser, fixtureServer }) => {
   const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 700 } });
   const page = await context.newPage();

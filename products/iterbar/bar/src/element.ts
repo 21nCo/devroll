@@ -456,10 +456,13 @@ export class IterbarBarElement extends ElementBase {
    * from the event's composed path here.
    */
   readonly #pressesInside = new WeakSet<Event>();
+  /** Counts presses, so only the latest one's decision counts: an earlier press never undoes what a later one did. */
+  #pressCount = 0;
 
   readonly #onPagePointerDown = (event: PointerEvent): void => {
+    const press = ++this.#pressCount;
     setTimeout(() => {
-      if (!this.#pressesInside.has(event)) this.#holdPlace(false);
+      if (press === this.#pressCount && !this.#pressesInside.has(event)) this.#holdPlace(false);
     }, 0);
   };
 
