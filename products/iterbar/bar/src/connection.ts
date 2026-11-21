@@ -114,7 +114,13 @@ class DeadlineError extends Error {}
  * daemon's own `reason` when its body had one.
  */
 export class DaemonRequestError extends Error {
-  constructor(message: string, readonly status: number | null = null, readonly reason: string | null = null) {
+  constructor(
+    message: string,
+    readonly status: number | null = null,
+    readonly reason: string | null = null,
+    /** Whether the daemon may have stored the comment all the same (no answer, or a failure after its write). */
+    readonly mayBeStored = false,
+  ) {
     super(message);
   }
 }
@@ -225,25 +231,25 @@ export class DaemonConnection {
         if (error.status === null || error.status < 500) throw error;
         const why = `The daemon failed (${error.status})${error.reason === null ? "" : `: ${error.reason}`}`;
         this.#refreshThreads();
-        throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, error.status, error.reason);
+        throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, error.status, error.reason, true);
       }
       // No answer (a lost connection or the deadline): the daemon stores a comment before it answers, so the outcome
       // is unknown and sending again could file it twice.
       // A success whose body cannot be read was stored.
       if (error instanceof SyntaxError) {
         this.#refreshThreads();
-        throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+        throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.", null, null, true);
       }
       let why = `The daemon did not answer (${(error as Error).message})`;
       if (error instanceof DeadlineError) why = `The daemon did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds`;
       if (this.#stopped) why = "The bar was disconnected from the daemon before it answered";
       this.#refreshThreads();
-      throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`);
+      throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, null, null, true);
     }
     const feedback = feedbackSchema.safeParse(response);
     if (!feedback.success) {
       this.#refreshThreads();
-      throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.");
+      throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.", null, null, true);
     }
     return feedback.data;
   }

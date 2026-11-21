@@ -48,7 +48,9 @@ tray and the versions open as a panel above the toolbar.
 - **Inbox**: the feedback threads, newest first, with status (Open, In
   progress, Needs info, Done, Resolved), the target and page, and replies,
   which arrive live. Filters show all threads, open ones (open or needing
-  info), those in progress or those done. Long comments and replies wrap. The bar lists
+  info), those in progress or those done. Long comments and replies wrap.
+  The counts (the toolbar's open count included) cover the newest 100
+  threads the inbox holds. The bar lists
   them with `GET /feedback` each time the `/events` WebSocket opens, then
   applies `feedback.created` and `feedback.updated` events as they arrive.
   Each listing replaces the threads, except that a listed copy older than the

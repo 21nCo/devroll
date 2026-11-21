@@ -189,6 +189,25 @@ test("a draft withdrawn after a failed send no longer counts toward its batch", 
   expect(daemon.posts[0]!.draft).toMatchObject({ text: "A", batchIndex: 0, batchSize: 1 });
 });
 
+test("a draft that may already be stored still counts toward its batch when withdrawn", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "suggest", "A");
+  await draft(page, "card", "B");
+  // Both are stored, but no answer comes back: the bar cannot tell.
+  daemon.dropFeedbackAnswer = true;
+  await openPanel(page, "drafts");
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect(inBar(page, ".draft[data-state=failed]")).toHaveCount(2);
+  await expect(inBar(page, ".draft .composer-error").first()).toContainText("may already be stored");
+  daemon.dropFeedbackAnswer = false;
+  await inBar(page, ".draft").first().locator("[data-role=draft-remove]").click();
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(3);
+  expect(daemon.posts[2]!.draft).toMatchObject({ text: "B", batchIndex: 1, batchSize: 2 });
+});
+
 test("a custom element with an unusual labels property can still be picked", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await open(page, openFixture, daemon.url, daemon.token);

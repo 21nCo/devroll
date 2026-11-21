@@ -133,7 +133,7 @@ export class ThreadsPanel {
     this.#render();
   }
 
-  /** Threads shown that still need the agent: open, in progress or needing info. */
+  /** Threads shown (the newest {@link MAX_SHOWN_THREADS}) that still need the agent: open, in progress or needing info. */
   get openCount(): number {
     return this.#state.shown().filter((item) => filterOf(item.status) !== "done").length;
   }
@@ -202,7 +202,10 @@ export class ThreadsPanel {
     this.#heading.textContent = `Feedback (${total})`;
     this.#empty.hidden = total > 0;
     this.#filteredEmpty.hidden = total === 0 || this.#filter === "all" || counts[this.#filter] > 0;
-    this.#filteredEmpty.textContent = `Nothing ${FILTER_LABELS[this.#filter].toLowerCase()}.`;
+    // Only the newest threads are held, so an empty filter says so when older ones are not shown.
+    this.#filteredEmpty.textContent = total > shown.length
+      ? `Nothing ${FILTER_LABELS[this.#filter].toLowerCase()} among the newest ${shown.length}.`
+      : `Nothing ${FILTER_LABELS[this.#filter].toLowerCase()}.`;
     const hiddenCount = total - shown.length;
     this.#more.hidden = hiddenCount === 0;
     this.#more.textContent = this.#state.complete ? `${hiddenCount} older not shown.` : `${hiddenCount} not shown; updating.`;

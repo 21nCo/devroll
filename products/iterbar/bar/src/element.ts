@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackTarget, type SlotState } from "iterbar";
 import { Composer } from "./composer.js";
-import { DaemonConnection, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
+import { DaemonConnection, DaemonRequestError, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
 import { h } from "./dom.js";
 import { DraftTray, type DraftView } from "./drafts.js";
 import { icon } from "./icons.js";
@@ -31,6 +31,12 @@ export const COMMENT_MODE_EVENT = "iterbar-comment-mode";
 export interface CommentModeEventDetail {
   readonly active: boolean;
 }
+
+/** Most comments in one batch; the protocol numbers them 0 to 999. */
+const MAX_BATCH = 1000;
+
+/** Most drafts the tray holds at once. */
+const MAX_DRAFTS = 100;
 
 /** Delay that coalesces bursts of registry changes into one slot report. */
 const REPORT_DELAY_MS = 150;
@@ -123,6 +129,8 @@ interface Draft {
   /** The batch a Send all first tried it in, and its place there; kept while it is not sent, so a retry stays put. */
   batchId: string | null;
   batchIndex: number | null;
+  /** A send of it failed in a way that may have stored it anyway, so it may already count toward its batch. */
+  mayBeStored: boolean;
 }
 
 /**
@@ -198,6 +206,8 @@ export class IterbarBarElement extends ElementBase {
    */
   readonly #batches = new Map<string, { next: number; size: number }>();
   #sendingBatch = false;
+  /** The daemon (origin and token) the tray's batches were sent to. */
+  #batchStore: string | null = null;
   #batchError: string | null = null;
   #daemonUrl: string | null = null;
   #token: string | null = null;
@@ -600,7 +610,11 @@ export class IterbarBarElement extends ElementBase {
       this.#composer.showError("This page's URL is not http or https, so the daemon cannot file a comment for it.");
       return;
     }
-    this.#drafts.push({ id: localId("draft"), pick, text, state: "draft", error: null, batchId: null, batchIndex: null });
+    if (this.#drafts.length >= MAX_DRAFTS) {
+      this.#composer.showError(`The tray holds ${MAX_DRAFTS} drafts. Send them, or remove some, before adding more.`);
+      return;
+    }
+    this.#drafts.push({ id: localId("draft"), pick, text, state: "draft", error: null, batchId: null, batchIndex: null, mayBeStored: false });
     // The pick now belongs to the draft: its screenshot carries on.
     this.#pick = null;
     this.#closeComposer();
@@ -619,8 +633,9 @@ export class IterbarBarElement extends ElementBase {
     draft!.pick.withdraw.abort();
     if (draft!.batchId) {
       // A withdrawn draft no longer counts toward its batch; once none of the batch is left, the batch is forgotten.
+      // One that may be stored already still counts: the batch may hold it.
       const batch = this.#batches.get(draft!.batchId);
-      if (batch) batch.size -= 1;
+      if (batch && !draft!.mayBeStored) batch.size -= 1;
       if (!this.#drafts.some((each) => each.batchId === draft!.batchId)) this.#batches.delete(draft!.batchId);
     }
     this.#picker.mark(null);
@@ -658,10 +673,16 @@ export class IterbarBarElement extends ElementBase {
       return;
     }
     const submitted = [...this.#drafts];
-    const batchId = submitted.find((draft) => draft.batchId !== null)?.batchId ?? localId("batch");
+    let batchId = submitted.find((draft) => draft.batchId !== null)?.batchId ?? localId("batch");
     // Drafts new to the batch take places after every one it has given out (stored, failed and kept, or withdrawn),
     // and count toward its size, which a withdrawn draft no longer does.
-    const batch = this.#batches.get(batchId) ?? { next: 0, size: 0 };
+    let batch = this.#batches.get(batchId) ?? { next: 0, size: 0 };
+    // The protocol numbers a batch's comments below 1,000; one that would pass that starts afresh.
+    if (batch.next + submitted.filter((draft) => draft.batchIndex === null).length > MAX_BATCH) {
+      batchId = localId("batch");
+      batch = { next: 0, size: 0 };
+      for (const draft of submitted) draft.batchIndex = null;
+    }
     for (const draft of submitted) {
       draft.batchId = batchId;
       if (draft.batchIndex !== null) continue;
@@ -690,6 +711,7 @@ export class IterbarBarElement extends ElementBase {
       } catch (error) {
         draft.state = "failed";
         draft.error = (error as Error).message;
+        if (error instanceof DaemonRequestError && error.mayBeStored) draft.mayBeStored = true;
       }
     }
     this.#sendingBatch = false;
@@ -880,17 +902,23 @@ export class IterbarBarElement extends ElementBase {
     this.#connection?.stop();
     this.#connection = null;
     // Threads belong to the daemon that listed them; another daemon (or none) must not show them.
-    if (key !== this.#connectionKey) {
-      this.#threads.clear();
-      // A batch lives in one daemon's store: drafts waiting to be retried start a new batch with another daemon.
-      this.#batches.clear();
-      for (const draft of this.#drafts) {
-        draft.batchId = null;
-        draft.batchIndex = null;
-      }
-    }
+    if (key !== this.#connectionKey) this.#threads.clear();
     this.#connectionKey = key;
     const parsed = parseDaemonConfig(this.#daemonUrl, this.#token);
+    if (parsed.ok) {
+      // A batch lives in one daemon's store: drafts waiting to be retried start a new batch with another daemon. The
+      // daemon is compared as parsed (its origin and token), so a URL written differently is still the same one.
+      const store = JSON.stringify([parsed.config.url, parsed.config.token]);
+      if (this.#batchStore !== null && store !== this.#batchStore) {
+        this.#batches.clear();
+        for (const draft of this.#drafts) {
+          draft.batchId = null;
+          draft.batchIndex = null;
+          draft.mayBeStored = false;
+        }
+      }
+      this.#batchStore = store;
+    }
     if (!parsed.ok) {
       this.#renderStatus(parsed.status);
       return;
