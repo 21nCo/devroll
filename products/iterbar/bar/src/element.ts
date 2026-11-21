@@ -711,7 +711,10 @@ export class IterbarBarElement extends ElementBase {
       } catch (error) {
         draft.state = "failed";
         draft.error = (error as Error).message;
-        if (error instanceof DaemonRequestError && error.mayBeStored) draft.mayBeStored = true;
+        // Only for the batch and daemon of this attempt: a switch meanwhile has started the draft afresh.
+        if (error instanceof DaemonRequestError && error.mayBeStored && this.#connection === connection && draft.batchId === batchId) {
+          draft.mayBeStored = true;
+        }
       }
     }
     this.#sendingBatch = false;
@@ -897,14 +900,15 @@ export class IterbarBarElement extends ElementBase {
 
   /** Opens a connection for the current URL and token, unless one for them is already open. */
   #reconnect(): void {
-    const key = JSON.stringify([this.#daemonUrl, this.#token]);
+    const parsed = parseDaemonConfig(this.#daemonUrl, this.#token);
+    // A daemon is identified as parsed (its origin and token), so a URL written differently keeps the connection.
+    const key = JSON.stringify(parsed.ok ? [parsed.config.url, parsed.config.token] : [this.#daemonUrl, this.#token]);
     if (this.#connection && key === this.#connectionKey) return;
     this.#connection?.stop();
     this.#connection = null;
     // Threads belong to the daemon that listed them; another daemon (or none) must not show them.
     if (key !== this.#connectionKey) this.#threads.clear();
     this.#connectionKey = key;
-    const parsed = parseDaemonConfig(this.#daemonUrl, this.#token);
     if (parsed.ok) {
       // A batch lives in one daemon's store: drafts waiting to be retried start a new batch with another daemon. The
       // daemon is compared as parsed (its origin and token), so a URL written differently is still the same one.

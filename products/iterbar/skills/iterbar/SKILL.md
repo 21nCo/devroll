@@ -99,7 +99,9 @@ that thread only: handle it like any reply, without reopening the rest of the ba
    `get_batch` again. If it is older, the rest will not come; work on
    what is there. Read all of them before you change anything: comments in a batch often relate (the same component, a
    consistent style), and one edit may answer several.
-2. `set_status` `working` on every unfinished item of the batch (leave items already done alone).
+2. `set_status` `working` on every unfinished item of the batch (leave items already done alone). An entry with
+   `duplicateOf` is the same comment stored twice: act on the first copy only, reply on the duplicate that it was
+   filed twice and set it `resolved`.
 3. Make the changes.
 4. For each item you worked on: read it again with `get_feedback` (`includeAttachments: false`), `reply` with what you changed for
    that comment, and `set_status` `done`, or ask and set `needs-info` for that item alone.

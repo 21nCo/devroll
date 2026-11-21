@@ -145,6 +145,7 @@ describe("batch completeness", () => {
     const client = await connect(() => items);
     const partial = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
     expect(partial).toMatchObject({ count: 2, expectedCount: 2, complete: false, lastArrivedAt: retried.createdAt });
+    expect((partial.items as { duplicateOf?: string }[]).map((entry) => entry.duplicateOf)).toEqual([undefined, "feedback-a"]);
     items = [first, retried, { ...feedbackItem("feedback-c", base + 20), batchId: "batch-1", batchSize: 2, batchIndex: 1 }];
     expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ count: 3, complete: true });
   });
