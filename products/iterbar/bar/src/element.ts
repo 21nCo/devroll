@@ -711,8 +711,9 @@ export class IterbarBarElement extends ElementBase {
       } catch (error) {
         draft.state = "failed";
         draft.error = (error as Error).message;
-        // Only for the batch and daemon of this attempt: a switch meanwhile has started the draft afresh.
-        if (error instanceof DaemonRequestError && error.mayBeStored && this.#connection === connection && draft.batchId === batchId) {
+        // Only for this attempt's batch: switching to another daemon meanwhile has taken the draft out of it, while a
+        // reconnection to the same daemon leaves it there, where the comment may be stored.
+        if (error instanceof DaemonRequestError && error.mayBeStored && draft.batchId === batchId) {
           draft.mayBeStored = true;
         }
       }

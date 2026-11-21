@@ -218,7 +218,8 @@ export function registerTools(context: ToolContext): void {
       "first, then set each unfinished item working, make the edits, reply on each of those items and set each one " +
       "done. Leave items already done alone: a comment retried later arrives on its own. An entry with duplicateOf is " +
       "the same comment stored twice: act on the first copy only, and on the duplicate reply that it was filed twice " +
-      "and set it resolved.",
+      "and set it resolved. An entry with revisionOf is that comment edited and sent again: act on the revision's " +
+      "text, and on the earlier copy reply that it was replaced and set it resolved.",
     inputSchema: {
       batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
       includeAttachments: z.boolean().default(true).describe("Return each item's screenshot and evidence contents (default true)."),
@@ -240,14 +241,16 @@ export function registerTools(context: ToolContext): void {
     const lastArrivedAt = items.map((item) => item.createdAt).sort().at(-1)!;
     const blocks: ContentBlock[] = [];
     const entries = [];
-    // A comment stored twice (a retry after a lost answer) shares its batchIndex with the first copy.
-    const firstOfIndex = new Map<number, string>();
+    // A comment sent again after a lost answer shares its batchIndex with the first copy: the same text is a
+    // duplicate, edited text a revision that replaces it.
+    const firstOfIndex = new Map<number, Feedback>();
     for (const feedback of items) {
       const read = await readAttachments(client, feedback, input.includeAttachments);
       if (read.blocks.length) blocks.push({ type: "text", text: `Attachments of ${feedback.id}:` }, ...read.blocks);
       const first = feedback.batchIndex === undefined ? undefined : firstOfIndex.get(feedback.batchIndex);
-      if (feedback.batchIndex !== undefined && first === undefined) firstOfIndex.set(feedback.batchIndex, feedback.id);
-      entries.push({ feedback, attachments: read.attachments, ...(first ? { duplicateOf: first } : {}) });
+      if (feedback.batchIndex !== undefined && first === undefined) firstOfIndex.set(feedback.batchIndex, feedback);
+      const relation = !first ? {} : first.text === feedback.text ? { duplicateOf: first.id } : { revisionOf: first.id };
+      entries.push({ feedback, attachments: read.attachments, ...relation });
     }
     return success({
       batchId: input.batchId,
