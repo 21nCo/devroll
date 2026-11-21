@@ -26,11 +26,12 @@ test("sleeps as a compact pill at the bottom centre and wakes on hover and focus
     const root = document.querySelector("iterbar-bar")!.shadowRoot!;
     return (root.elementFromPoint(x, y)?.closest("[data-role]") as HTMLElement | null)?.dataset.role;
   }, { x, y });
-  for (const dock of ["center", "left", "right", "narrow"] as const) {
+  for (const dock of ["center", "left", "right", "narrow", "narrow-right"] as const) {
     if (dock !== "center") {
       // Narrow: centred, but too narrow for the woken toolbar beside the pill, so the rest wraps above it.
       if (dock === "narrow") await page.setViewportSize({ width: 360, height: 700 });
-      const stored = dock === "narrow" ? "center" : dock;
+      if (dock === "narrow-right") await page.setViewportSize({ width: 280, height: 700 });
+      const stored = { narrow: "center", "narrow-right": "right" }[dock as string] ?? dock;
       await page.evaluate((value) => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ dock: value })), stored);
       await openFixture();
       await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
@@ -161,6 +162,39 @@ test("ignores a corrupt stored state and keeps working without storage", async (
   await inBar(page, ".toolbar").hover();
   await inBar(page, "[data-role=toggle]").click();
   await expect(inBar(page, ".dock")).toHaveAttribute("data-expanded", "");
+});
+
+test("a panel opened from a woken toolbar on a narrow screen stays on screen", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Thread")]);
+  await page.setViewportSize({ width: 360, height: 700 });
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const inbox = (await inBar(page, "[data-role=inbox-toggle]").boundingBox())!;
+  // The pointer stays on the toolbar throughout.
+  await page.mouse.move(inbox.x + inbox.width / 2, inbox.y + inbox.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(inBar(page, "[data-role=panel]")).toBeVisible();
+  const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
+  expect(panel.x).toBeGreaterThanOrEqual(0);
+  expect(panel.x + panel.width).toBeLessThanOrEqual(360);
+});
+
+test("a tap on a page control that stops the event still ends a wake begun by a tap", async ({ browser, fixtureServer }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 700 } });
+  const page = await context.newPage();
+  try {
+    await page.goto(fixtureServer.origin);
+    await page.waitForFunction(() => window.fixture !== undefined);
+    await page.evaluate(() => document.getElementById("page-button")!.addEventListener("pointerdown", (event) => event.stopPropagation()));
+    await mountBar(page);
+    await inBar(page, "[data-role=status]").tap();
+    await expect(inBar(page, "[data-role=toggle]")).toBeVisible();
+    await page.locator("#page-button").tap();
+    await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
+  } finally {
+    await context.close();
+  }
 });
 
 test("the warning dot on a sleeping Inbox does not change its size", async ({ page, openFixture, fixtureServer }) => {

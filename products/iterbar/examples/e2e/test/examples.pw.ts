@@ -39,6 +39,12 @@ const bar = (page: Page, selector: string) => page.locator("iterbar-bar").locato
 
 /** Chooses a version through the bar and waits until the page shows it. */
 async function switchSlot(page: Page, slot: string, version: string): Promise<void> {
+  // The slots are in the toolbar's Versions panel.
+  const versions = bar(page, "[data-role=versions-toggle]");
+  if ((await versions.getAttribute("aria-expanded")) !== "true") {
+    await bar(page, "[data-role=comment]").hover();
+    await versions.click();
+  }
   await bar(page, "[data-role=slot-select]").selectOption(slot);
   await bar(page, `[data-version="${version}"]`).click();
   await expect(bar(page, `[data-version="${version}"]`)).toHaveAttribute("aria-pressed", "true");

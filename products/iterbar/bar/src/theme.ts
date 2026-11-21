@@ -107,11 +107,10 @@ export const BAR_CSS = String.raw`
 .dock[data-dock="left"] { left: var(--ib-margin); align-items: flex-start; }
 .dock[data-dock="right"] { right: var(--ib-margin); align-items: flex-end; }
 .dock[data-dock="center"] { left: 50%; transform: translateX(-50%); align-items: center; }
-/* Woken by the pointer: the left edge holds still (see #holdPlace). Docked right, the controls a wake adds come
-   before the sleeping buttons (the status too, whose text appears), so it grows leftward and they stay at the edge. */
-.dock[data-dock="right"] .toolbar > .extra,
-.dock[data-dock="right"] .toolbar > [data-role=status],
-.dock[data-dock="right"] .toolbar > [data-role=drafts-toggle]:not([data-has]) { order: -1; }
+/* Woken by the pointer: the left edge holds still (see #holdPlace). Docked right, the row runs right to left, so the
+   sleeping buttons sit at the edge in the bottom row and what a wake adds (the status text included) grows leftward
+   and wraps above. */
+.dock[data-dock="right"] .toolbar { flex-direction: row-reverse; }
 .dock[data-held] { left: var(--ib-held-left); right: auto; transform: none; max-width: var(--ib-held-room); }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }

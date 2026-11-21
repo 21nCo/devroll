@@ -266,9 +266,10 @@ export class IterbarBarElement extends ElementBase {
     h("div", { class: "panel-header" }, this.#panelTitle, this.#panelClose),
     h("div", { class: "panel-body" }, this.#detail, this.#tray.element, this.#threads.element, this.#slots.element));
     const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
-      // The buttons the sleeping pill shows come first and never change size, so waking only adds controls beyond
-      // them (after them, or before them on a right-docked toolbar) and nothing under the pointer moves.
-      this.#comment, this.#inboxButton, this.#draftsButton, this.#status,
+      // What the sleeping pill shows comes first and never changes size, so waking only adds controls beyond it (after
+      // it, or before it on a right-docked toolbar) and nothing under the pointer moves. Drafts, shown asleep only
+      // while there are drafts, comes after the status for the same reason.
+      this.#comment, this.#inboxButton, this.#status, this.#draftsButton,
       h("span", { class: "divider extra", "aria-hidden": "true" }),
       this.#versionsButton, this.#dockButton, this.#toggle);
     this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel);
@@ -418,7 +419,9 @@ export class IterbarBarElement extends ElementBase {
     }
     this.#watchZoom();
     window.addEventListener("keydown", this.#onKeydown, true);
-    window.addEventListener("pointerdown", this.#onPagePointerDown);
+    window.addEventListener("pointerdown", this.#onPagePointerDown, true);
+    window.addEventListener("resize", this.#releaseHold);
+    window.visualViewport?.addEventListener("resize", this.#releaseHold);
     this.#watchUrl(true);
     this.#slots.attach();
     this.#reconnect();
@@ -430,7 +433,9 @@ export class IterbarBarElement extends ElementBase {
     this.#setCrosshair(false);
     this.#picker.mark(null);
     window.removeEventListener("keydown", this.#onKeydown, true);
-    window.removeEventListener("pointerdown", this.#onPagePointerDown);
+    window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
+    window.removeEventListener("resize", this.#releaseHold);
+    window.visualViewport?.removeEventListener("resize", this.#releaseHold);
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
     this.#zoomObserver = null;
@@ -443,16 +448,26 @@ export class IterbarBarElement extends ElementBase {
   }
 
   /**
-   * A press outside the toolbar ends a wake that a tap began (see the dock's pointerleave listener). A press inside is
-   * noted by a listener on the bar itself, which runs before this one on `window`, since a closed shadow root around
-   * the bar would hide it from the event's composed path here.
+   * A press outside the toolbar ends a wake that a tap began (see the dock's pointerleave listener). Every press is
+   * seen here first, in the capture phase, where a page cannot stop it; whether it was inside is decided once it has
+   * been dispatched, by a listener on the bar itself, since a closed shadow root around the bar would hide the bar
+   * from the event's composed path here.
    */
   #pressedInside = false;
 
   readonly #onPagePointerDown = (): void => {
-    const inside = this.#pressedInside;
     this.#pressedInside = false;
-    if (!inside) this.#holdPlace(false);
+    setTimeout(() => {
+      if (!this.#pressedInside) this.#holdPlace(false);
+      this.#pressedInside = false;
+    }, 0);
+  };
+
+  /** Lets go of the place held for the pointer; the toolbar stays awake. */
+  readonly #releaseHold = (): void => {
+    this.#dock.removeAttribute("data-held");
+    this.#dock.style.removeProperty("--ib-held-left");
+    this.#dock.style.removeProperty("--ib-held-room");
   };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
@@ -1099,6 +1114,8 @@ export class IterbarBarElement extends ElementBase {
   /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */
   #applyAwake(): void {
     const awake = this.#state.expanded || this.#state.panel !== null || this.#commentMode || this.#composer.open;
+    // A panel, the composer or comment mode needs the toolbar placed as usual: the place held for the pointer goes.
+    if (this.#state.panel !== null || this.#commentMode || this.#composer.open) this.#releaseHold();
     this.#dock.toggleAttribute("data-awake", awake);
   }
 
