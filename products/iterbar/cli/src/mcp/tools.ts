@@ -248,7 +248,9 @@ export function registerTools(context: ToolContext): void {
     const arrived = items.every((item) => item.batchIndex !== undefined)
       ? new Set(items.map((item) => item.batchIndex)).size
       : items.length;
-    const lastArrivedAt = items.map((item) => item.createdAt).sort().at(-1)!;
+    // Timestamps may carry different offsets, so the newest is found by time, not by text.
+    const lastArrivedAt = items.reduce((newest, item) =>
+      (Date.parse(item.createdAt) > Date.parse(newest) ? item.createdAt : newest), items[0]!.createdAt);
     const blocks: ContentBlock[] = [];
     const entries = [];
     // A comment sent again after a lost answer (perhaps edited) shares its batchIndex with the earlier copies; the

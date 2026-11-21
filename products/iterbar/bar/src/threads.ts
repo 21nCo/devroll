@@ -41,6 +41,11 @@ function pagePath(pageUrl: string): string {
   }
 }
 
+function replyAuthor(reply: Feedback["replies"][number]): string {
+  if (reply.author.kind !== "agent") return "You";
+  return reply.author.name ? `Agent (${reply.author.name})` : "Agent";
+}
+
 function replyCount(feedback: Feedback): string {
   const count = feedback.replies.length;
   return count === 1 ? "1 reply" : `${count} replies`;
@@ -81,7 +86,7 @@ class ThreadItem {
       ...(meta ? [h("p", { class: "thread-meta muted", title: label ? labelTooltip(label) : "" }, meta)] : []),
       feedback.replies.length
         ? h("ol", { class: "replies", "aria-label": "Replies" }, ...feedback.replies.map((reply) => h("li", { class: "reply", "data-author": reply.author.kind },
-          h("span", { class: "reply-author" }, reply.author.kind === "agent" ? `Agent${reply.author.name ? ` (${reply.author.name})` : ""}` : "You"),
+          h("span", { class: "reply-author" }, replyAuthor(reply)),
           h("p", { class: "reply-text" }, reply.text))))
         : h("p", { class: "muted" }, "No replies yet."),
     );

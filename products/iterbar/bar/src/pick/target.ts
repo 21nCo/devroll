@@ -169,7 +169,7 @@ export function labelTarget(target: FeedbackTarget | null): TargetLabel | null {
   if (!target) return null;
   const location = target.sourceLocation;
   return {
-    name: quoted(target.textExcerpt) || target.selector.split(/\s*>\s*/u).at(-1)!.slice(0, MAX_LABEL_NAME_LENGTH),
+    name: quoted(target.textExcerpt) || target.selector.split(">").at(-1)!.trim().slice(0, MAX_LABEL_NAME_LENGTH),
     source: location ? shortSource(location) : null,
     sourcePath: location ? fullSource(location) : null,
     selector: target.selector,

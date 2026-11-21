@@ -61,7 +61,8 @@ export class DraftTray {
     this.#empty.hidden = drafts.length > 0;
     this.#footer.hidden = drafts.length === 0;
     this.#sendAll.disabled = busy || drafts.length === 0 || this.#editing !== null;
-    this.#sendAll.textContent = busy ? "Sending…" : drafts.length === 1 ? "Send 1 comment" : `Send all ${drafts.length}`;
+    const label = drafts.length === 1 ? "Send 1 comment" : `Send all ${drafts.length}`;
+    this.#sendAll.textContent = busy ? "Sending…" : label;
     this.#error.textContent = error ?? "";
     this.#error.hidden = !error;
     // Re-rendering replaces the rows; focus goes back to the same control of the same draft.

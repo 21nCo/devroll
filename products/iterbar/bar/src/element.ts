@@ -761,9 +761,9 @@ export class IterbarBarElement extends ElementBase {
         draft.batchIndex = null;
       }
     }
-    const notSent = failed
-      ? `${failed} of ${submitted.length} not sent. Send all tries ${failed === 1 ? "it" : "them"} again${ungrouped ? "" : " in the same batch"}.`
-      : "";
+    const pronoun = failed === 1 ? "it" : "them";
+    const where = ungrouped ? "" : " in the same batch";
+    const notSent = failed ? `${failed} of ${submitted.length} not sent. Send all tries ${pronoun} again${where}.` : "";
     const old = ungrouped
       ? "The daemon is older than the draft tray, so the comments were filed one by one, not as a batch. Restart the dev server to update it."
       : "";
