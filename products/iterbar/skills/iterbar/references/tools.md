@@ -81,11 +81,13 @@ Inputs: `batchId` (any item's `batchId`); `includeAttachments` (default `true`).
 Result: `{ batchId, count, expectedCount, complete, lastArrivedAt, items }`, where each entry of `items` is `{ feedback, attachments }` as `get_feedback`
 returns them, in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
 as an `image` block and its evidence as a `resource` block, each group after a text block `Attachments of <id>:`.
-The bar posts a batch one item at a time, so `expectedCount` (the largest `batchSize` of its items) says how many it
-holds and `complete` whether all of them have arrived (`null` when no item gives a size; a comment stored twice counts
-once, by its `batchIndex`). When `complete` is `false` and `lastArrivedAt` (the newest item's `createdAt`) is under a
-minute ago, call `wait_for_feedback` briefly and `get_batch` again. Otherwise the rest will not come (the user may have
-dropped a comment that failed to send): work on the items present. Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
+The bar posts a batch one item at a time. `expectedCount` is how many items the batch holds (the newest item's
+`batchSize`, since a comment the user withdrew after a failed send lowers it), and `complete` says whether all of them
+have arrived (`null` when no item gives a size; a comment stored twice counts once, by its `batchIndex`). When
+`complete` is `false` and `lastArrivedAt` (the newest item's `createdAt`) is under a minute ago, call
+`wait_for_feedback` with a `timeoutSeconds` no longer than what is left of that minute, then `get_batch` again.
+Otherwise the rest will not come (the user may have dropped a comment that failed to send): work on the items present.
+Work only on unfinished items; one retried later arrives on its own and leaves the done ones alone. Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
 your cursor.
 
 ## `reply`

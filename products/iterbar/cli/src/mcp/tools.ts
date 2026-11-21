@@ -212,9 +212,11 @@ export function registerTools(context: ToolContext): void {
       "each item by list_feedback and wait_for_feedback). By default each item's screenshot is included as an image, " +
       "labelled with the item's id, and evidence as JSON. The bar posts a batch one comment at a time: expectedCount is " +
       "how many it holds once all are sent, and complete says whether all have arrived. When complete is false and " +
-      "lastArrivedAt is under a minute ago, wait_for_feedback briefly and call get_batch again; otherwise the rest was " +
+      "lastArrivedAt is under a minute ago, wait_for_feedback with timeoutSeconds no longer than what is left of that " +
+      "minute and call get_batch again; otherwise the rest was " +
       "not sent (the user may have dropped a failed comment), so work on the items present. Work through the batch as one change: read all of it " +
-      "first, then set each item working, make the edits, reply on each item and set each one done.",
+      "first, then set each unfinished item working, make the edits, reply on each of those items and set each one " +
+      "done. Leave items already done alone: a comment retried later arrives on its own.",
     inputSchema: {
       batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
       includeAttachments: z.boolean().default(true).describe("Return each item's screenshot and evidence contents (default true)."),
@@ -224,8 +226,11 @@ export function registerTools(context: ToolContext): void {
     // A daemon from before batches ignores the filter and lists everything, so membership is checked here too.
     const items = inBatch(await client.listFeedback({ batchId: input.batchId }), input.batchId);
     if (items.length === 0) throw new IterbarToolError("not_found", `No feedback has batchId ${input.batchId}`);
-    const sizes = items.map((item) => item.batchSize).filter((size): size is number => size !== undefined);
-    const expectedCount = sizes.length ? Math.max(...sizes) : null;
+    // The newest item's size is the latest the bar knew: a draft withdrawn after a failed send lowers it.
+    const sized = items.filter((item) => item.batchSize !== undefined);
+    const newestSized = sized.reduce<Feedback | undefined>((newest, item) =>
+      (!newest || item.createdAt >= newest.createdAt ? item : newest), undefined);
+    const expectedCount = newestSized?.batchSize ?? null;
     // A comment stored twice (a retry after a lost answer) keeps its index, so it is counted once.
     const arrived = items.every((item) => item.batchIndex !== undefined)
       ? new Set(items.map((item) => item.batchIndex)).size

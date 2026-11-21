@@ -114,6 +114,14 @@ function textOfIds(element: Element, ids: string): string {
     .map((labelled) => (labelled ? renderedText(labelled) : "")).join(" ");
 }
 
+/** The text of a native form control's `<label>`s; nothing for any other element, whatever its `labels` property. */
+function labelTexts(element: Element): string[] {
+  const native = [HTMLInputElement, HTMLSelectElement, HTMLTextAreaElement, HTMLButtonElement, HTMLOutputElement, HTMLMeterElement, HTMLProgressElement];
+  if (!native.some((type) => typeof type === "function" && element instanceof type)) return [];
+  const labels = (element as HTMLInputElement).labels;
+  return labels ? [...labels].map((label) => renderedText(label)) : [];
+}
+
 /**
  * A short accessible name for `element`, in the order screen readers mostly take one: `aria-labelledby`, `aria-label`,
  * an image's `alt`, a form control's label or placeholder, the rendered text, then `title`. Empty when it has none.
@@ -124,8 +132,7 @@ export function accessibleName(element: Element): string {
     labelledBy ? textOfIds(element, labelledBy) : "",
     element.getAttribute("aria-label") ?? "",
     element.localName === "img" ? element.getAttribute("alt") ?? "" : "",
-    ...("labels" in element && (element as HTMLInputElement).labels
-      ? [...(element as HTMLInputElement).labels!].map((label) => renderedText(label)) : []),
+    ...labelTexts(element),
     element.getAttribute("placeholder") ?? "",
     renderedText(element),
     element.getAttribute("title") ?? "",

@@ -95,12 +95,13 @@ that thread only: handle it like any reply, without reopening the rest of the ba
    since they show what the user saw. It returns every item of the batch in the order they were sent, each with its
    target, `sourceLocation`, selector, text excerpt and `activeVariants`, and every screenshot (each labelled with its
    item's id). If `complete` is `false` and `lastArrivedAt` is under a minute ago, the rest is still being sent:
-   `wait_for_feedback` with your cursor and call `get_batch` again. If it is older, the rest will not come; work on
+   `wait_for_feedback` with your cursor and a `timeoutSeconds` no longer than what is left of that minute, then call
+   `get_batch` again. If it is older, the rest will not come; work on
    what is there. Read all of them before you change anything: comments in a batch often relate (the same component, a
    consistent style), and one edit may answer several.
-2. `set_status` `working` on every item of the batch.
+2. `set_status` `working` on every unfinished item of the batch (leave items already done alone).
 3. Make the changes.
-4. For each item: read it again with `get_feedback` (`includeAttachments: false`), `reply` with what you changed for
+4. For each item you worked on: read it again with `get_feedback` (`includeAttachments: false`), `reply` with what you changed for
    that comment, and `set_status` `done`, or ask and set `needs-info` for that item alone.
 5. The batch's items also arrive as separate `created` events; once you have handled the batch, treat those events as
    handled.

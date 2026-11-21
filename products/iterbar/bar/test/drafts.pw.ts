@@ -172,6 +172,40 @@ test("a retry with a new draft keeps every comment's place in the batch distinct
   expect(new Set(daemon.posts.map((post) => post.draft.batchId)).size).toBe(1);
 });
 
+test("a draft withdrawn after a failed send no longer counts toward its batch", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "suggest", "A");
+  await draft(page, "card", "B");
+  daemon.failFeedback = 409;
+  await openPanel(page, "drafts");
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect(inBar(page, ".draft[data-state=failed]")).toHaveCount(2);
+  daemon.failFeedback = null;
+  await inBar(page, ".draft").nth(1).locator("[data-role=draft-remove]").click();
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect.poll(() => daemon.posts.length).toBe(1);
+  expect(daemon.posts[0]!.draft).toMatchObject({ text: "A", batchIndex: 0, batchSize: 1 });
+});
+
+test("a custom element with an unusual labels property can still be picked", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  await page.evaluate(() => {
+    class OddLabels extends HTMLElement {
+      get labels() {
+        return 42;
+      }
+    }
+    customElements.define("odd-labels", OddLabels);
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", '<odd-labels data-testid="odd" style="display: block; width: 80px">Odd one</odd-labels>');
+  });
+  await inBar(page, "[data-role=comment]").click();
+  await page.getByTestId("odd").click();
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On “Odd one”");
+});
+
 test("Escape while editing a draft in comment mode cancels the edit and keeps comment mode", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await open(page, openFixture, daemon.url, daemon.token);

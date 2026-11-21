@@ -148,4 +148,15 @@ describe("batch completeness", () => {
     items = [first, retried, { ...feedbackItem("feedback-c", base + 20), batchId: "batch-1", batchSize: 2, batchIndex: 1 }];
     expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ count: 3, complete: true });
   });
+
+  it("takes the expected size from the newest item, which a withdrawn comment lowers", async () => {
+    const base = Date.now() - 60_000;
+    // A was stored as one of two; B failed and was withdrawn; C, added later, says the batch now holds two.
+    const items = [
+      { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 2, batchIndex: 0 },
+      { ...feedbackItem("feedback-c", base + 10), batchId: "batch-1", batchSize: 2, batchIndex: 2 },
+    ];
+    const client = await connect(() => items);
+    expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ expectedCount: 2, complete: true });
+  });
 });

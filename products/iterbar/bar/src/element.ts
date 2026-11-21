@@ -196,7 +196,7 @@ export class IterbarBarElement extends ElementBase {
    * How many comments each batch not yet fully sent holds: its size as last posted. A retry keeps the indexes it
    * gave and numbers drafts new to the batch after them.
    */
-  readonly #batchSizes = new Map<string, number>();
+  readonly #batches = new Map<string, { next: number; size: number }>();
   #sendingBatch = false;
   #batchError: string | null = null;
   #daemonUrl: string | null = null;
@@ -617,7 +617,12 @@ export class IterbarBarElement extends ElementBase {
     if (index < 0) return;
     const [draft] = this.#drafts.splice(index, 1);
     draft!.pick.withdraw.abort();
-    if (draft!.batchId && !this.#drafts.some((each) => each.batchId === draft!.batchId)) this.#batchSizes.delete(draft!.batchId);
+    if (draft!.batchId) {
+      // A withdrawn draft no longer counts toward its batch; once none of the batch is left, the batch is forgotten.
+      const batch = this.#batches.get(draft!.batchId);
+      if (batch) batch.size -= 1;
+      if (!this.#drafts.some((each) => each.batchId === draft!.batchId)) this.#batches.delete(draft!.batchId);
+    }
     this.#picker.mark(null);
     this.#renderDrafts();
     this.#announce("Draft removed.");
@@ -654,13 +659,17 @@ export class IterbarBarElement extends ElementBase {
     }
     const submitted = [...this.#drafts];
     const batchId = submitted.find((draft) => draft.batchId !== null)?.batchId ?? localId("batch");
-    // Drafts new to the batch take the places after every one it has given out (stored, or failed and kept).
-    let size = this.#batchSizes.get(batchId) ?? 0;
+    // Drafts new to the batch take places after every one it has given out (stored, failed and kept, or withdrawn),
+    // and count toward its size, which a withdrawn draft no longer does.
+    const batch = this.#batches.get(batchId) ?? { next: 0, size: 0 };
     for (const draft of submitted) {
       draft.batchId = batchId;
-      draft.batchIndex ??= size++;
+      if (draft.batchIndex !== null) continue;
+      draft.batchIndex = batch.next++;
+      batch.size += 1;
     }
-    this.#batchSizes.set(batchId, size);
+    this.#batches.set(batchId, batch);
+    const size = batch.size;
     let ungrouped = false;
     this.#sendingBatch = true;
     this.#batchError = null;
@@ -685,10 +694,10 @@ export class IterbarBarElement extends ElementBase {
     }
     this.#sendingBatch = false;
     const failed = submitted.length - sent;
-    if (failed === 0) this.#batchSizes.delete(batchId);
+    if (failed === 0) this.#batches.delete(batchId);
     if (ungrouped) {
       // The daemon drops batches, so what is left is not part of one either: a retry starts afresh.
-      this.#batchSizes.delete(batchId);
+      this.#batches.delete(batchId);
       for (const draft of this.#drafts) {
         if (draft.batchId !== batchId) continue;
         draft.batchId = null;
@@ -708,7 +717,10 @@ export class IterbarBarElement extends ElementBase {
       this.#announce(this.#batchError);
     } else {
       this.#announce(`Sent ${sent} ${sent === 1 ? "comment" : "comments"} as one batch.`);
-      if (this.#state.panel === "drafts" && this.#drafts.length === 0) this.#openPanel("inbox", true);
+      // Focus moves with the switch only if it was in the panel; a user who went on to write a comment keeps it.
+      const focused = this.#root.activeElement;
+      const inPanel = focused !== null && this.#panel.contains(focused);
+      if (this.#state.panel === "drafts" && this.#drafts.length === 0) this.#openPanel("inbox", inPanel);
     }
   }
 
@@ -868,7 +880,15 @@ export class IterbarBarElement extends ElementBase {
     this.#connection?.stop();
     this.#connection = null;
     // Threads belong to the daemon that listed them; another daemon (or none) must not show them.
-    if (key !== this.#connectionKey) this.#threads.clear();
+    if (key !== this.#connectionKey) {
+      this.#threads.clear();
+      // A batch lives in one daemon's store: drafts waiting to be retried start a new batch with another daemon.
+      this.#batches.clear();
+      for (const draft of this.#drafts) {
+        draft.batchId = null;
+        draft.batchIndex = null;
+      }
+    }
     this.#connectionKey = key;
     const parsed = parseDaemonConfig(this.#daemonUrl, this.#token);
     if (!parsed.ok) {
