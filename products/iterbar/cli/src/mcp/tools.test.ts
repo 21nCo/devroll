@@ -170,6 +170,20 @@ describe("batch completeness", () => {
       .toMatchObject({ expectedCount: 2, complete: true, lastArrivedAt: "2026-11-21T06:00:00Z" });
   });
 
+  it("lists a batch in tray order, so a retried comment keeps its place, and counts unindexed copies each", async () => {
+    const base = Date.now() - 60_000;
+    // A (index 0) was refused and retried after B (index 1) was stored; C has no index.
+    const items = [
+      { ...feedbackItem("feedback-b", base), batchId: "batch-1", batchSize: 3, batchIndex: 1 },
+      { ...feedbackItem("feedback-a", base + 10), batchId: "batch-1", batchSize: 3, batchIndex: 0 },
+      { ...feedbackItem("feedback-c", base + 20), batchId: "batch-1" },
+    ];
+    const client = await connect(() => items);
+    const batch = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect((batch.items as { feedback: Feedback }[]).map((entry) => entry.feedback.id)).toEqual(["feedback-a", "feedback-b", "feedback-c"]);
+    expect(batch).toMatchObject({ count: 3, expectedCount: 3, complete: true });
+  });
+
   it("takes the expected size from the newest item, which a withdrawn comment lowers", async () => {
     const base = Date.now() - 60_000;
     // A was stored as one of two; B failed and was withdrawn; C, added later, says the batch now holds two.

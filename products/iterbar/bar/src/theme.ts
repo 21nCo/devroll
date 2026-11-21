@@ -107,6 +107,8 @@ export const BAR_CSS = String.raw`
 .dock[data-dock="left"] { left: var(--ib-margin); align-items: flex-start; }
 .dock[data-dock="right"] { right: var(--ib-margin); align-items: flex-end; }
 .dock[data-dock="center"] { left: 50%; transform: translateX(-50%); align-items: center; }
+/* Woken by the pointer: the left edge holds still (see #holdPlace). */
+.dock[data-held] { left: var(--ib-held-left); right: auto; transform: none; }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
 
@@ -119,12 +121,13 @@ export const BAR_CSS = String.raw`
   border-radius: 999px;
   max-width: 100%;
 }
-/* Asleep: only the essentials. Awake (hover, focus, pinned, a panel, the composer or comment mode): everything. */
-.dock:not([data-awake]):not(:hover):not(:focus-within) .extra { display: none; }
-.dock:not([data-awake]):not(:hover):not(:focus-within) [data-role=drafts-toggle]:not([data-has]) { display: none; }
-.dock:not([data-awake]):not(:hover):not(:focus-within) .toolbar { opacity: 0.92; }
+/* Asleep: only the essentials. Awake (pointer, focus, pinned, a panel, the composer or comment mode): everything. The
+   pointer wakes it through data-hovered, set once the toolbar's place is held (see #holdPlace), not through :hover. */
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .extra { display: none; }
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) [data-role=drafts-toggle]:not([data-has]) { display: none; }
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .toolbar { opacity: 0.92; }
 /* Asleep, the connection shows as its dot alone; the text stays for assistive technology. */
-.dock:not([data-awake]):not(:hover):not(:focus-within) .status { font-size: 0; gap: 0; padding: 0 8px; }
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status { font-size: 0; gap: 0; padding: 0 8px; }
 
 .divider { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--ib-border); }
 
@@ -197,7 +200,7 @@ kbd {
 .status[data-status="retrying"]::before, .status[data-status="connecting"]::before { background: #d69a1d; }
 .status[data-status="unauthorized"]::before, .status[data-status="invalid"]::before { background: #d24b4b; }
 /* Asleep, a connection problem still shows as a dot on the inbox button. */
-.dock:not([data-awake]):not(:hover):not(:focus-within):is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) [data-role=inbox-toggle]::after {
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within):is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) [data-role=inbox-toggle]::after {
   content: "";
   width: 7px;
   height: 7px;

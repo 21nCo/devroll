@@ -21,12 +21,22 @@ test("sleeps as a compact pill at the bottom centre and wakes on hover and focus
   expect(asleep.x + asleep.width / 2).toBeCloseTo(viewport.width / 2, 0);
   expect(asleep.width).toBeLessThan(200);
 
-  // Hover wakes it in place; leaving puts it back to sleep.
-  await toolbar.hover();
+  // Hover wakes it in place: what is under the pointer stays there. Leaving puts it back to sleep.
+  const commentBox = (await inBar(page, "[data-role=comment]").boundingBox())!;
+  await page.mouse.move(commentBox.x + commentBox.width / 2, commentBox.y + commentBox.height / 2);
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+  const hit = await page.evaluate(({ x, y }) => {
+    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+    return (root.elementFromPoint(x, y)?.closest("[data-role]") as HTMLElement | null)?.dataset.role;
+  }, { x: commentBox.x + commentBox.width / 2, y: commentBox.y + commentBox.height / 2 });
+  expect(hit).toBe("comment");
   await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
   const awake = (await toolbar.boundingBox())!;
   expect(awake.width).toBeGreaterThan(asleep.width);
-  expect(awake.x + awake.width / 2).toBeCloseTo(viewport.width / 2, 0);
+  // It keeps its left edge, or moves left only as far as staying on screen needs.
+  expect(awake.x).toBeLessThanOrEqual(asleep.x + 0.5);
+  expect(awake.x + awake.width).toBeLessThanOrEqual(viewport.width - 12 + 0.5);
+  if (awake.x < asleep.x - 0.5) expect(awake.x + awake.width).toBeCloseTo(viewport.width - 12, 0);
   await page.mouse.move(5, 5);
   await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
 

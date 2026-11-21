@@ -83,7 +83,9 @@ Result: `{ batchId, count, expectedCount, complete, lastArrivedAt, items }`, whe
 of a comment the user sent again after a lost answer, perhaps edited: act on the copy it names, reply on this one that
 it was sent again and set it `resolved`. Judge the newest copy against the code as it is now: if the code already
 does what it asks, reply that it is done and set it `done`; otherwise make the change. Attachments are inlined up to
-24 MiB per call; past that an attachment has `inlined: false` and is read from its `path`. Entries come in the order the user sent them. With `includeAttachments`, the content also has each item's screenshot
+24 MiB per call; past that an attachment has `inlined: false` and is read from its `path`. Entries come in the order the user put them in the tray (by `batchIndex`; a retried comment keeps its place), then any
+without an index in arrival order. If `wait_for_feedback` returns events for other threads while you wait for the rest of
+a batch, keep them and handle them after the batch, then go on with the cursor it returned. With `includeAttachments`, the content also has each item's screenshot
 as an `image` block and its evidence as a `resource` block, each group after a text block `Attachments of <id>:`.
 The bar posts a batch one item at a time. `expectedCount` is how many items the batch holds (the newest item's
 `batchSize`, since a comment the user withdrew after a failed send lowers it), and `complete` says whether all of them

@@ -92,12 +92,14 @@ items as one change instead of item by item; leave its items that are already do
 that thread only: handle it like any reply, without reopening the rest of the batch.
 
 1. `get_batch` with that `batchId`, keeping `includeAttachments` at its default (`true`): look at the screenshots,
-   since they show what the user saw. It returns every item of the batch in the order they were sent, each with its
-   target, `sourceLocation`, selector, text excerpt and `activeVariants`, and every screenshot (each labelled with its
-   item's id). If `complete` is `false` and `lastArrivedAt` is under a minute ago, the rest is still being sent:
-   `wait_for_feedback` with your cursor and a `timeoutSeconds` no longer than what is left of that minute, then call
-   `get_batch` again. If it is older, the rest will not come; work on
-   what is there. Read all of them before you change anything: comments in a batch often relate (the same component, a
+   since they show what the user saw. It returns every item of the batch in the order the user put them in the tray,
+   each with its target, `sourceLocation`, selector, text excerpt and `activeVariants`, and every screenshot (each
+   labelled with its item's id). Past 24 MiB in one call a screenshot is not inlined (`inlined: false`); open its
+   `path` when you need it. If `complete` is `false` and `lastArrivedAt` is under a minute ago, the rest is still
+   being sent: `wait_for_feedback` with your cursor and a `timeoutSeconds` no longer than what is left of that minute,
+   then call `get_batch` again. Keep any events that wait returns for other threads and handle them after the batch,
+   as you would any wait result; continue with the cursor it returned. If `lastArrivedAt` is older than a minute, the
+   rest will not come; work on what is there. Read all of them before you change anything: comments in a batch often relate (the same component, a
    consistent style), and one edit may answer several.
 2. `set_status` `working` on every unfinished item of the batch (leave items already done alone). An entry with
    `supersededBy` is an earlier copy of a comment the user sent again (perhaps edited): act on the copy it names, and

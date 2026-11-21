@@ -217,7 +217,7 @@ export function registerTools(context: ToolContext): void {
     title: "Read an Iterbar batch",
     description:
       "Read every feedback item the user sent together in one batch from the bar's draft tray, in the order they were " +
-      "sent, each with its thread, target element, source location and active variants. Items share a batchId (shown on " +
+      "put in the tray, each with its thread, target element, source location and active variants. Items share a batchId (shown on " +
       "each item by list_feedback and wait_for_feedback). By default each item's screenshot is included as an image, " +
       "labelled with the item's id, and evidence as JSON, up to 24 MiB in all; past that an attachment has inlined: " +
       "false and is read from its path. The bar posts a batch one comment at a time: expectedCount is " +
@@ -243,9 +243,9 @@ export function registerTools(context: ToolContext): void {
     // Items come in the store's time order, oldest first, whatever offsets their timestamps carry.
     const expectedCount = [...items].reverse().find((item) => item.batchSize !== undefined)?.batchSize ?? null;
     // A comment stored twice (a retry after a lost answer) keeps its index, so it is counted once.
-    const arrived = items.every((item) => item.batchIndex !== undefined)
-      ? new Set(items.map((item) => item.batchIndex)).size
-      : items.length;
+    // Copies of one comment share its index and count once; comments without an index count each.
+    const indexes = new Set(items.flatMap((item) => (item.batchIndex === undefined ? [] : [item.batchIndex])));
+    const arrived = indexes.size + items.filter((item) => item.batchIndex === undefined).length;
     const lastArrivedAt = items.at(-1)!.createdAt;
     const blocks: ContentBlock[] = [];
     const entries = [];
@@ -254,7 +254,12 @@ export function registerTools(context: ToolContext): void {
     const newestOfIndex = new Map<number, string>();
     for (const feedback of items) if (feedback.batchIndex !== undefined) newestOfIndex.set(feedback.batchIndex, feedback.id);
     const budget = { remaining: MAX_BATCH_INLINE_BYTES };
-    for (const feedback of items) {
+    // In the order the user put them in the tray (by index), so a retried comment does not move; items without an
+    // index keep their arrival order, after the indexed ones.
+    const ordered = items.map((item, arrival) => ({ item, arrival })).sort((left, right) =>
+      (left.item.batchIndex ?? Infinity) - (right.item.batchIndex ?? Infinity) || left.arrival - right.arrival)
+      .map(({ item }) => item);
+    for (const feedback of ordered) {
       const read = await readAttachments(client, feedback, input.includeAttachments, budget);
       if (read.blocks.length) blocks.push({ type: "text", text: `Attachments of ${feedback.id}:` }, ...read.blocks);
       const newest = feedback.batchIndex === undefined ? undefined : newestOfIndex.get(feedback.batchIndex);

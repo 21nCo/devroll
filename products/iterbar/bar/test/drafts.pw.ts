@@ -109,7 +109,7 @@ test("keeps a draft the daemon refused and retries it in the same batch", async 
 
   daemon.failFeedback = 409;
   await inBar(page, "[data-role=drafts-send]").click();
-  await expect(inBar(page, "[data-role=drafts-error]")).toHaveText("2 of 2 not sent. Send all tries them again in the same batch.");
+  await expect(inBar(page, "[data-role=drafts-error]")).toHaveText("2 of 2 not sent; Send all tries them again in the same batch.");
   await expect(inBar(page, ".draft[data-state=failed]")).toHaveCount(2);
   await expect(inBar(page, ".draft .composer-error").first()).toContainText("409");
 

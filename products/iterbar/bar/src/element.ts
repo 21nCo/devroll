@@ -295,6 +295,8 @@ export class IterbarBarElement extends ElementBase {
     this.#panelClose.addEventListener("click", () => this.#closePanel(true));
     this.#dockButton.addEventListener("click", () => this.#saveState({ ...this.#state, dock: nextDock(this.#state.dock) }));
     this.#dockButton.addEventListener("keydown", (event) => this.#moveWithKey(event));
+    toolbar.addEventListener("pointerenter", () => this.#holdPlace(true));
+    this.#dock.addEventListener("pointerleave", () => this.#holdPlace(false));
     this.#dock.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || event.isComposing || this.#state.panel === null || this.#commentMode) return;
       event.preventDefault();
@@ -761,9 +763,14 @@ export class IterbarBarElement extends ElementBase {
         draft.batchIndex = null;
       }
     }
-    const pronoun = failed === 1 ? "it" : "them";
+    // A send that got no clear answer may have been stored: the user checks the inbox before sending it again.
+    const unconfirmed = submitted.filter((draft) => draft.state === "failed" && draft.mayBeStored).length;
+    const refused = failed - unconfirmed;
     const where = ungrouped ? "" : " in the same batch";
-    const notSent = failed ? `${failed} of ${submitted.length} not sent. Send all tries ${pronoun} again${where}.` : "";
+    const notSent = [
+      refused ? `${refused} of ${submitted.length} not sent; Send all tries ${refused === 1 ? "it" : "them"} again${where}.` : "",
+      unconfirmed ? `${unconfirmed} may already be stored; check the inbox before sending ${unconfirmed === 1 ? "it" : "them"} again.` : "",
+    ].filter(Boolean).join(" ");
     const old = ungrouped
       ? "The daemon is older than the draft tray, so the comments were filed one by one, not as a batch. Restart the dev server to update it."
       : "";
@@ -1001,6 +1008,11 @@ export class IterbarBarElement extends ElementBase {
   }
 
   #saveState(state: BarState): void {
+    // Moving the toolbar to another dock lets go of the place held for the pointer.
+    if (state.dock !== this.#state.dock) {
+      this.#dock.removeAttribute("data-held");
+      this.#dock.style.removeProperty("--ib-held-left");
+    }
     this.#state = state;
     this.#applyState();
     try {
@@ -1028,6 +1040,34 @@ export class IterbarBarElement extends ElementBase {
       this.#panelButton(name).setAttribute("aria-expanded", String(panel === name));
     }
     this.#applyAwake();
+  }
+
+  /**
+   * While the pointer wakes the sleeping toolbar, its left edge stays where it was, so the controls under the pointer
+   * do not move as the rest of the toolbar appears; it shifts left only as far as it must to stay on screen.
+   */
+  #holdPlace(on: boolean): void {
+    const dock = this.#dock;
+    if (!on) {
+      dock.removeAttribute("data-hovered");
+      dock.removeAttribute("data-held");
+      dock.style.removeProperty("--ib-held-left");
+      return;
+    }
+    if (dock.hasAttribute("data-hovered")) return;
+    // Measured before it wakes: awake, a centred toolbar is wider and centred again.
+    if (dock.hasAttribute("data-awake")) {
+      dock.toggleAttribute("data-hovered", true);
+      return;
+    }
+    // The dock cancels any page zoom it inherits, so its CSS pixels are viewport pixels.
+    const left = dock.getBoundingClientRect().left;
+    dock.style.setProperty("--ib-held-left", `${left}px`);
+    dock.toggleAttribute("data-held", true);
+    dock.toggleAttribute("data-hovered", true);
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const room = viewportWidth - BAR_MARGIN_PX - dock.getBoundingClientRect().width;
+    if (left > room) dock.style.setProperty("--ib-held-left", `${Math.max(BAR_MARGIN_PX, room)}px`);
   }
 
   /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */

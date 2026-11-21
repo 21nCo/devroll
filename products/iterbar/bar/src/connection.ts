@@ -430,6 +430,8 @@ export class DaemonConnection {
         reject(new DeadlineError("The daemon did not answer in time."));
       }, REQUEST_TIMEOUT_MS);
     });
+    /** The status of an error answer, kept once its headers arrive, in case reading its body runs out of time. */
+    let refusedStatus: number | null = null;
     const exchange = async (): Promise<unknown> => {
       const headers: Record<string, string> = { authorization: bearerAuthorization(this.#config.token) };
       if (typeof body === "string") headers["content-type"] = "application/json";
@@ -442,11 +444,20 @@ export class DaemonConnection {
         signal: deadline.signal,
       });
       if (response.status === 401) throw new UnauthorizedError("unauthorized");
-      if (!response.ok) throw await answerError(response);
+      if (!response.ok) {
+        refusedStatus = response.status;
+        throw await answerError(response);
+      }
       return body === undefined || endpoint === "createFeedback" ? await response.json() : undefined;
     };
     try {
       return await Promise.race([exchange(), timeout]);
+    } catch (error) {
+      // A refusal (4xx) is definite from its status alone, even when its body never finishes arriving.
+      if (error instanceof DeadlineError && refusedStatus !== null && refusedStatus < 500) {
+        throw new DaemonRequestError(`The daemon answered ${refusedStatus}.`, refusedStatus);
+      }
+      throw error;
     } finally {
       clearTimeout(timer);
       this.#abort.signal.removeEventListener("abort", cancel);
