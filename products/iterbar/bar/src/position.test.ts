@@ -62,6 +62,8 @@ describe("position along the bottom edge", () => {
     expect(positionForLeft(-50, 200, 1000)).toBe(0);
     expect(positionForLeft(5000, 200, 1000)).toBe(1);
     expect(positionForLeft(10, 500, 300)).toBe(0.5);
+    // Rounded to thousandths, as stored: a drag shows the side of two thirds that dropping it saves.
+    expect(positionForLeft(12 + (2 / 3 - 0.00004) * 776, 200, 1000)).toBe(0.667);
   });
 
   it("moves with the arrow keys, Shift for bigger steps, and Home and End", () => {

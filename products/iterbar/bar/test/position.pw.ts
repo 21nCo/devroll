@@ -25,16 +25,19 @@ test("sleeps as a compact pill at the bottom centre and wakes on hover and focus
   const toolbar = inBar(page, ".toolbar");
   const viewport = page.viewportSize()!;
 
-  // Asleep: the comment and inbox buttons, the open count and the connection's dot, nothing else.
+  // Asleep: the comment, inbox and drafts buttons, the open count and the connection's dot, nothing else.
   await expect(inBar(page, "[data-role=comment]")).toBeVisible();
   await expect(inBar(page, "[data-role=inbox-toggle]")).toBeVisible();
+  await expect(inBar(page, "[data-role=drafts-toggle]")).toBeVisible();
   await expect(inBar(page, "[data-role=status-dot]")).toBeVisible();
   await expect(inBar(page, "[data-role=open-count]")).toHaveText("1");
-  for (const role of ["versions-toggle", "drafts-toggle", "grab", "toggle"]) await expect(inBar(page, `[data-role=${role}]`)).toBeHidden();
+  for (const role of ["versions-toggle", "grab", "toggle"]) await expect(inBar(page, `[data-role=${role}]`)).toBeHidden();
+  await expect(inBar(page, "[data-role=status]")).not.toBeInViewport();
   const asleep = (await toolbar.boundingBox())!;
   // A gap below the toolbar: it never sits on the bottom edge.
   expect(asleep.y + asleep.height).toBeCloseTo(viewport.height - 20, 0);
-  expect(asleep.x + asleep.width / 2).toBeCloseTo(viewport.width / 2, 0);
+  // Centred in its room, which keeps space at the left margin for the grab handle waking adds.
+  expect(asleep.x + asleep.width / 2).toBeCloseTo(viewport.width / 2 + 8, 0);
   expect(asleep.width).toBeLessThan(200);
 
   // Hover wakes it in place: whichever sleeping button is under the pointer stays there, wherever the toolbar sits
@@ -52,11 +55,12 @@ test("sleeps as a compact pill at the bottom centre and wakes on hover and focus
       await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
       await expect(inBar(page, "[data-role=open-count]")).toHaveText("1");
     }
-    for (const role of ["comment", "inbox-toggle"]) {
+    for (const role of ["comment", "inbox-toggle", "drafts-toggle", "status-dot"]) {
       await page.mouse.move(5, 5);
       await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
       const box = (await inBar(page, `[data-role=${role}]`).boundingBox())!;
-      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      // Near the control's left edge as well as its centre: nothing that waking adds lands under the pointer.
+      const point = { x: box.x + Math.min(3, box.width / 4), y: box.y + box.height / 2 };
       await page.mouse.move(point.x, point.y);
       await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
       await expect(inBar(page, "[data-role=grab]")).toBeVisible();
@@ -113,7 +117,8 @@ test("moves along the bottom edge by its grab handle, kept in view, and remember
   expect(Math.round((await toolbar.boundingBox())!.x)).toBe(Math.round(before.x - 100));
   await page.mouse.move(-500, start.y, { steps: 5 });
   await page.mouse.up();
-  await expect.poll(async () => Math.round((await toolbar.boundingBox())!.x)).toBe(12);
+  // At the left margin; asleep (the pointer is away) it keeps room there for the grab handle.
+  await expect.poll(async () => Math.round((await toolbar.boundingBox())!.x)).toBe(12 + 16);
   await expect(grab).toHaveAttribute("aria-valuetext", "left");
 
   // And past the right edge, it stops at the right margin.
@@ -494,4 +499,17 @@ test("a project with nothing stored yet starts from the state the origin kept", 
   await openFixture();
   await mountBar(page, { project: "/work/other" });
   await expect(inBar(page, "[data-role=grab]")).toHaveAttribute("aria-valuenow", "80");
+});
+
+test("on a short, narrow screen the panel fits between the top and the wrapped toolbar", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Thread")]);
+  await page.setViewportSize({ width: 280, height: 280 });
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
+  await inBar(page, "[data-role=comment]").focus();
+  await inBar(page, "[data-role=status-button]").click();
+  const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
+  const toolbar = (await inBar(page, ".toolbar").boundingBox())!;
+  expect(panel.y).toBeGreaterThanOrEqual(0);
+  expect(panel.y + panel.height).toBeLessThanOrEqual(toolbar.y);
 });

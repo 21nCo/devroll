@@ -94,11 +94,14 @@ export function leftForPosition(x: number, width: number, viewport: number, marg
   return margin + room * (clampPosition(x) ?? DEFAULT_BAR_STATE.x);
 }
 
-/** The inverse of {@link leftForPosition}: the position of a toolbar whose left edge is at `left`, kept within 0 and 1. */
+/**
+ * The inverse of {@link leftForPosition}: the position of a toolbar whose left edge is at `left`, kept within 0 and 1
+ * and rounded to thousandths, as it is stored, so a drag shows exactly what dropping it saves.
+ */
 export function positionForLeft(left: number, width: number, viewport: number, margin = BAR_MARGIN_PX): number {
   const room = viewport - 2 * margin - width;
   if (room <= 0) return DEFAULT_BAR_STATE.x;
-  return clampPosition((left - margin) / room) ?? DEFAULT_BAR_STATE.x;
+  return Math.round((clampPosition((left - margin) / room) ?? DEFAULT_BAR_STATE.x) * 1000) / 1000;
 }
 
 /** Arrow keys on the grab handle move the toolbar by this share of its room; with Shift, by the larger step. */

@@ -59,6 +59,8 @@ export const BAR_CSS = String.raw`
   --ib-shadow: 0 10px 32px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.10);
   --ib-margin: 12px;
   --ib-bottom: 20px;
+  /* Where the toolbar's room starts from the left; asleep it keeps room for the grab handle (see below). */
+  --ib-start: var(--ib-margin);
   color-scheme: light;
   font: 13px/1.4 "Iterbar Twenty One Native", "Twenty One Native", ui-sans-serif, system-ui, sans-serif;
   font-weight: 400;
@@ -111,7 +113,7 @@ export const BAR_CSS = String.raw`
   /* --ib-x (0 at the left margin, 1 at the right) shares out the room between the margins, as leftForPosition does:
      the left edge moves by x of the viewport's room and the dock back by x of its own width, so it never leaves the
      viewport and needs no measuring. */
-  left: calc(var(--ib-margin) + var(--ib-x, 0.5) * (100% - 2 * var(--ib-margin)));
+  left: calc(var(--ib-start) + var(--ib-x, 0.5) * (100% - var(--ib-start) - var(--ib-margin)));
   transform: translateX(calc(var(--ib-x, 0.5) * -100%));
   z-index: 2147483647;
   display: flex;
@@ -132,6 +134,8 @@ export const BAR_CSS = String.raw`
    stays at its left end. */
 .dock[data-align="end"] .toolbar { flex-direction: row-reverse; }
 .dock[data-align="end"] .grab { order: 1; margin-right: 0; margin-left: -2px; }
+/* Running right to left, the status's label grows leftward, away from its dot. */
+.dock[data-align="end"] .status { flex-direction: row-reverse; padding: 0 7px 0 8px; }
 /* Woken by the pointer or being dragged: the toolbar stays where the bar holds it (see #holdPlace and the grab handle),
    and what does not fit in the room it has wraps onto a row above. */
 .dock[data-held] { left: var(--ib-held-left); transform: none; max-width: var(--ib-held-room, calc(100% - 2 * var(--ib-margin))); }
@@ -154,10 +158,12 @@ export const BAR_CSS = String.raw`
 /* Asleep: only the essentials. Awake (pointer, focus, pinned, a panel, the composer or comment mode): everything. The
    pointer wakes it through data-hovered, set once the toolbar's place is held (see #holdPlace), not through :hover. */
 .dock:not([data-awake]):not([data-hovered]):not(:focus-within) .extra { display: none; }
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) [data-role=drafts-toggle]:not([data-has]) { display: none; }
+/* Asleep, the toolbar keeps room at the left margin for the grab handle that waking adds before its buttons. */
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) { --ib-start: calc(var(--ib-margin) + 16px); }
 .dock:not([data-awake]):not([data-hovered]):not(:focus-within) .toolbar { opacity: 0.94; }
 /* Asleep, the status label is left to assistive technology; its dot shows the connection. */
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status-label {
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status-label,
+.dock[data-compact] .status-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -320,12 +326,12 @@ button:disabled { cursor: default; opacity: 0.55; }
   display: flex;
   flex-direction: column;
   width: var(--ib-panel-width);
-  max-height: min(70vh, 560px, calc(100vh - var(--ib-bottom) - 64px));
+  max-height: min(70vh, 560px, calc(100vh - var(--ib-bottom) - var(--ib-toolbar-height, 40px) - 8px - var(--ib-margin)));
   border-radius: 12px;
   overflow: hidden;
 }
 /* "Use with your agent" holds commands and config, so it takes more width. */
-.panel[data-panel="agent"] { --ib-panel-width: min(480px, calc(100vw - 2 * var(--ib-margin))); max-height: min(78vh, 640px, calc(100vh - var(--ib-bottom) - 64px)); }
+.panel[data-panel="agent"] { --ib-panel-width: min(480px, calc(100vw - 2 * var(--ib-margin))); max-height: min(78vh, 640px, calc(100vh - var(--ib-bottom) - var(--ib-toolbar-height, 40px) - 8px - var(--ib-margin))); }
 .panel-header {
   display: flex;
   align-items: center;

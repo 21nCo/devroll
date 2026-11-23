@@ -253,6 +253,7 @@ export class IterbarBarElement extends ElementBase {
   #tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   #drag: { pointerId: number; startX: number; startLeft: number; width: number; moved: boolean } | null = null;
   #project: string | null = null;
+  #heightObserver: ResizeObserver | null = null;
   #projectRoot: string | null = null;
   readonly #detail = h("p", { class: "detail", "data-role": "status-detail", hidden: true });
   readonly #announcer = h("div", { class: "sr-only", "aria-live": "polite", "data-role": "announce" });
@@ -358,8 +359,8 @@ export class IterbarBarElement extends ElementBase {
     h("div", { class: "panel-body" }, this.#detail, this.#tray.element, this.#threads.element, this.#slots.element, this.#agentHelp.element));
     const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
       // The grab handle shows at the start while the toolbar is awake (see #holdPlace, which makes room for it so the
-      // sleeping buttons stay under the pointer). Drafts, shown asleep only while there are drafts, sits before the
-      // connection status so it never splits the status's dot from its label.
+      // sleeping buttons stay under the pointer). Drafts, always shown with its count, sits before the connection
+      // status so it never splits the status's dot from its label, and the label grows away from the other buttons.
       this.#grab, this.#comment, this.#inboxButton, this.#draftsButton, this.#statusButton,
       h("span", { class: "divider extra", "aria-hidden": "true" }),
       this.#versionsButton, this.#toggle);
@@ -554,6 +555,13 @@ export class IterbarBarElement extends ElementBase {
     window.addEventListener("pointerdown", this.#onPagePointerDown, true);
     window.addEventListener("resize", this.#releaseHold);
     window.visualViewport?.addEventListener("resize", this.#releaseHold);
+    // The panel's height cap leaves room for the toolbar as tall as it is (it wraps on a narrow screen).
+    if (typeof ResizeObserver === "function" && !this.#heightObserver) {
+      this.#heightObserver = new ResizeObserver(() => {
+        this.#dock.style.setProperty("--ib-toolbar-height", `${this.#dock.getBoundingClientRect().height}px`);
+      });
+      this.#heightObserver.observe(this.#dock);
+    }
     this.#watchUrl(true);
     this.#slots.attach();
     this.#reconnect();
@@ -580,6 +588,8 @@ export class IterbarBarElement extends ElementBase {
     window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
     window.removeEventListener("resize", this.#releaseHold);
     window.visualViewport?.removeEventListener("resize", this.#releaseHold);
+    this.#heightObserver?.disconnect();
+    this.#heightObserver = null;
     this.#hideTooltip();
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
@@ -613,6 +623,7 @@ export class IterbarBarElement extends ElementBase {
   readonly #releaseHold = (): void => {
     if (this.#drag) return;
     this.#dock.removeAttribute("data-held");
+    this.#dock.removeAttribute("data-compact");
     this.#dock.style.removeProperty("--ib-held-left");
     this.#dock.style.removeProperty("--ib-held-room");
   };
@@ -1305,7 +1316,7 @@ export class IterbarBarElement extends ElementBase {
     this.#dock.style.removeProperty("--ib-held-left");
     if (keep && drag.moved && Number.isFinite(left)) {
       const viewport = this.#viewport();
-      const x = Math.round(positionForLeft(left - viewport.left, drag.width, viewport.width) * 1000) / 1000;
+      const x = positionForLeft(left - viewport.left, drag.width, viewport.width);
       this.#saveState({ ...this.#state, x });
       this.#announce(`Toolbar moved to the ${describePosition(x)}.`);
     } else {
@@ -1387,6 +1398,7 @@ export class IterbarBarElement extends ElementBase {
       if (this.#drag) return;
       dock.removeAttribute("data-hovered");
       dock.removeAttribute("data-held");
+      dock.removeAttribute("data-compact");
       dock.style.removeProperty("--ib-held-left");
       dock.style.removeProperty("--ib-held-room");
       return;
@@ -1410,15 +1422,25 @@ export class IterbarBarElement extends ElementBase {
     if (dock.dataset.align === "end") {
       // Right to left: the pill's right edge holds still and the woken controls (the grab handle last) go leftward.
       dock.style.setProperty("--ib-held-room", `${Math.max(0, pill.right - min)}px`);
+      this.#compactIfWrapped(pill.height);
       dock.style.setProperty("--ib-held-left", `${pill.right - dock.getBoundingClientRect().width}px`);
       return;
     }
-    // Left to right: the grab handle comes before the sleeping buttons, so the dock moves left by as much (never past
-    // the margin), and the rest grows rightward.
+    // Left to right: the grab handle comes before the sleeping buttons (asleep, the toolbar keeps room for it from
+    // the margin), so the dock moves left by as much, and the rest grows rightward.
     const offset = this.#comment.getBoundingClientRect().left - dock.getBoundingClientRect().left;
     const left = Math.max(min, before - offset);
     dock.style.setProperty("--ib-held-left", `${left}px`);
     dock.style.setProperty("--ib-held-room", `${Math.max(0, maxRight - left)}px`);
+    this.#compactIfWrapped(pill.height);
+  }
+
+  /**
+   * Short of room, the woken toolbar wraps onto a row above. Then the status keeps to its dot (its label stays for
+   * assistive technology and in its tooltip), so it, like every sleeping control, stays on the bottom row.
+   */
+  #compactIfWrapped(rowHeight: number): void {
+    this.#dock.toggleAttribute("data-compact", this.#dock.getBoundingClientRect().height > rowHeight + 1);
   }
 
   /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */
