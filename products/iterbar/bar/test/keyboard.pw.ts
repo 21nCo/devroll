@@ -34,7 +34,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   await registerSlots(page, [PRICING, HERO]);
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   await expect(inBar(page, ".thread")).toHaveCount(1);
-  await expect(inBar(page, "[data-role=dock]")).toBeHidden();
+  await expect(inBar(page, "[data-role=grab]")).toBeHidden();
 
   await page.locator("#page-button").focus();
   // Ctrl+. keeps the toolbar expanded from anywhere and moves focus into it.
@@ -43,7 +43,16 @@ test("is fully operable from the keyboard, with visible focus on every control",
   expect(await focusedControl(page)).toMatchObject({ id: "comment" });
 
   // Every toolbar control is reachable by Tab, in order, and each shows a focus ring.
-  expect(await tabThrough(page)).toEqual(["comment", "inbox-toggle", "drafts-toggle", "versions-toggle", "dock", "toggle"]);
+  expect(await tabThrough(page)).toEqual(["comment", "inbox-toggle", "drafts-toggle", "status-button", "versions-toggle", "toggle"]);
+  // The grab handle comes before them, at the toolbar's start.
+  await inBar(page, "[data-role=comment]").focus();
+  await page.keyboard.press("Shift+Tab");
+  expect(await focusedControl(page)).toMatchObject({ id: "grab" });
+  // Keyboard focus shows a control's tooltip: its label and shortcut.
+  await page.keyboard.press("Tab");
+  await expect(inBar(page, "[data-role=tooltip]")).toBeVisible();
+  await expect(inBar(page, "[data-role=tooltip]")).toContainText("Comment");
+  await expect(inBar(page, "[data-role=tooltip] kbd")).toHaveText("C");
 
   // The versions panel: choose the second slot by typing, then switch its version with Enter.
   await inBar(page, "[data-role=versions-toggle]").focus();
@@ -67,7 +76,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   await inBar(page, "[data-role=inbox-toggle]").focus();
   await page.keyboard.press("Enter");
   expect(await tabThrough(page)).toEqual([
-    "inbox-toggle", "drafts-toggle", "versions-toggle", "dock", "toggle", "panel-close", "all", "open", "progress", "done", "summary",
+    "inbox-toggle", "drafts-toggle", "status-button", "versions-toggle", "toggle", "panel-close", "all", "open", "progress", "done", "summary",
   ]);
   await inBar(page, ".thread summary").focus();
   await page.keyboard.press("Enter");
@@ -75,8 +84,9 @@ test("is fully operable from the keyboard, with visible focus on every control",
   const controls = await page.evaluate(() => [...document.querySelector("iterbar-bar")!.shadowRoot!
     .querySelectorAll("button, select, summary, input, textarea, a[href], [tabindex]")]
     .filter((element) => (element as HTMLElement).checkVisibility()).length);
-  // The six toolbar controls, the close button, four filters and the thread: nothing focusable is left out of the order.
-  expect(controls).toBe(12);
+  // The seven toolbar controls (the grab handle among them), the close button, four filters and the thread: nothing
+  // focusable is left out of the order.
+  expect(controls).toBe(13);
 
   // C enters comment mode from the page and announces the change; Escape leaves it.
   const events = page.evaluate(() => new Promise<boolean>((resolve) => {
@@ -91,13 +101,22 @@ test("is fully operable from the keyboard, with visible focus on every control",
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
   expect(await page.evaluate(() => document.documentElement.getAttribute("style"))).toBeNull();
 
-  // Arrow keys on the dock button move the toolbar along the bottom edge.
-  await inBar(page, "[data-role=dock]").focus();
+  // Arrow keys (Shift for bigger steps), Home and End on the grab handle move the toolbar along the bottom edge.
+  const grab = inBar(page, "[data-role=grab]");
+  await grab.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(inBar(page, ".dock")).toHaveAttribute("data-dock", "left");
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
-  await expect(inBar(page, ".dock")).toHaveAttribute("data-dock", "right");
+  await expect(grab).toHaveAttribute("aria-valuenow", "45");
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(grab).toHaveAttribute("aria-valuenow", "70");
+  await page.keyboard.press("End");
+  await expect(grab).toHaveAttribute("aria-valuetext", "right");
+  const width = page.viewportSize()!.width;
+  await expect.poll(async () => {
+    const box = (await inBar(page, ".toolbar").boundingBox())!;
+    return Math.round(box.x + box.width);
+  }).toBe(width - 12);
+  await page.keyboard.press("Home");
+  await expect.poll(async () => Math.round((await inBar(page, ".toolbar").boundingBox())!.x)).toBe(12);
 
   // Ctrl+. lets it sleep again; focus that was inside stays on a visible control.
   await page.keyboard.press("Control+Period");

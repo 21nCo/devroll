@@ -32,6 +32,8 @@ async function bundleFixture(): Promise<string> {
     target: "chrome120",
     write: false,
     logLevel: "warning",
+    // As the package build does: the bar's fonts are bundled as data URLs.
+    loader: { ".woff2": "dataurl" },
   });
   return result.outputFiles.map((file) => file.text).join("\n");
 }
@@ -86,7 +88,7 @@ export async function registerSlots(page: Page, slots: readonly SlotDefinitionIn
 }
 
 /** Adds the bar with an optional daemon configuration. */
-export async function mountBar(page: Page, options: { daemonUrl?: string; token?: string } = {}): Promise<void> {
+export async function mountBar(page: Page, options: { daemonUrl?: string; token?: string; project?: string } = {}): Promise<void> {
   await page.evaluate((config) => {
     window.fixture.mountIterbarBar(config);
   }, options);

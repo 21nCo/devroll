@@ -238,11 +238,29 @@ Removing the element closes the stream and cancels every timer.
   with Tab in visual order (the toolbar, then the open panel), and each one
   shows a focus ring. Counts, the connection and what a send did are
   announced to screen readers.
-- The dock button moves the toolbar left, centre or right along the bottom
-  edge (or press ← and → on it). The dock, whether the toolbar stays
-  expanded, the open panel and the inbox filter are saved in local storage
-  under `iterbar:toolbar`, so each origin remembers its own. The toolbar and
-  panel take pointer events only where they are drawn.
+- The toolbar sits 20 px above the bottom edge. While it is awake, a grab
+  handle shows at its start: drag it to move the toolbar anywhere along the
+  bottom edge (it stops at the margins), or focus it and press ← and → (Shift
+  for bigger steps), Home or End. The position is kept as a share of the room
+  between the margins, so the toolbar stays in view at any window width.
+- The position, whether the toolbar stays expanded, the open panel, the inbox
+  filter and the agent chosen in "Use with your agent" are saved in local
+  storage under `iterbar:toolbar:<project>` when the bar is given a `project`
+  (the Vite plugin passes the project's root), or `iterbar:toolbar` for the
+  whole origin otherwise. The toolbar and panel take pointer events only
+  where they are drawn.
+- Every toolbar control has an accessible name and a tooltip, shown on hover
+  (after a short delay) and on keyboard focus: a short label, its shortcut
+  where there is one, and for some a line that explains it.
+- The connection status is one control: a dot next to its label. "Connected"
+  means the bar's link to the project's Iterbar daemon is open, so comments
+  are saved for a coding agent, which reaches the same daemon on its own
+  through `iterbar mcp`. Offline, comments stay as drafts. Clicking it opens
+  "Use with your agent": for Claude Code, Codex, Cursor or another MCP client,
+  the one-time command that registers the iterbar MCP server (with the
+  project's path filled in when the bar knows it), the optional skill install
+  and a prompt to paste, each with a copy button. The draft tray links to it
+  too.
 - Styles stay inside the shadow root. The host resets every inherited
   property with `!important`, which a page rule cannot override, so page CSS
   cannot hide, move or restyle the bar. The bar is shown in the top layer
@@ -250,9 +268,15 @@ Removing the element closes the stream and cancels every timer.
   `html`, `body` or any other ancestor cannot move, cover or hide it, and it
   cancels any `zoom` it inherits.
 - Light and dark themes follow `prefers-color-scheme`.
-- The bar never loads a remote resource of its own. It uses system fonts and
-  inline SVG icons, and its network traffic goes to the daemon, except that a
-  screenshot re-reads the images and fonts the picked element already uses.
+- It looks like the 21n apps: the tidigit iris colour scheme's tokens from
+  `@21n/theme`, the Twenty One Native typeface from `@21n/fonts` and Phosphor
+  Light icons from `@iconify-json/ph` (`scripts/phosphor-icons.mjs` writes the
+  icons it uses into `src/phosphor.ts`).
+- The bar never loads a remote resource of its own. The build bundles its two
+  Twenty One Native weights as data URLs and registers them under a family
+  name of its own, so the page's fonts are unchanged; icons are inline SVG.
+  Its network traffic goes to the daemon, except that a screenshot re-reads
+  the images and fonts the picked element already uses.
 
 ## Tests
 

@@ -41,7 +41,7 @@ const PROPERTIES = [
 
 const SELECTORS = [
   ".dock", ".toolbar", "[data-role=status]", "[data-role=comment]", "[data-role=inbox-toggle]", "[data-role=open-count]",
-  "[data-role=dock]", "[data-role=toggle]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
+  "[data-role=grab]", "[data-role=toggle]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
   "[data-version=v1]", "[data-version=v2]", ".thread", ".thread summary", ".badge", ".thread-text",
 ];
 
@@ -180,9 +180,10 @@ test("follows prefers-color-scheme", async ({ page, openFixture }) => {
     return { background: style.backgroundColor, color: style.color, scheme: style.colorScheme };
   });
   await page.emulateMedia({ colorScheme: "light" });
-  expect(await colors()).toEqual({ background: "rgb(255, 255, 255)", color: "rgb(22, 24, 29)", scheme: "light" });
+  // The 21n tidigit iris scheme: bgs1 and fgs1, light and dark.
+  expect(await colors()).toEqual({ background: "rgb(252, 252, 252)", color: "rgb(51, 51, 51)", scheme: "light" });
   await page.emulateMedia({ colorScheme: "dark" });
-  expect(await colors()).toEqual({ background: "rgb(27, 30, 36)", color: "rgb(236, 238, 242)", scheme: "dark" });
+  expect(await colors()).toEqual({ background: "rgb(21, 24, 35)", color: "rgb(242, 242, 242)", scheme: "dark" });
 });
 
 test("loads nothing but the page and the daemon", async ({ page, openFixture, fixtureServer }) => {

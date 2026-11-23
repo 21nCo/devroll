@@ -1,15 +1,20 @@
-/** Local storage key, per origin, holding where the toolbar sits, whether it is pinned open and which panel is open. */
+import { AGENTS, type AgentName } from "./agent-help.js";
+
+/**
+ * Local storage key, per origin, holding where the toolbar sits, whether it is pinned open and which panel is open. A
+ * bar given a project (see {@link barStateStorageKey}) keeps its state under this key plus the project.
+ */
 export const BAR_STATE_STORAGE_KEY = "iterbar:toolbar";
 
-/** Where along the bottom edge the toolbar is docked. */
-export type Dock = "left" | "center" | "right";
-
-export const DOCKS: readonly Dock[] = ["left", "center", "right"];
+/** The storage key for a project's toolbar state: one per project on an origin, so each project keeps its place. */
+export function barStateStorageKey(project: string | null | undefined): string {
+  return project ? `${BAR_STATE_STORAGE_KEY}:${project}` : BAR_STATE_STORAGE_KEY;
+}
 
 /** The panel that opens upward from the toolbar. */
-export type PanelName = "inbox" | "drafts" | "versions";
+export type PanelName = "inbox" | "drafts" | "versions" | "agent";
 
-export const PANELS: readonly PanelName[] = ["inbox", "drafts", "versions"];
+export const PANELS: readonly PanelName[] = ["inbox", "drafts", "versions", "agent"];
 
 /** Which threads the inbox lists. */
 export type InboxFilter = "all" | "open" | "progress" | "done";
@@ -17,7 +22,11 @@ export type InboxFilter = "all" | "open" | "progress" | "done";
 export const INBOX_FILTERS: readonly InboxFilter[] = ["all", "open", "progress", "done"];
 
 export interface BarState {
-  readonly dock: Dock;
+  /**
+   * Where along the bottom edge the toolbar sits: 0 at the left margin, 1 at the right margin, 0.5 centred. It is a
+   * share of the room the toolbar has, so it stays inside the viewport at any width.
+   */
+  readonly x: number;
   /**
    * Whether the full toolbar stays shown. When `false` the toolbar sleeps: a compact pill that wakes while the pointer
    * or focus is on it, a panel is open or comment mode is on.
@@ -26,16 +35,30 @@ export interface BarState {
   /** The open panel, or `null`. */
   readonly panel: PanelName | null;
   readonly filter: InboxFilter;
+  /** The agent "Use with your agent" shows the steps for. */
+  readonly agent: AgentName;
 }
 
-/** Gap, in CSS pixels, the toolbar keeps from the screen edges; the stylesheet's `--ib-margin`. */
+/** Gap, in CSS pixels, the toolbar keeps from the left and right screen edges; the stylesheet's `--ib-margin`. */
 export const BAR_MARGIN_PX = 12;
 
+/** Gap, in CSS pixels, below the toolbar; the stylesheet's `--ib-bottom`. */
+export const BAR_BOTTOM_PX = 20;
+
 /** Bottom centre, sleeping, no panel, every thread. */
-export const DEFAULT_BAR_STATE: BarState = Object.freeze({ dock: "center", expanded: false, panel: null, filter: "all" });
+export const DEFAULT_BAR_STATE: BarState = Object.freeze({ x: 0.5, expanded: false, panel: null, filter: "all", agent: "claude" });
+
+/** The positions the earlier left, centre and right docks stood for; a stored dock still places the toolbar. */
+const LEGACY_DOCKS: Readonly<Record<string, number>> = { left: 0, center: 0.5, right: 1 };
 
 function oneOf<T extends string>(values: readonly T[], value: unknown, fallback: T): T {
   return values.includes(value as T) ? value as T : fallback;
+}
+
+/** `value` kept within 0 and 1; anything that is not a finite number is `null`. */
+export function clampPosition(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.min(1, Math.max(0, value));
 }
 
 /** Reads a stored state; anything malformed falls back field by field to {@link DEFAULT_BAR_STATE}. Never throws. */
@@ -46,31 +69,61 @@ export function parseBarState(text: string | null | undefined): BarState {
   } catch {
     return DEFAULT_BAR_STATE;
   }
-  if (typeof value !== "object" || value === null) return DEFAULT_BAR_STATE;
-  const { dock, expanded, panel, filter } = value as Record<string, unknown>;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return DEFAULT_BAR_STATE;
+  const { x, dock, expanded, panel, filter, agent } = value as Record<string, unknown>;
+  const legacy = typeof dock === "string" && Object.hasOwn(LEGACY_DOCKS, dock) ? LEGACY_DOCKS[dock]! : null;
   return {
-    dock: oneOf(DOCKS, dock, DEFAULT_BAR_STATE.dock),
+    x: clampPosition(x) ?? legacy ?? DEFAULT_BAR_STATE.x,
     expanded: typeof expanded === "boolean" ? expanded : DEFAULT_BAR_STATE.expanded,
     panel: PANELS.includes(panel as PanelName) ? panel as PanelName : null,
     filter: oneOf(INBOX_FILTERS, filter, DEFAULT_BAR_STATE.filter),
+    agent: oneOf(AGENTS, agent, DEFAULT_BAR_STATE.agent),
   };
 }
 
 export function formatBarState(state: BarState): string {
-  return JSON.stringify({ dock: state.dock, expanded: state.expanded, panel: state.panel, filter: state.filter });
+  return JSON.stringify({ x: state.x, expanded: state.expanded, panel: state.panel, filter: state.filter, agent: state.agent });
 }
 
-/** The next dock in left, centre, right order, wrapping round. */
-export function nextDock(dock: Dock): Dock {
-  return DOCKS[(DOCKS.indexOf(dock) + 1) % DOCKS.length]!;
+/**
+ * The left edge, in viewport pixels, of a `width`-wide toolbar at position `x` in a `viewport`-wide view: `x` shares
+ * out the room between the margins. A toolbar wider than that room sits at the left margin.
+ */
+export function leftForPosition(x: number, width: number, viewport: number, margin = BAR_MARGIN_PX): number {
+  const room = Math.max(0, viewport - 2 * margin - width);
+  return margin + room * (clampPosition(x) ?? DEFAULT_BAR_STATE.x);
 }
 
-/** The dock an arrow key moves the toolbar to from `dock`, or `null` for any other key or at the end of the edge. */
-export function dockForKey(dock: Dock, key: string): Dock | null {
-  const index = DOCKS.indexOf(dock);
-  if (key === "ArrowLeft") return index > 0 ? DOCKS[index - 1]! : null;
-  if (key === "ArrowRight") return index < DOCKS.length - 1 ? DOCKS[index + 1]! : null;
-  return null;
+/** The inverse of {@link leftForPosition}: the position of a toolbar whose left edge is at `left`, kept within 0 and 1. */
+export function positionForLeft(left: number, width: number, viewport: number, margin = BAR_MARGIN_PX): number {
+  const room = viewport - 2 * margin - width;
+  if (room <= 0) return DEFAULT_BAR_STATE.x;
+  return clampPosition((left - margin) / room) ?? DEFAULT_BAR_STATE.x;
+}
+
+/** Arrow keys on the grab handle move the toolbar by this share of its room; with Shift, by the larger step. */
+export const POSITION_STEP = 0.05;
+export const POSITION_STEP_LARGE = 0.25;
+
+/** The position a key on the grab handle moves the toolbar to from `x`, or `null` for a key that does not move it. */
+export function positionForKey(x: number, key: string, shift: boolean): number | null {
+  const step = shift ? POSITION_STEP_LARGE : POSITION_STEP;
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  switch (key) {
+    case "ArrowLeft": return round(Math.max(0, x - step));
+    case "ArrowRight": return round(Math.min(1, x + step));
+    case "Home": return 0;
+    case "End": return 1;
+    default: return null;
+  }
+}
+
+/** How a position reads aloud and in the handle's tooltip: left, centre, right, or a percentage between. */
+export function describePosition(x: number): string {
+  if (x <= 0) return "left";
+  if (x >= 1) return "right";
+  if (Math.abs(x - 0.5) < 0.005) return "centre";
+  return `${Math.round(x * 100)}% from the left`;
 }
 
 export interface Rect {

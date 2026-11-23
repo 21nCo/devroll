@@ -8,7 +8,9 @@
  *   (`popover="manual"`), so ancestors that would become its containing block or paint over it have no effect. The
  *   user-agent popover rules (inset, margin, size, border, padding, overflow, colours) are all overridden on `.bar`.
  * - Custom properties are declared on `.bar`, inside the shadow tree, so same-named page variables never apply.
- * - Fonts are system fonts and icons are text: the bar never loads a remote resource.
+ * - The look is the 21n one: the tidigit iris colour scheme's tokens (@21n/theme: bgs, fgs, brs, aps, ags, ars), the
+ *   Twenty One Native typeface (bundled, see fonts.ts) and Phosphor Light icons (inline, see icons.ts). The bar never
+ *   loads a remote resource.
  */
 export const BAR_CSS = String.raw`
 :host {
@@ -32,22 +34,31 @@ export const BAR_CSS = String.raw`
 }
 
 .bar, .composer {
-  --ib-bg: #ffffff;
-  --ib-fg: #16181d;
-  --ib-muted: #5a616d;
-  --ib-border: #d4d9e1;
-  --ib-surface: #f3f5f8;
-  --ib-hover: #e8ebf0;
-  --ib-accent: #3346c9;
-  --ib-accent-fg: #ffffff;
-  --ib-accent-soft: rgba(51, 70, 201, 0.12);
-  --ib-focus: #3346c9;
-  --ib-warn: #8a5a00;
-  --ib-danger: #b3261e;
-  --ib-shadow: 0 10px 32px rgba(15, 20, 30, 0.18), 0 1px 3px rgba(15, 20, 30, 0.12);
+  /* 21n tokens, tidigit iris light (cs_tidigit_light_iris in @21n/theme's colorschemes.json). */
+  --ib-bg: hsl(0 0% 99%);         /* bgs1 */
+  --ib-surface: hsl(0 0% 97%);    /* bgs2 */
+  --ib-hover: hsl(0 0% 94%);      /* bgs3 */
+  --ib-fg: hsl(0 0% 20%);         /* fgs1 */
+  --ib-fg2: hsl(0 0% 33%);        /* fgs2 */
+  --ib-muted: hsl(0 0% 50%);      /* fgs3 */
+  --ib-border: hsl(45 17% 91%);   /* brs3 */
+  --ib-accent: hsl(239 55% 58%);  /* aps1 */
+  --ib-accent-fg: hsl(0 0% 99%);  /* the scheme's text on accent: bgs1 */
+  --ib-accent-soft: hsl(245 59% 89%); /* aps2 */
+  --ib-focus: hsl(239 55% 58%);   /* aps1 */
+  --ib-success: hsl(151 66% 42%); /* ags1 */
+  --ib-danger: hsl(0 89% 71%);    /* ars1 */
+  --ib-danger-text: hsl(0 60% 48%);
+  /* Rhombus's "needs you" amber (--rh-warn), for drafts waiting to be sent. */
+  --ib-warn: rgb(176 112 30);
+  --ib-warn-fg: hsl(0 0% 99%);
+  --ib-tip-bg: hsl(0 0% 20%);     /* fgs1 */
+  --ib-tip-fg: hsl(0 0% 99%);     /* bgs1 */
+  --ib-shadow: 0 10px 32px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.10);
   --ib-margin: 12px;
+  --ib-bottom: 20px;
   color-scheme: light;
-  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font: 13px/1.4 "Iterbar Twenty One Native", "Twenty One Native", ui-sans-serif, system-ui, sans-serif;
   font-weight: 400;
   letter-spacing: normal;
   text-align: left;
@@ -60,18 +71,25 @@ export const BAR_CSS = String.raw`
 
 @media (prefers-color-scheme: dark) {
   .bar, .composer {
-    --ib-bg: #1b1e24;
-    --ib-fg: #eceef2;
-    --ib-muted: #a6adb9;
-    --ib-border: #3a404b;
-    --ib-surface: #252930;
-    --ib-hover: #30353e;
-    --ib-accent: #8ea2ff;
-    --ib-accent-fg: #0c1024;
-    --ib-accent-soft: rgba(142, 162, 255, 0.18);
-    --ib-focus: #a9b8ff;
-    --ib-warn: #f2c26b;
-    --ib-danger: #ff8a80;
+    /* tidigit iris dark (cs_tidigit_dark_iris). */
+    --ib-bg: hsl(228 26% 11%);
+    --ib-surface: hsl(229 19% 15%);
+    --ib-hover: hsl(229 19% 18%);
+    --ib-fg: hsl(0 0% 95%);
+    --ib-fg2: hsl(0 0% 79%);
+    --ib-muted: hsl(0 0% 65%);
+    --ib-border: hsl(229 19% 25%);
+    --ib-accent: hsl(239 55% 58%);
+    --ib-accent-fg: hsl(0 0% 99%);
+    --ib-accent-soft: hsl(245 57% 25%);
+    --ib-focus: hsl(239 70% 72%);
+    --ib-success: hsl(151 66% 42%);
+    --ib-danger: hsl(0 89% 71%);
+    --ib-danger-text: hsl(0 89% 71%);
+    --ib-warn: rgb(226 170 90);
+    --ib-warn-fg: hsl(228 26% 11%);
+    --ib-tip-bg: hsl(0 0% 95%);
+    --ib-tip-fg: hsl(228 26% 11%);
     --ib-shadow: 0 10px 32px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
   }
@@ -87,16 +105,22 @@ export const BAR_CSS = String.raw`
 .dock {
   position: fixed;
   inset: auto;
-  bottom: var(--ib-margin);
+  bottom: var(--ib-bottom);
+  /* --ib-x (0 at the left margin, 1 at the right) shares out the room between the margins, as leftForPosition does:
+     the left edge moves by x of the viewport's room and the dock back by x of its own width, so it never leaves the
+     viewport and needs no measuring. */
+  left: calc(var(--ib-margin) + var(--ib-x, 0.5) * (100% - 2 * var(--ib-margin)));
+  transform: translateX(calc(var(--ib-x, 0.5) * -100%));
   z-index: 2147483647;
   display: flex;
   /* The toolbar comes first for the keyboard; the panel shows above it. */
   flex-direction: column-reverse;
+  align-items: center;
   gap: 8px;
   width: max-content;
   max-width: calc(100% - 2 * var(--ib-margin));
   height: auto;
-  max-height: calc(100% - 2 * var(--ib-margin));
+  max-height: calc(100% - var(--ib-margin) - var(--ib-bottom));
   margin: 0;
   padding: 0;
   border: 0;
@@ -104,20 +128,18 @@ export const BAR_CSS = String.raw`
   background: transparent;
   pointer-events: none;
 }
-.dock[data-dock="left"] { left: var(--ib-margin); align-items: flex-start; }
-.dock[data-dock="right"] { right: var(--ib-margin); align-items: flex-end; }
-.dock[data-dock="center"] { left: 50%; transform: translateX(-50%); align-items: center; }
-/* Woken by the pointer: the left edge holds still (see #holdPlace). Docked right, the row runs right to left, so the
-   sleeping buttons sit at the edge in the bottom row and what a wake adds (the status text included) grows leftward
-   and wraps above. */
-.dock[data-dock="right"] .toolbar { flex-direction: row-reverse; }
-.dock[data-held] { left: var(--ib-held-left); right: auto; transform: none; max-width: var(--ib-held-room); }
+.dock[data-align="start"] { align-items: flex-start; }
+.dock[data-align="end"] { align-items: flex-end; }
+/* Woken by the pointer or being dragged: the toolbar stays where the bar holds it (see #holdPlace and the grab handle). */
+.dock[data-held] { left: var(--ib-held-left); transform: none; }
+.dock[data-dragging], .dock[data-dragging] * { cursor: grabbing !important; user-select: none; }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
 
 /* Short of room, controls wrap onto rows above the first one (wrap-reverse), which keeps the sleeping buttons where
    they are. */
 .toolbar {
+  position: relative;
   display: flex;
   flex-wrap: wrap-reverse;
   align-items: center;
@@ -130,10 +152,9 @@ export const BAR_CSS = String.raw`
    pointer wakes it through data-hovered, set once the toolbar's place is held (see #holdPlace), not through :hover. */
 .dock:not([data-awake]):not([data-hovered]):not(:focus-within) .extra { display: none; }
 .dock:not([data-awake]):not([data-hovered]):not(:focus-within) [data-role=drafts-toggle]:not([data-has]) { display: none; }
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .toolbar { opacity: 0.92; }
-/* Asleep, the connection shows as its dot alone; the text stays for assistive technology. */
-/* Asleep, the status text is left to assistive technology; its dot shows the connection. */
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status {
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .toolbar { opacity: 0.94; }
+/* Asleep, the status label is left to assistive technology; its dot shows the connection. */
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -180,6 +201,8 @@ button:disabled { cursor: default; opacity: 0.55; }
   white-space: nowrap;
 }
 .icon { padding: 4px 7px; }
+.tool { color: var(--ib-fg2); }
+.tool:hover:not(:disabled) { color: var(--ib-fg); }
 .tool[aria-expanded="true"] { background: var(--ib-accent-soft); color: var(--ib-fg); }
 .tool[aria-pressed="true"] { background: var(--ib-accent); color: var(--ib-accent-fg); }
 .glyph { flex: none; display: block; }
@@ -188,26 +211,87 @@ button:disabled { cursor: default; opacity: 0.55; }
   padding: 1px 5px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 16px;
   text-align: center;
   background: var(--ib-accent);
   color: var(--ib-accent-fg);
 }
-[data-role=drafts-toggle] .count { background: #9a5b00; color: #ffffff; }
+[data-role=drafts-toggle] .count { background: var(--ib-warn); color: var(--ib-warn-fg); }
 
-.status { display: inline-flex; align-items: center; padding: 0 6px 0 2px; color: var(--ib-muted); font-size: 12px; white-space: nowrap; }
-.status-dot { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 30px; }
-.status-dot::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ib-muted);
+/* The connection: a dot and its label, one element with a tooltip that explains it. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px 0 7px;
+  border-radius: 999px;
+  color: var(--ib-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  border-color: transparent;
+  background: transparent;
 }
-.status-dot[data-status="connected"]::before { background: #2e9e5b; }
-.status-dot[data-status="retrying"]::before, .status-dot[data-status="connecting"]::before { background: #d69a1d; }
-.status-dot[data-status="unauthorized"]::before, .status-dot[data-status="invalid"]::before { background: #d24b4b; }
+.status[aria-expanded="true"] { background: var(--ib-accent-soft); color: var(--ib-fg); }
+.status-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ib-muted); }
+.status-dot[data-status="connected"] { background: var(--ib-success); }
+.status-dot[data-status="retrying"], .status-dot[data-status="connecting"] { background: var(--ib-warn); }
+.status-dot[data-status="unauthorized"], .status-dot[data-status="invalid"] { background: var(--ib-danger); }
+
+/* The grab handle at the toolbar's start: shown while the toolbar is awake; dragging it moves the toolbar along the
+   bottom edge. */
+.grab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-height: 30px;
+  margin-right: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ib-muted);
+  cursor: grab;
+  touch-action: none;
+}
+.grab:hover { color: var(--ib-fg); background: transparent !important; }
+.grab .glyph { width: 14px; height: 14px; }
+.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .grab { display: none; }
+
+/* Tooltips for the toolbar's controls: a short label, the shortcut where there is one, and for the connection a line
+   that explains it. Shown on hover (after a short delay) and on keyboard focus. */
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  max-width: 260px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--ib-tip-bg);
+  color: var(--ib-tip-fg);
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: normal;
+}
+.tooltip-label { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.tooltip-detail { opacity: 0.85; }
+.tooltip kbd {
+  font: inherit;
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--ib-tip-fg) 35%, transparent);
+  opacity: 0.9;
+}
+
 /* Asleep, a connection problem still shows as a dot on the inbox button, drawn over its corner so the button keeps
    its size whether the dot shows or not. */
 [data-role=inbox-toggle] { position: relative; }
@@ -219,7 +303,7 @@ button:disabled { cursor: default; opacity: 0.55; }
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #d24b4b;
+  background: var(--ib-danger);
 }
 
 /* The panel: inbox, draft tray or versions, opening upward from the toolbar. */
@@ -231,6 +315,8 @@ button:disabled { cursor: default; opacity: 0.55; }
   border-radius: 12px;
   overflow: hidden;
 }
+/* "Use with your agent" holds commands and config, so it takes more width. */
+.panel[data-panel="agent"] { width: min(480px, calc(100vw - 2 * var(--ib-margin))); max-height: min(78vh, 640px); }
 .panel-header {
   display: flex;
   align-items: center;
@@ -238,7 +324,7 @@ button:disabled { cursor: default; opacity: 0.55; }
   padding: 8px 8px 8px 14px;
   border-bottom: 1px solid var(--ib-border);
 }
-.panel-title { margin: 0 auto 0 0; font-size: 13px; font-weight: 600; }
+.panel-title { margin: 0 auto 0 0; font-size: 13px; font-weight: 500; }
 .panel-body {
   overflow: auto;
   /* Room for a scrollbar is kept whether or not one shows, so opening a thread never shifts the content sideways. */
@@ -247,7 +333,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 }
 
 .section { margin: 0; }
-.section-title { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
+.section-title { margin: 0 0 8px; font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
 p { margin: 0 0 6px; }
 .muted { color: var(--ib-muted); }
 .detail { color: var(--ib-warn); margin: 0 0 10px; overflow-wrap: anywhere; }
@@ -274,7 +360,7 @@ p { margin: 0 0 6px; }
 
 .field { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .field select { flex: 1; min-width: 0; }
-.slot-name strong { font-weight: 600; }
+.slot-name strong { font-weight: 500; }
 .versions { display: flex; flex-wrap: wrap; gap: 4px; }
 .warnings { margin: 6px 0 0; padding-left: 16px; color: var(--ib-warn); font-size: 12px; }
 
@@ -310,20 +396,20 @@ p { margin: 0 0 6px; }
 .replies { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .reply { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--ib-bg); border: 1px solid var(--ib-border); min-width: 0; }
 .reply[data-author="agent"] { border-left: 3px solid var(--ib-accent); }
-.reply-author { display: block; font-size: 11px; font-weight: 600; color: var(--ib-muted); }
+.reply-author { display: block; font-size: 11px; font-weight: 500; color: var(--ib-muted); }
 .reply-text { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .badge {
   flex: none;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   padding: 0 7px;
   border-radius: 999px;
   background: var(--ib-border);
   color: var(--ib-fg);
 }
-.badge[data-status="working"] { background: #d69a1d; color: #1b1300; }
-.badge[data-status="needs-info"] { background: #d24b4b; color: #ffffff; }
-.badge[data-status="done"], .badge[data-status="resolved"] { background: #2e9e5b; color: #ffffff; }
+.badge[data-status="working"] { background: var(--ib-warn); color: var(--ib-warn-fg); }
+.badge[data-status="needs-info"] { background: var(--ib-danger); color: hsl(0 0% 99%); }
+.badge[data-status="done"], .badge[data-status="resolved"] { background: var(--ib-success); color: hsl(0 0% 99%); }
 
 .draft {
   display: flex;
@@ -340,10 +426,10 @@ p { margin: 0 0 6px; }
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #9a5b00;
-  color: #ffffff;
+  background: var(--ib-warn);
+  color: var(--ib-warn-fg);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 20px;
   text-align: center;
 }
@@ -354,6 +440,69 @@ p { margin: 0 0 6px; }
 .draft-actions button { padding: 1px 8px; font-size: 12px; }
 .drafts-footer { margin-top: 10px; display: grid; gap: 6px; }
 .empty { margin: 0; }
+
+/* A text button that reads as a link. */
+button.link {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent !important;
+  color: var(--ib-accent);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.agent-hint { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--ib-border); font-size: 12px; }
+
+/* "Use with your agent". */
+.agent-intro { margin: 0 0 10px; font-size: 12px; }
+.agent-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+.agent-tabs [aria-selected="true"] { background: var(--ib-accent-soft); border-color: transparent; color: var(--ib-fg); font-weight: 500; }
+.agent-body { display: grid; gap: 12px; }
+.agent-step { display: grid; gap: 4px; }
+.agent-step-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 500; }
+.agent-step-number {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ib-hover);
+  color: var(--ib-fg2);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.agent-caption { margin: 0; font-size: 12px; }
+.snippet {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--ib-border);
+  border-radius: 8px;
+  background: var(--ib-surface);
+}
+.snippet-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0;
+  font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ib-fg);
+}
+.snippet[data-kind="prompt"] .snippet-text { font-family: inherit; font-size: 12px; }
+.copy {
+  flex: none;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--ib-border);
+  background: var(--ib-bg);
+  font-size: 11px;
+  font-weight: 500;
+}
+.copy[data-copied] { color: var(--ib-success); border-color: var(--ib-success); }
 
 /* The composer: a popover anchored next to the picked element. */
 .composer {
@@ -393,7 +542,7 @@ p { margin: 0 0 6px; }
   border-radius: 6px;
 }
 .composer-hint { margin: 0; font-size: 11px; }
-.composer-error { margin: 0; color: var(--ib-danger); overflow-wrap: anywhere; }
+.composer-error { margin: 0; color: var(--ib-danger-text); overflow-wrap: anywhere; }
 .composer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
 /* Comment mode's outlines: a full-viewport top-layer layer that never takes pointer events. */
@@ -417,13 +566,13 @@ p { margin: 0 0 6px; }
   position: absolute;
   top: 0;
   left: 0;
-  border: 2px dashed #2f4fd0;
+  border: 2px dashed hsl(239 55% 58%);
   border-radius: 2px;
-  background: rgba(47, 79, 208, 0.08);
+  background: hsl(239 55% 58% / 0.08);
   pointer-events: none;
 }
-.pick-box.picked { border-style: solid; background: rgba(47, 79, 208, 0.14); }
-.pick-box.marked { border: 2px solid #c77700; background: rgba(199, 119, 0, 0.12); }
+.pick-box.picked { border-style: solid; background: hsl(239 55% 58% / 0.14); }
+.pick-box.marked { border: 2px solid rgb(176 112 30); background: rgb(176 112 30 / 0.12); }
 `;
 
 let shared: CSSStyleSheet | null = null;

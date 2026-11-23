@@ -166,6 +166,8 @@ describe("iterbar() in vite dev", () => {
     expect(client.status).toBe(200);
     expect(client.body).toMatch(/import \{ mountIterbarBar \} from "[^"]*bar\/dist\/index\.js"/);
     expect(client.body).toContain('fetch("/__iterbar/config"');
+    // The bar is told the project's root, to keep its place per project and fill in "Use with your agent".
+    expect(client.body).toMatch(/mountIterbarBar\(\{ daemonUrl, token, project: "[^"]+" \}\)/u);
   });
 
   it("serves the token to the dev server's own pages only, under Vite's base", async () => {

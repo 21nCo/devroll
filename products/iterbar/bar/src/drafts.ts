@@ -20,6 +20,8 @@ export interface DraftTrayOptions {
   readonly onEdit: (id: string, text: string) => void;
   /** The pointer or focus is on a draft (outline its element), or left the list (`null`). */
   readonly onHighlight: (id: string | null) => void;
+  /** "Use with your agent" was pressed. */
+  readonly onAgentHelp: () => void;
 }
 
 /**
@@ -35,6 +37,10 @@ export class DraftTray {
   readonly #error = h("p", { class: "composer-error", role: "alert", "data-role": "drafts-error", hidden: true });
   readonly #sendAll = h("button", { type: "button", class: "primary", "data-role": "drafts-send" }, "Send all");
   readonly #footer = h("div", { class: "drafts-footer", hidden: true }, h("div", { class: "composer-actions" }, h("span", { class: "spacer" }), this.#sendAll));
+  /** How to get the comments into a coding agent; shown under the drafts, and most of all when the tray is empty. */
+  readonly #agentHelp = h("button", { type: "button", class: "link agent-link", "data-role": "agent-help" }, "Use with your agent");
+  readonly #agentHint = h("p", { class: "agent-hint muted" },
+    "Sent comments go to your coding agent through the iterbar MCP server. ", this.#agentHelp);
   #drafts: readonly DraftView[] = [];
   #busy = false;
   #editing: { id: string; value: string; focus: boolean } | null = null;
@@ -42,8 +48,9 @@ export class DraftTray {
   constructor(options: DraftTrayOptions) {
     this.#options = options;
     this.element = h("section", { class: "section", "data-section": "drafts", "aria-labelledby": "iterbar-drafts-title" },
-      h("h2", { class: "sr-only", id: "iterbar-drafts-title" }, "Drafts"), this.#empty, this.#list, this.#error, this.#footer);
+      h("h2", { class: "sr-only", id: "iterbar-drafts-title" }, "Drafts"), this.#empty, this.#list, this.#error, this.#footer, this.#agentHint);
     this.#sendAll.addEventListener("click", () => this.#options.onSendAll());
+    this.#agentHelp.addEventListener("click", () => this.#options.onAgentHelp());
     this.#list.addEventListener("pointerleave", () => this.#options.onHighlight(null));
     this.#list.addEventListener("focusout", (event) => {
       if (!this.#list.contains(event.relatedTarget as Node | null)) this.#options.onHighlight(null);

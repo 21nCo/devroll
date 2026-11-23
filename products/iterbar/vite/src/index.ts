@@ -41,8 +41,11 @@ function withBase(base: string, path: string): string {
   return directory + path;
 }
 
-/** The client module: mounts the bar once the dev server has answered with the daemon's URL and token. */
-function clientModule(configUrl: string): string {
+/**
+ * The client module: mounts the bar once the dev server has answered with the daemon's URL and token. `project` is the
+ * project's root folder: the bar keeps its place per project and fills it into "Use with your agent".
+ */
+function clientModule(configUrl: string, project: string): string {
   return `import { mountIterbarBar } from ${JSON.stringify(BAR_ID)};
 
 async function readConfig() {
@@ -59,7 +62,7 @@ async function readConfig() {
 
 if (typeof document !== "undefined") {
   // Not awaited at the top level, so an app that imports this module never waits on it to start.
-  void readConfig().then(({ daemonUrl, token }) => mountIterbarBar({ daemonUrl, token }));
+  void readConfig().then(({ daemonUrl, token }) => mountIterbarBar({ daemonUrl, token, project: ${JSON.stringify(project)} }));
 }
 `;
 }
@@ -171,7 +174,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
       order: "pre",
       async handler(id) {
         const config = this.environment.getTopLevelConfig();
-        if (id === RESOLVED_CLIENT_ID) return clientModule(withBase(config.base, CONFIG_PATH));
+        if (id === RESOLVED_CLIENT_ID) return clientModule(withBase(config.base, CONFIG_PATH), resolve(config.root, options.projectRoot ?? "."));
         if (await isLoadOfStore(id, { publicDir: config.publicDir, store: storeOf(config) })) {
           throw new Error(`Iterbar: ${id} is in an Iterbar store, which the dev server does not serve`);
         }
