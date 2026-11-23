@@ -200,3 +200,29 @@ test("loads nothing but the page and the daemon", async ({ page, openFixture, fi
   const allowed = [fixtureServer.origin, daemon.url, daemon.url.replace("http:", "ws:")];
   expect(requested.filter((url) => !allowed.some((origin) => url.startsWith(`${origin}/`)))).toEqual([]);
 });
+
+test("small muted text and links keep 4.5:1 contrast in both themes", async ({ page, openFixture }) => {
+  await openFixture();
+  await mountBar(page);
+  await page.locator("iterbar-bar [data-role=comment]").hover();
+  await page.locator("iterbar-bar [data-role=drafts-toggle]").click();
+  const ratio = (selector: string) => page.evaluate((target) => {
+    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+    const channel = (value: number) => {
+      const c = value / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = (color: string) => {
+      const [r, g, b] = color.match(/[\d.]+/gu)!.map(Number);
+      return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
+    };
+    const fg = luminance(getComputedStyle(root.querySelector(target)!).color);
+    const bg = luminance(getComputedStyle(root.querySelector(".panel")!).backgroundColor);
+    return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+  }, selector);
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    expect(await ratio("[data-role=drafts-empty]"), `muted text, ${scheme}`).toBeGreaterThanOrEqual(4.5);
+    expect(await ratio("[data-role=agent-help]"), `link, ${scheme}`).toBeGreaterThanOrEqual(4.5);
+  }
+});

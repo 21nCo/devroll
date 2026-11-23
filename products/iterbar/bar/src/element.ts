@@ -1264,10 +1264,13 @@ export class IterbarBarElement extends ElementBase {
     this.#dock.dataset.align = x > 2 / 3 ? "end" : "start";
   }
 
-  /** The visible width of the viewport and its offset in the layout viewport. */
+  /**
+   * The layout viewport, which the toolbar's CSS places it in (a fixed, top-layer box), in the coordinates element
+   * rectangles use. Dragging, waking and tooltips measure against the same box, so a pinch-zoomed, panned view never
+   * makes a drop land somewhere other than where it was shown.
+   */
   #viewport(): { left: number; width: number } {
-    const visual = window.visualViewport;
-    return { left: visual?.offsetLeft ?? 0, width: visual?.width ?? window.innerWidth };
+    return { left: 0, width: document.documentElement.clientWidth || window.innerWidth };
   }
 
   #startDrag(event: PointerEvent): void {

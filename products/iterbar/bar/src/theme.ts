@@ -40,11 +40,12 @@ export const BAR_CSS = String.raw`
   --ib-hover: hsl(0 0% 94%);      /* bgs3 */
   --ib-fg: hsl(0 0% 20%);         /* fgs1 */
   --ib-fg2: hsl(0 0% 33%);        /* fgs2 */
-  --ib-muted: hsl(0 0% 50%);      /* fgs3 */
+  --ib-muted: hsl(0 0% 42%);      /* fgs3, darkened so small muted text passes 4.5:1 on every surface */
   --ib-border: hsl(45 17% 91%);   /* brs3 */
   --ib-accent: hsl(239 55% 58%);  /* aps1 */
   --ib-accent-fg: hsl(0 0% 99%);  /* the scheme's text on accent: bgs1 */
   --ib-accent-soft: hsl(245 59% 89%); /* aps2 */
+  --ib-link: hsl(239 55% 58%);    /* aps1 */
   --ib-focus: hsl(239 55% 58%);   /* aps1 */
   --ib-success: hsl(151 66% 42%); /* ags1 */
   --ib-danger: hsl(0 89% 71%);    /* ars1 */
@@ -86,6 +87,8 @@ export const BAR_CSS = String.raw`
     --ib-accent: hsl(239 55% 58%);
     --ib-accent-fg: hsl(0 0% 99%);
     --ib-accent-soft: hsl(245 57% 25%);
+    /* aps1 lightened so link text passes 4.5:1 on the dark surfaces. */
+    --ib-link: hsl(239 70% 74%);
     --ib-focus: hsl(239 70% 72%);
     --ib-success: hsl(151 66% 42%);
     --ib-danger: hsl(0 89% 71%);
@@ -462,7 +465,7 @@ button.link {
   border: 0;
   border-radius: 4px;
   background: transparent !important;
-  color: var(--ib-accent);
+  color: var(--ib-link);
   font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 2px;
