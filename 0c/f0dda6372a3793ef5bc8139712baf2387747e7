@@ -1,0 +1,62 @@
+products/iterbar/bar/src/icons.ts
+  s_a4c487c54312b5::t_6eee3ccd2e79e6 1,3,5,7-10,13,20-21
+products/iterbar/bar/src/element.ts
+  s_a4c487c54312b5::t_ea1780200d9a5a 1364-1369
+  s_a4c487c54312b5::t_120a7557b625a2 5,7,12-13,16-17,65-89,91-98,136,138,144-164,215,223-225,227-241,245,249-250,254,259-260,262-264,271,322,330-334,343,345-348,350-356,373-384,401,422-442,508-511,518,526,558-560,589,591,961-962,973,980,1013-1018,1161-1164,1188,1194-1195,1197-1198,1202,1204-1206,1212-1215,1218,1222-1338,1347-1348,1355,1359-1362,1370-1371,1382,1385-1389,1415-1416,1428
+products/iterbar/bar/src/agent-help.ts
+  s_a4c487c54312b5::t_a9c22e90047ea6 1-213
+pnpm-lock.yaml
+  s_a4c487c54312b5::t_2272c01f7cad8b 250-255,576-579,1166-1168,4290-4291,4771-4774
+products/iterbar/bar/README.md
+  s_a4c487c54312b5::t_20cd13cb11b276 241-263,271-279
+products/iterbar/bar/THIRD-PARTY-NOTICES.md
+  s_a4c487c54312b5::t_f0f43d2445ed65 3-5,21-36
+products/iterbar/bar/package.json
+  s_a4c487c54312b5::t_efc2703bbcb3ae 32,44-45
+products/iterbar/bar/scripts/phosphor-icons.mjs
+  s_a4c487c54312b5::t_d62addd5199d7a 1-37
+products/iterbar/bar/src/assets.d.ts
+  s_a4c487c54312b5::t_307547f8540b26 1-5
+products/iterbar/bar/src/drafts.ts
+  s_a4c487c54312b5::t_ba5d6e589280c9 23-24,40-43,51,53
+products/iterbar/bar/src/fonts.ts
+  s_a4c487c54312b5::t_32b6abd3aec71c 1-27
+products/iterbar/bar/src/index.ts
+  s_a4c487c54312b5::t_64178de6c5b578 11-12
+products/iterbar/bar/src/phosphor.ts
+  s_a4c487c54312b5::t_12df84334b90a7 1-21
+products/iterbar/bar/src/position.test.ts
+  s_a4c487c54312b5::t_83c1a100f9dfca 2-5,9,12,19-35,39-44,48-74,77-78
+products/iterbar/bar/src/position.ts
+  s_a4c487c54312b5::t_920476ca656137 1,3-7,9-12,15,17,25-29,38-39,42,45-47,49-52,58-63,72-74,76,80,85-101,104-118,121-126
+products/iterbar/bar/src/theme.ts
+  s_a4c487c54312b5::t_c13627cdf3a1af 11-13,37-57,59,61,74-92,108-113,118,123,131-135,142,155-157,204-205,214,220,222-235,237-294,306,318-319,327,336,363,399,404,410-412,429-430,432,444-506,545,569,571,574-575
+products/iterbar/bar/test/keyboard.pw.ts
+  s_a4c487c54312b5::t_f641a0259bd847 37,46-55,79,87-89,104-106,108-119
+products/iterbar/bar/test/position.pw.ts
+  s_a4c487c54312b5::t_ca1742aeb02742 4-18,28,31,33,35-36,40-41,46-48,60-61,64-73,90,92,94,98-124,129-134,141,144,148,151-205,218,260,293,383
+products/iterbar/bar/test/style.pw.ts
+  s_a4c487c54312b5::t_bc5e0b31ce2269 44,183-184,186
+products/iterbar/bar/test/support/fixtures.ts
+  s_a4c487c54312b5::t_4f1400dda3b8b1 35-36,91
+products/iterbar/vite/src/index.ts
+  s_a4c487c54312b5::t_ec1a469bc51f3c 44-48,65,177
+products/iterbar/vite/src/plugin.test.ts
+  s_a4c487c54312b5::t_b62d7feef2f0cd 169-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0cf0dda6372a3793ef5bc8139712baf2387747e7",
+  "prompts": {},
+  "sessions": {
+    "s_a4c487c54312b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "52ead023-eb1e-4adb-9b06-3ab854cc5103",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
