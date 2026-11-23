@@ -254,7 +254,6 @@ export class IterbarBarElement extends ElementBase {
   #drag: { pointerId: number; startX: number; startLeft: number; width: number; moved: boolean } | null = null;
   #project: string | null = null;
   #heightObserver: ResizeObserver | null = null;
-  #projectRoot: string | null = null;
   readonly #detail = h("p", { class: "detail", "data-role": "status-detail", hidden: true });
   readonly #announcer = h("div", { class: "sr-only", "aria-live": "polite", "data-role": "announce" });
   readonly #comment = h("button", {
@@ -440,13 +439,12 @@ export class IterbarBarElement extends ElementBase {
    * with your agent" fills the path into its setup commands. `null` keeps one state per origin.
    */
   get project(): string | null {
-    return this.#projectRoot;
+    return this.#project;
   }
 
   set project(value: string | null) {
     const root = typeof value === "string" && value ? value : null;
-    if (root === this.#projectRoot) return;
-    this.#projectRoot = root;
+    if (root === this.#project) return;
     this.#project = root;
     this.#agentHelp.root = root;
     if (this.isConnected) {
