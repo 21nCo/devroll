@@ -476,7 +476,8 @@ test("copies without the Clipboard API from inside the bar, keeping focus on the
   await expect(copy).toHaveText("Copied");
   await expect(copy).toBeFocused();
   expect(await page.evaluate(() => (window as unknown as { copies: string[] }).copies)).toEqual([
-    "Use the iterbar MCP tools to read my latest Iterbar feedback batch, make the changes, and reply on each item when done.",
+    // Not "the latest batch": a comment sent on its own has no batch, and the prompt must not skip it.
+    "Use the iterbar MCP tools to read my open Iterbar feedback (with get_batch for comments I sent together), make the changes, and reply on each item when done.",
   ]);
   // The page never saw a text area of the bar's.
   expect(await page.evaluate(() => document.querySelectorAll("textarea").length)).toBe(0);
@@ -512,4 +513,53 @@ test("on a short, narrow screen the panel fits between the top and the wrapped t
   const toolbar = (await inBar(page, ".toolbar").boundingBox())!;
   expect(panel.y).toBeGreaterThanOrEqual(0);
   expect(panel.y + panel.height).toBeLessThanOrEqual(toolbar.y);
+});
+
+test("a drag that starts from a wrapped, narrow-screen wake keeps the toolbar's shape and follows the pointer", async ({ page, openFixture }) => {
+  await page.setViewportSize({ width: 280, height: 600 });
+  await openFixture();
+  await mountBar(page, { project: "/work/shop" });
+  await inBar(page, "[data-role=comment]").hover();
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+  const toolbar = inBar(page, ".toolbar");
+  const woken = (await toolbar.boundingBox())!;
+  const grab = (await inBar(page, "[data-role=grab]").boundingBox())!;
+  const y = grab.y + grab.height / 2;
+  await page.mouse.move(grab.x + grab.width / 2, y);
+  await page.mouse.down();
+  // Pressing the handle changes nothing about the toolbar's shape.
+  expect(await toolbar.boundingBox()).toEqual(woken);
+  // A small move right moves it right (or not at all when it is at the edge), never left, and it stays in view.
+  await page.mouse.move(grab.x + grab.width / 2 + 6, y);
+  const moved = (await toolbar.boundingBox())!;
+  expect(moved.x).toBeGreaterThanOrEqual(woken.x - 0.5);
+  expect(moved.x + moved.width).toBeLessThanOrEqual(280 - 12 + 0.5);
+  expect(moved.width).toBeCloseTo(woken.width, 0);
+  await page.mouse.up();
+});
+
+test("an open composer moves clear of a panel opened under it", async ({ page, openFixture }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await openFixture();
+  await page.evaluate(() => {
+    const target = document.createElement("button");
+    target.id = "low-target";
+    target.textContent = "Low target";
+    target.style.cssText = "position: absolute; left: 380px; top: 470px";
+    document.body.append(target);
+  });
+  await mountBar(page, { daemonUrl: "http://127.0.0.1:9", token: "0".repeat(64) });
+  await inBar(page, "[data-role=comment]").click();
+  await page.locator("#low-target").click();
+  const composer = inBar(page, "[data-section=composer]");
+  await expect(composer).toBeVisible();
+  await inBar(page, "[data-role=drafts-toggle]").click();
+  const panel = inBar(page, "[data-role=panel]");
+  await expect(panel).toBeVisible();
+  await expect.poll(async () => {
+    const c = (await composer.boundingBox())!;
+    const p = (await panel.boundingBox())!;
+    const overlaps = c.x < p.x + p.width && p.x < c.x + c.width && c.y < p.y + p.height && p.y < c.y + c.height;
+    return overlaps;
+  }).toBe(false);
 });

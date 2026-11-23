@@ -768,6 +768,8 @@ export class IterbarBarElement extends ElementBase {
     if (typeof ResizeObserver === "function") {
       this.#composerObserver = new ResizeObserver(this.#queuePlaceComposer);
       this.#composerObserver.observe(this.#composer.element);
+      // A panel opening, closing or changing size above the toolbar changes the room the composer must keep clear.
+      this.#composerObserver.observe(this.#panel);
     }
   }
 
@@ -1247,6 +1249,8 @@ export class IterbarBarElement extends ElementBase {
     this.#threads.element.hidden = panel !== "inbox";
     this.#slots.element.hidden = panel !== "versions";
     this.#agentHelp.element.hidden = panel !== "agent";
+    // An open composer keeps clear of the panel, which may just have opened or closed.
+    if (this.#composer.open) this.#queuePlaceComposer();
     // The connection's details belong with "Use with your agent", where the status opens to.
     this.#panel.dataset.panel = panel ?? "";
     for (const name of ["drafts", "inbox", "versions", "agent"] as const) {
@@ -1277,10 +1281,11 @@ export class IterbarBarElement extends ElementBase {
     if (event.button !== 0 || this.#drag) return;
     event.preventDefault();
     this.#hideTooltip();
-    // The drag holds the toolbar where it is now and drops any room a pointer wake gave it; the dock is the toolbar
-    // alone (the panel is placed on its own), so its rectangle is the toolbar's.
-    this.#dock.style.removeProperty("--ib-held-room");
+    // The drag holds the toolbar exactly as it is shown (the dock is the toolbar alone; the panel is placed on its
+    // own): its width is frozen, so a toolbar a pointer wake wrapped on a narrow screen stays wrapped, and that one
+    // width clamps the drag and settles the drop.
     const rect = this.#dock.getBoundingClientRect();
+    this.#dock.style.setProperty("--ib-held-room", `${rect.width}px`);
     this.#drag = { pointerId: event.pointerId, startX: event.clientX, startLeft: rect.left, width: rect.width, moved: false };
     try {
       this.#grab.setPointerCapture(event.pointerId);

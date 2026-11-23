@@ -9,7 +9,7 @@ const AGENT_LABELS: Readonly<Record<AgentName, string>> = { claude: "Claude Code
 
 /** What the user pastes into their agent once its MCP server is registered. */
 export const AGENT_PROMPT =
-  "Use the iterbar MCP tools to read my latest Iterbar feedback batch, make the changes, and reply on each item when done.";
+  "Use the iterbar MCP tools to read my open Iterbar feedback (with get_batch for comments I sent together), make the changes, and reply on each item when done.";
 
 interface Snippet {
   /** What the snippet is: a command to run, or a file and what to put in it. */

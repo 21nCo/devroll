@@ -225,4 +225,31 @@ test("small muted text and links keep 4.5:1 contrast in both themes", async ({ p
     expect(await ratio("[data-role=drafts-empty]"), `muted text, ${scheme}`).toBeGreaterThanOrEqual(4.5);
     expect(await ratio("[data-role=agent-help]"), `link, ${scheme}`).toBeGreaterThanOrEqual(4.5);
   }
+  // The "Copied" label of a copy button, on the button's own background.
+  await page.locator("iterbar-bar [data-role=agent-help]").click();
+  await page.evaluate(() => {
+    const button = document.querySelector("iterbar-bar")!.shadowRoot!.querySelector<HTMLElement>("[data-role=copy-prompt]")!;
+    button.dataset.copied = "";
+    button.textContent = "Copied";
+  });
+  const copied = (scheme: "light" | "dark") => page.evaluate(() => {
+    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+    const channel = (value: number) => {
+      const c = value / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = (color: string) => {
+      const [r, g, b] = color.match(/[\d.]+/gu)!.map(Number);
+      return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
+    };
+    const style = getComputedStyle(root.querySelector("[data-role=copy-prompt]")!);
+    const fg = luminance(style.color);
+    const bg = luminance(style.backgroundColor);
+    return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+  }).then((value) => ({ scheme, value }));
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const { value } = await copied(scheme);
+    expect(value, `Copied, ${scheme}`).toBeGreaterThanOrEqual(4.5);
+  }
 });

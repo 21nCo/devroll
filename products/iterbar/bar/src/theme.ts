@@ -48,6 +48,7 @@ export const BAR_CSS = String.raw`
   --ib-link: hsl(239 55% 58%);    /* aps1 */
   --ib-focus: hsl(239 55% 58%);   /* aps1 */
   --ib-success: hsl(151 66% 42%); /* ags1 */
+  --ib-success-text: hsl(151 66% 26%); /* ags1 darkened so small success text passes 4.5:1 */
   --ib-danger: hsl(0 89% 71%);    /* ars1 */
   --ib-danger-text: hsl(0 60% 48%);
   /* Rhombus's "needs you" amber (--rh-warn), a shade darker so white text on it passes 4.5:1. */
@@ -91,6 +92,7 @@ export const BAR_CSS = String.raw`
     --ib-link: hsl(239 70% 74%);
     --ib-focus: hsl(239 70% 72%);
     --ib-success: hsl(151 66% 42%);
+    --ib-success-text: hsl(151 66% 48%);
     --ib-danger: hsl(0 89% 71%);
     --ib-danger-text: hsl(0 89% 71%);
     --ib-warn: rgb(226 170 90);
@@ -522,7 +524,7 @@ button.link {
 }
 /* The copy command's text area (only where the Clipboard API is missing), out of sight inside the shadow root. */
 .copy-buffer { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.copy[data-copied] { color: var(--ib-success); border-color: var(--ib-success); }
+.copy[data-copied] { color: var(--ib-success-text); border-color: var(--ib-success); }
 
 /* The composer: a popover anchored next to the picked element. */
 .composer {
