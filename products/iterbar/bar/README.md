@@ -242,7 +242,11 @@ Removing the element closes the stream and cancels every timer.
   handle shows at its start: drag it to move the toolbar anywhere along the
   bottom edge (it stops at the margins), or focus it and press ← and → (Shift
   for bigger steps), Home or End. The position is kept as a share of the room
-  between the margins, so the toolbar stays in view at any window width.
+  between the margins, so the toolbar stays in view at any window width. The
+  panel above it is placed by the same share over its own width, so it stays
+  in view too. Past two thirds of the way along, the toolbar runs right to
+  left. Waking it by pointer never moves the button under the pointer: it
+  grows away from its edge, and what does not fit wraps onto a row above.
 - The position, whether the toolbar stays expanded, the open panel, the inbox
   filter and the agent chosen in "Use with your agent" are saved in local
   storage under `iterbar:toolbar:<project>` when the bar is given a `project`

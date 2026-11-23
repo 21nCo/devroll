@@ -49,9 +49,11 @@ export const BAR_CSS = String.raw`
   --ib-success: hsl(151 66% 42%); /* ags1 */
   --ib-danger: hsl(0 89% 71%);    /* ars1 */
   --ib-danger-text: hsl(0 60% 48%);
-  /* Rhombus's "needs you" amber (--rh-warn), for drafts waiting to be sent. */
-  --ib-warn: rgb(176 112 30);
+  /* Rhombus's "needs you" amber (--rh-warn), a shade darker so white text on it passes 4.5:1. */
+  --ib-warn: rgb(150 92 20);
   --ib-warn-fg: hsl(0 0% 99%);
+  /* Text on the green and red status fills (ags1, ars1): dark in both themes, for 4.5:1 contrast. */
+  --ib-on-status: hsl(228 26% 11%);
   --ib-tip-bg: hsl(0 0% 20%);     /* fgs1 */
   --ib-tip-fg: hsl(0 0% 99%);     /* bgs1 */
   --ib-shadow: 0 10px 32px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.10);
@@ -113,10 +115,8 @@ export const BAR_CSS = String.raw`
   transform: translateX(calc(var(--ib-x, 0.5) * -100%));
   z-index: 2147483647;
   display: flex;
-  /* The toolbar comes first for the keyboard; the panel shows above it. */
-  flex-direction: column-reverse;
-  align-items: center;
-  gap: 8px;
+  /* The dock is the toolbar's box; the panel (first for the keyboard after the toolbar) is placed above it on its own. */
+  flex-direction: column;
   width: max-content;
   max-width: calc(100% - 2 * var(--ib-margin));
   height: auto;
@@ -128,10 +128,13 @@ export const BAR_CSS = String.raw`
   background: transparent;
   pointer-events: none;
 }
-.dock[data-align="start"] { align-items: flex-start; }
-.dock[data-align="end"] { align-items: flex-end; }
-/* Woken by the pointer or being dragged: the toolbar stays where the bar holds it (see #holdPlace and the grab handle). */
-.dock[data-held] { left: var(--ib-held-left); transform: none; }
+/* Past two thirds of the way along, the toolbar runs right to left, so it wakes away from the edge; the grab handle
+   stays at its left end. */
+.dock[data-align="end"] .toolbar { flex-direction: row-reverse; }
+.dock[data-align="end"] .grab { order: 1; margin-right: 0; margin-left: -2px; }
+/* Woken by the pointer or being dragged: the toolbar stays where the bar holds it (see #holdPlace and the grab handle),
+   and what does not fit in the room it has wraps onto a row above. */
+.dock[data-held] { left: var(--ib-held-left); transform: none; max-width: var(--ib-held-room, calc(100% - 2 * var(--ib-margin))); }
 .dock[data-dragging], .dock[data-dragging] * { cursor: grabbing !important; user-select: none; }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
@@ -306,17 +309,23 @@ button:disabled { cursor: default; opacity: 0.55; }
   background: var(--ib-danger);
 }
 
-/* The panel: inbox, draft tray or versions, opening upward from the toolbar. */
+/* The panel: inbox, draft tray, versions or "Use with your agent", opening upward from the toolbar. It is placed by
+   the same position as the toolbar, over its own width, so it stays in view: its left edge is the toolbar's plus x of
+   the difference in width. */
 .panel {
+  --ib-panel-width: min(400px, calc(100vw - 2 * var(--ib-margin)));
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: calc(var(--ib-x, 0.5) * (100% - var(--ib-panel-width)));
   display: flex;
   flex-direction: column;
-  width: min(400px, calc(100vw - 2 * var(--ib-margin)));
-  max-height: min(70vh, 560px);
+  width: var(--ib-panel-width);
+  max-height: min(70vh, 560px, calc(100vh - var(--ib-bottom) - 64px));
   border-radius: 12px;
   overflow: hidden;
 }
 /* "Use with your agent" holds commands and config, so it takes more width. */
-.panel[data-panel="agent"] { width: min(480px, calc(100vw - 2 * var(--ib-margin))); max-height: min(78vh, 640px); }
+.panel[data-panel="agent"] { --ib-panel-width: min(480px, calc(100vw - 2 * var(--ib-margin))); max-height: min(78vh, 640px, calc(100vh - var(--ib-bottom) - 64px)); }
 .panel-header {
   display: flex;
   align-items: center;
@@ -408,8 +417,8 @@ p { margin: 0 0 6px; }
   color: var(--ib-fg);
 }
 .badge[data-status="working"] { background: var(--ib-warn); color: var(--ib-warn-fg); }
-.badge[data-status="needs-info"] { background: var(--ib-danger); color: hsl(0 0% 99%); }
-.badge[data-status="done"], .badge[data-status="resolved"] { background: var(--ib-success); color: hsl(0 0% 99%); }
+.badge[data-status="needs-info"] { background: var(--ib-danger); color: var(--ib-on-status); }
+.badge[data-status="done"], .badge[data-status="resolved"] { background: var(--ib-success); color: var(--ib-on-status); }
 
 .draft {
   display: flex;
@@ -502,6 +511,8 @@ button.link {
   font-size: 11px;
   font-weight: 500;
 }
+/* The copy command's text area (only where the Clipboard API is missing), out of sight inside the shadow root. */
+.copy-buffer { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .copy[data-copied] { color: var(--ib-success); border-color: var(--ib-success); }
 
 /* The composer: a popover anchored next to the picked element. */

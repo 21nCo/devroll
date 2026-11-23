@@ -135,14 +135,21 @@ function isTextEntry(target: EventTarget | undefined): boolean {
 
 function readStoredState(project: string | null): BarState {
   try {
-    return parseBarState(localStorage.getItem(barStateStorageKey(project)));
+    // A project with nothing stored yet starts from the origin's state, which a bar without a project kept.
+    const stored = localStorage.getItem(barStateStorageKey(project))
+      ?? (project ? localStorage.getItem(barStateStorageKey(null)) : null);
+    return parseBarState(stored);
   } catch {
     return parseBarState(null);
   }
 }
 
-/** Puts `text` on the clipboard: the Clipboard API, or a selected text area and the copy command where it is missing. */
-async function copyText(text: string): Promise<void> {
+/**
+ * Puts `text` on the clipboard: the Clipboard API, or, where it is missing (a page that is not a secure context), a
+ * selected text area and the copy command. That text area lives in `container`, inside the bar's shadow root, so page
+ * styles and focus handling never see it, and focus goes back to where it was in `root`.
+ */
+async function copyText(text: string, root: ShadowRoot, container: Element): Promise<void> {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -151,14 +158,22 @@ async function copyText(text: string): Promise<void> {
       // Falls back below.
     }
   }
+  const focused = root.activeElement as HTMLElement | null;
   const area = document.createElement("textarea");
   area.value = text;
   area.setAttribute("readonly", "");
-  area.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
-  document.body.append(area);
-  area.select();
-  const copied = document.execCommand("copy");
-  area.remove();
+  area.setAttribute("aria-hidden", "true");
+  area.tabIndex = -1;
+  area.className = "copy-buffer";
+  container.append(area);
+  let copied: boolean;
+  try {
+    area.select();
+    copied = document.execCommand("copy");
+  } finally {
+    area.remove();
+    focused?.focus();
+  }
   if (!copied) throw new Error("The browser refused to copy");
 }
 
@@ -330,7 +345,7 @@ export class IterbarBarElement extends ElementBase {
       onAgentHelp: () => this.#openPanel("agent", true),
     });
     this.#agentHelp = new AgentHelp({
-      copy: (text) => copyText(text),
+      copy: (text) => copyText(text, this.#root, this.#panel),
       onAgent: (agent) => this.#saveState({ ...this.#state, agent }),
     });
     this.#draftsButton.append(this.#draftCount);
@@ -549,14 +564,22 @@ export class IterbarBarElement extends ElementBase {
     this.commentMode = false;
     this.#setCrosshair(false);
     this.#picker.mark(null);
-    // A wake and a held place belong to this stay on the page; reinserted, the toolbar starts asleep and docked.
+    // A drag in progress ends here (its pointer capture went with the element), unsaved, so the cleanup below runs.
+    if (this.#drag) {
+      try {
+        this.#grab.releasePointerCapture(this.#drag.pointerId);
+      } catch {
+        // Already released.
+      }
+    }
+    this.#drag = null;
+    this.#dock.removeAttribute("data-dragging");
+    // A wake and a held place belong to this stay on the page; reinserted, the toolbar starts asleep at its place.
     this.#holdPlace(false);
     window.removeEventListener("keydown", this.#onKeydown, true);
     window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
     window.removeEventListener("resize", this.#releaseHold);
     window.visualViewport?.removeEventListener("resize", this.#releaseHold);
-    this.#drag = null;
-    this.#dock.removeAttribute("data-dragging");
     this.#hideTooltip();
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
@@ -591,6 +614,7 @@ export class IterbarBarElement extends ElementBase {
     if (this.#drag) return;
     this.#dock.removeAttribute("data-held");
     this.#dock.style.removeProperty("--ib-held-left");
+    this.#dock.style.removeProperty("--ib-held-room");
   };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
@@ -695,7 +719,9 @@ export class IterbarBarElement extends ElementBase {
     this.#composer.element.style.maxWidth = `${Math.max(0, viewport.width - 2 * BAR_MARGIN_PX)}px`;
     this.#composer.element.style.maxHeight = `${Math.max(0, viewport.height - 2 * BAR_MARGIN_PX)}px`;
     const box = this.#composer.element.getBoundingClientRect();
-    const reserved = Math.max(0, offset.top + viewport.height - this.#dock.getBoundingClientRect().top);
+    // The toolbar, and the panel above it when one is open, are kept clear.
+    const barTop = Math.min(this.#dock.getBoundingClientRect().top, this.#panel.hidden ? Infinity : this.#panel.getBoundingClientRect().top);
+    const reserved = Math.max(0, offset.top + viewport.height - barTop);
     const target = rect
       ? { left: rect.left - offset.left, top: rect.top - offset.top, width: rect.width, height: rect.height }
       : { left: viewport.width / 2 - box.width / 2, top: viewport.height / 3, width: 0, height: 0 };
@@ -1195,7 +1221,7 @@ export class IterbarBarElement extends ElementBase {
 
   #applyState(): void {
     const { x, expanded, panel } = this.#state;
-    this.#dock.dataset.align = x < 1 / 3 ? "start" : x > 2 / 3 ? "end" : "center";
+    this.#setPosition(x);
     this.#dock.toggleAttribute("data-expanded", expanded);
     this.#toggle.setAttribute("aria-expanded", String(expanded));
     this.#toggle.setAttribute("aria-label", expanded ? "Let the toolbar sleep" : "Keep the toolbar expanded");
@@ -1215,8 +1241,16 @@ export class IterbarBarElement extends ElementBase {
     for (const name of ["drafts", "inbox", "versions", "agent"] as const) {
       this.#panelButton(name).setAttribute("aria-expanded", String(panel === name));
     }
-    this.#dock.style.setProperty("--ib-x", String(x));
     this.#applyAwake();
+  }
+
+  /**
+   * Places the toolbar and its panel at position `x` (see theme.ts: both share out their room between the margins, so
+   * neither leaves the viewport). Past two thirds the toolbar runs right to left, so it wakes away from the edge.
+   */
+  #setPosition(x: number): void {
+    this.#dock.style.setProperty("--ib-x", String(x));
+    this.#dock.dataset.align = x > 2 / 3 ? "end" : "start";
   }
 
   /** The visible width of the viewport and its offset in the layout viewport. */
@@ -1229,6 +1263,9 @@ export class IterbarBarElement extends ElementBase {
     if (event.button !== 0 || this.#drag) return;
     event.preventDefault();
     this.#hideTooltip();
+    // The drag holds the toolbar where it is now and drops any room a pointer wake gave it; the dock is the toolbar
+    // alone (the panel is placed on its own), so its rectangle is the toolbar's.
+    this.#dock.style.removeProperty("--ib-held-room");
     const rect = this.#dock.getBoundingClientRect();
     this.#drag = { pointerId: event.pointerId, startX: event.clientX, startLeft: rect.left, width: rect.width, moved: false };
     try {
@@ -1251,6 +1288,8 @@ export class IterbarBarElement extends ElementBase {
     if (Math.abs(event.clientX - drag.startX) > 2) drag.moved = true;
     this.#dock.style.setProperty("--ib-held-left", `${left}px`);
     const x = positionForLeft(left - viewport.left, drag.width, viewport.width);
+    // The panel and the toolbar's direction follow the drag as it goes, so nothing jumps when it is dropped.
+    this.#setPosition(x);
     this.#grab.setAttribute("aria-valuenow", String(Math.round(x * 100)));
     this.#grab.setAttribute("aria-valuetext", describePosition(x));
   }
@@ -1349,6 +1388,7 @@ export class IterbarBarElement extends ElementBase {
       dock.removeAttribute("data-hovered");
       dock.removeAttribute("data-held");
       dock.style.removeProperty("--ib-held-left");
+      dock.style.removeProperty("--ib-held-room");
       return;
     }
     if (dock.hasAttribute("data-hovered")) return;
@@ -1356,19 +1396,29 @@ export class IterbarBarElement extends ElementBase {
       dock.toggleAttribute("data-hovered", true);
       return;
     }
-    // Measured before it wakes; the dock cancels any page zoom, so its CSS pixels are viewport pixels. Waking adds the
-    // grab handle before the sleeping buttons and the rest after them; the dock moves left by the handle's width so the
-    // sleeping buttons stay under the pointer, and further left only as far as keeping the whole toolbar in view needs.
-    const before = this.#comment.getBoundingClientRect().left;
-    dock.toggleAttribute("data-hovered", true);
-    // Awake, the comment button sits this far from the dock's left edge; the dock goes where that keeps it in place.
-    const awake = dock.getBoundingClientRect();
-    const offset = this.#comment.getBoundingClientRect().left - awake.left;
+    // Measured before it wakes; the dock cancels any page zoom, so its CSS pixels are viewport pixels. The sleeping
+    // buttons stay under the pointer: the toolbar grows away from its edge, and controls that do not fit wrap onto a
+    // row above instead of moving them.
     const viewport = this.#viewport();
-    const max = viewport.left + viewport.width - BAR_MARGIN_PX - awake.width;
-    const held = Math.max(viewport.left + BAR_MARGIN_PX, Math.min(max, before - offset));
-    dock.style.setProperty("--ib-held-left", `${held}px`);
+    const min = viewport.left + BAR_MARGIN_PX;
+    const maxRight = viewport.left + viewport.width - BAR_MARGIN_PX;
+    const pill = dock.getBoundingClientRect();
+    const before = this.#comment.getBoundingClientRect().left;
+    dock.style.setProperty("--ib-held-left", `${pill.left}px`);
     dock.toggleAttribute("data-held", true);
+    dock.toggleAttribute("data-hovered", true);
+    if (dock.dataset.align === "end") {
+      // Right to left: the pill's right edge holds still and the woken controls (the grab handle last) go leftward.
+      dock.style.setProperty("--ib-held-room", `${Math.max(0, pill.right - min)}px`);
+      dock.style.setProperty("--ib-held-left", `${pill.right - dock.getBoundingClientRect().width}px`);
+      return;
+    }
+    // Left to right: the grab handle comes before the sleeping buttons, so the dock moves left by as much (never past
+    // the margin), and the rest grows rightward.
+    const offset = this.#comment.getBoundingClientRect().left - dock.getBoundingClientRect().left;
+    const left = Math.max(min, before - offset);
+    dock.style.setProperty("--ib-held-left", `${left}px`);
+    dock.style.setProperty("--ib-held-room", `${Math.max(0, maxRight - left)}px`);
   }
 
   /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */

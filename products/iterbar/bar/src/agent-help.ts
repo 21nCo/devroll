@@ -62,7 +62,9 @@ export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
       return {
         connect: [{
           caption: "Add to the project's .cursor/mcp.json:",
-          text: '{\n  "mcpServers": {\n    "iterbar": { "command": "iterbar", "args": ["mcp", "--root", "${workspaceFolder}"] }\n  }\n}',
+          // The project's own path when the bar knows it, so the server serves the daemon the bar talks to even when
+          // Cursor's workspace folder is another one; otherwise the reference's ${workspaceFolder}.
+          text: `{\n  "mcpServers": {\n    "iterbar": { "command": "iterbar", "args": ["mcp", "--root", ${JSON.stringify(root ?? "${workspaceFolder}")}] }\n  }\n}`,
         }],
         skill: [{
           caption: skillFrom,
