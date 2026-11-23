@@ -25,6 +25,10 @@ export interface FakeDaemon {
   dropFeedbackAnswer: boolean;
   /** A 5xx status to answer `POST /feedback` with after storing it, as when the daemon fails after its write. */
   failFeedbackAfterStore: number | null;
+  /** When set, `POST /feedback` of a comment with this text is refused with `409`. */
+  failFeedbackText: string | null;
+  /** When set, stored feedback loses its batch fields, as with a daemon from before batches. */
+  dropBatch: boolean;
   readonly sockets: WebSocketRoute[];
   readonly closedSockets: WebSocketRoute[];
   send(event: DaemonEvent | string): void;
@@ -59,6 +63,8 @@ export async function fakeDaemon(
     holdFeedback: null,
     dropFeedbackAnswer: false,
     failFeedbackAfterStore: null,
+    dropBatch: false,
+    failFeedbackText: null,
     sockets: [],
     closedSockets: [],
     send(event) {
@@ -96,13 +102,14 @@ export async function fakeDaemon(
         const error = FEEDBACK_ERRORS[status] ?? { code: status < 500 ? "invalid_request" : "internal", message: `Failed with ${status}` };
         await route.fulfill({ status, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error }) });
       };
-      if (daemon.failFeedback !== null) {
-        await fail(daemon.failFeedback);
+      const post = daemon.failFeedback === null ? { ...(await readFeedbackPost(request)), receivedAt } : null;
+      const refusal = post === null ? daemon.failFeedback : refusalFor(daemon, post.draft);
+      if (refusal !== null || post === null) {
+        await fail(refusal ?? 409);
         return;
       }
-      const post = { ...(await readFeedbackPost(request)), receivedAt };
       daemon.posts.push(post);
-      const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length);
+      const stored = storedFeedback(post.draft, post.screenshot, daemon.posts.length, daemon.dropBatch);
       // Stored, but neither answered nor announced: only a listing shows it.
       if (daemon.failFeedbackAfterStore !== null || daemon.dropFeedbackAnswer) daemon.items = [stored, ...daemon.items];
       if (daemon.failFeedbackAfterStore !== null) {
@@ -146,10 +153,21 @@ async function readFeedbackPost(request: Request): Promise<{ draft: FeedbackDraf
   return { draft, screenshot: screenshot instanceof Blob ? Buffer.from(await screenshot.arrayBuffer()) : null };
 }
 
-function storedFeedback(draft: FeedbackDraft, screenshot: Buffer | null, index: number): Feedback {
+/** The status a `POST /feedback` of `draft` is refused with, from {@link FakeDaemon.failFeedbackText}, or `null`. */
+function refusalFor(daemon: FakeDaemon, draft: FeedbackDraft): number | null {
+  return daemon.failFeedbackText !== null && draft.text === daemon.failFeedbackText ? 409 : null;
+}
+
+function storedFeedback(draft: FeedbackDraft, screenshot: Buffer | null, index: number, dropBatch = false): Feedback {
   // A stored item has no evidence window; this fake never stores evidence.
   const content: Partial<FeedbackDraft> = { ...draft };
   delete content.evidenceWindow;
+  // A daemon from before batches drops their fields.
+  if (dropBatch) {
+    delete content.batchId;
+    delete content.batchSize;
+    delete content.batchIndex;
+  }
   const at = new Date().toISOString();
   return {
     ...content,

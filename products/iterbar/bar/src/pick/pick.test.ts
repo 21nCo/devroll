@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_SCREENSHOT_PIXELS, pngDimensions, RenderSlot, screenshotScale, unavailableReason } from "./screenshot.js";
 import { cssString } from "./selector.js";
-import { textExcerpt } from "./target.js";
+import { formatLabel, labelTarget, labelTooltip, lastSelectorStep, textExcerpt } from "./target.js";
 
 describe("textExcerpt", () => {
   it("collapses whitespace and keeps short text whole", () => {
@@ -98,5 +98,36 @@ describe("RenderSlot", () => {
     (await second)();
     (await third)();
     expect(order).toEqual(["+a", "-a", "+b", "-b", "+c", "-c"]);
+  });
+});
+
+describe("target labels", () => {
+  const box = { x: 0, y: 0, width: 10, height: 10 };
+
+  it("names a stored target by its text and source file and line, with the full location and selector for a tooltip", () => {
+    const label = labelTarget({
+      selector: '[data-testid="card"]', textExcerpt: "Fresh start card", boundingBox: box,
+      sourceLocation: { path: "src/components/home/FreshStart.svelte", line: 70, column: 7 },
+    })!;
+    expect(formatLabel(label)).toBe("“Fresh start card” · FreshStart.svelte:70");
+    expect(labelTooltip(label)).toBe('Source: src/components/home/FreshStart.svelte:70:7\nSelector: [data-testid="card"]');
+  });
+
+  it("falls back to the last selector step without text, and to nothing without a target", () => {
+    const label = labelTarget({ selector: ":root > body > main > div.text-[12px]", textExcerpt: "", boundingBox: box, sourceLocation: null })!;
+    expect(formatLabel(label)).toBe("div.text-[12px]");
+    expect(labelTarget(null)).toBeNull();
+  });
+
+  it("finds the last selector step outside quoted attribute values", () => {
+    expect(lastSelectorStep('[data-testid="menu > save"]')).toBe('[data-testid="menu > save"]');
+    expect(lastSelectorStep('main > [aria-label="a > b"] > span.x')).toBe("span.x");
+    expect(lastSelectorStep(":root > body > p:nth-of-type(2)")).toBe("p:nth-of-type(2)");
+  });
+
+  it("cuts a long excerpt", () => {
+    const label = labelTarget({ selector: "p", textExcerpt: "word ".repeat(40), boundingBox: box, sourceLocation: null })!;
+    expect(label.name.length).toBeLessThanOrEqual(50);
+    expect(label.name.endsWith("…”")).toBe(true);
   });
 });

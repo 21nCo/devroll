@@ -14,8 +14,8 @@ open an attachment file whose `path` a tool gave you.
 
 ## Prerequisites
 
-1. The `iterbar` MCP tools are available (`list_feedback`, `get_feedback`, `reply`, `set_status`, `list_slots`,
-   `wait_for_feedback`). If they are not, stop and ask the user to add the server; see
+1. The `iterbar` MCP tools are available (`list_feedback`, `get_feedback`, `get_batch`, `reply`, `set_status`,
+   `list_slots`, `wait_for_feedback`). If they are not, stop and ask the user to add the server; see
    [references/setup.md](references/setup.md).
 2. The daemon runs. Call `list_feedback`. If it fails with error code `daemon_unavailable`, ask the user to run
    `iterbar dev` in the project root (or the app's dev server, when its Iterbar plugin starts the daemon), then
@@ -82,6 +82,35 @@ Work in a loop, one feedback item at a time, oldest first:
    guessing (read the thread again first, as above). Their answer arrives as a user reply in the same thread.
 7. When the user says a thread is finished, or you have answered a question that needs no change, `set_status` to
    `resolved`.
+
+### Batches
+
+The user can collect several comments in the bar's draft tray and send them together. Every item of such a batch has
+the same `batchId` (items sent on their own have none). When a `created` event brings an item with a `batchId`, or the
+first listing of a session shows unfinished (`open` or `working`) items with one, work through that batch's unfinished
+items as one change instead of item by item; leave its items that are already done alone. A later user reply on one item of a batch is about
+that thread only: handle it like any reply, without reopening the rest of the batch.
+
+1. `get_batch` with that `batchId`, keeping `includeAttachments` at its default (`true`): look at the screenshots,
+   since they show what the user saw. It returns every item of the batch in the order the user put them in the tray,
+   each with its target, `sourceLocation`, selector, text excerpt and `activeVariants`, and every screenshot (each
+   labelled with its item's id). Past 24 MiB in one call a screenshot is not inlined (`inlined: false`); open its
+   `path` when you need it. If `complete` is `false` and `lastArrivedAt` is under a minute ago, the rest is still
+   being sent: `wait_for_feedback` with your cursor and a `timeoutSeconds` no longer than what is left of that minute,
+   then call `get_batch` again. Keep any events that wait returns for other threads and handle them after the batch,
+   as you would any wait result; continue with the cursor it returned. If `lastArrivedAt` is older than a minute, the
+   rest will not come; work on what is there. Read all of them before you change anything: comments in a batch often relate (the same component, a
+   consistent style), and one edit may answer several.
+2. `set_status` `working` on every unfinished item of the batch (leave items already done alone). An entry with
+   `supersededBy` is an earlier copy of a comment the user sent again (perhaps edited): act on the copy it names, and
+   on this one reply that it was sent again and set it `resolved`. Judge the newest copy against the code as it is now:
+   if the code already does what it asks (an earlier copy you finished may have done it), reply that it is done and
+   set it `done`; otherwise make the change.
+3. Make the changes.
+4. For each item you worked on: read it again with `get_feedback` (`includeAttachments: false`), `reply` with what you changed for
+   that comment, and `set_status` `done`, or ask and set `needs-info` for that item alone.
+5. The batch's items also arrive as separate `created` events; once you have handled the batch, treat those events as
+   handled.
 
 When nothing new is left, call `wait_for_feedback` with the latest `cursor` (from the unfiltered `list_feedback`
 or the previous wait). It returns when a user sends new feedback or replies in a thread:

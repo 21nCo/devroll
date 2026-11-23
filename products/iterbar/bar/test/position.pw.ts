@@ -1,177 +1,565 @@
-import { fakeDaemon } from "./support/fake-daemon.js";
-import { expect, inBar, mountBar, test } from "./support/fixtures.js";
+import { fakeDaemon, comment } from "./support/fake-daemon.js";
+import { expect, inBar, mountBar, openPanel, test } from "./support/fixtures.js";
 
-test("drags to any screen edge and remembers the position and collapsed state for the origin", async ({ page, openFixture }) => {
+/**
+ * A finger on the sleeping toolbar's own surface, as touch pointer events. Every part of the sleeping pill is a button
+ * (and Chrome moves a tap onto the nearest one), so a real tap would also press one.
+ */
+async function touchToolbar(page: import("@playwright/test").Page): Promise<void> {
+  await page.evaluate(() => {
+    const toolbar = document.querySelector("iterbar-bar")!.shadowRoot!.querySelector(".toolbar")!;
+    for (const type of ["pointerover", "pointerenter", "pointerdown", "pointerup", "pointerout", "pointerleave"]) {
+      toolbar.dispatchEvent(new PointerEvent(type, { bubbles: !type.endsWith("enter") && !type.endsWith("leave"), composed: true, pointerType: "touch" }));
+    }
+  });
+}
+
+// The docked toolbar: asleep by default at the bottom centre, moved along the bottom edge with its grab handle, with its
+// state remembered per project.
+
+test("sleeps as a compact pill at the bottom centre and wakes on hover and focus", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("One open"), comment("Done one", { status: "done" })]);
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
+  const toolbar = inBar(page, ".toolbar");
+  const viewport = page.viewportSize()!;
+
+  // Asleep: the comment, inbox and drafts buttons, the open count and the connection's dot, nothing else.
+  await expect(inBar(page, "[data-role=comment]")).toBeVisible();
+  await expect(inBar(page, "[data-role=inbox-toggle]")).toBeVisible();
+  await expect(inBar(page, "[data-role=drafts-toggle]")).toBeVisible();
+  await expect(inBar(page, "[data-role=status-dot]")).toBeVisible();
+  await expect(inBar(page, "[data-role=open-count]")).toHaveText("1");
+  for (const role of ["versions-toggle", "grab", "toggle"]) await expect(inBar(page, `[data-role=${role}]`)).toBeHidden();
+  await expect(inBar(page, "[data-role=status]")).not.toBeInViewport();
+  const asleep = (await toolbar.boundingBox())!;
+  // A gap below the toolbar: it never sits on the bottom edge.
+  expect(asleep.y + asleep.height).toBeCloseTo(viewport.height - 20, 0);
+  // Centred in its room, which keeps space at the left margin for the grab handle waking adds.
+  expect(asleep.x + asleep.width / 2).toBeCloseTo(viewport.width / 2 + 8, 0);
+  expect(asleep.width).toBeLessThan(200);
+
+  // Hover wakes it in place: whichever sleeping button is under the pointer stays there, wherever the toolbar sits
+  // and the woken toolbar fits.
+  const roleAt = (x: number, y: number) => page.evaluate(({ x, y }) => {
+    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+    return (root.elementFromPoint(x, y)?.closest("[data-role]") as HTMLElement | null)?.dataset.role;
+  }, { x, y });
+  // Narrow: too narrow for the woken toolbar beside the pill, so the rest wraps above it.
+  for (const [position, width] of [[0.5, 1000], [0, 1000], [0.3, 1000], [1, 1000], [0.85, 1000], [0.5, 360], [1, 360], [0.5, 280]] as const) {
+    if (position !== 0.5 || width !== 1000) {
+      await page.setViewportSize({ width, height: 700 });
+      await page.evaluate((x) => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ x })), position);
+      await openFixture();
+      await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+      await expect(inBar(page, "[data-role=open-count]")).toHaveText("1");
+    }
+    for (const role of ["comment", "inbox-toggle", "drafts-toggle", "status-dot"]) {
+      await page.mouse.move(5, 5);
+      await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
+      const box = (await inBar(page, `[data-role=${role}]`).boundingBox())!;
+      // Near the control's left edge as well as its centre: nothing that waking adds lands under the pointer.
+      const point = { x: box.x + Math.min(3, box.width / 4), y: box.y + box.height / 2 };
+      await page.mouse.move(point.x, point.y);
+      await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+      await expect(inBar(page, "[data-role=grab]")).toBeVisible();
+      expect(await roleAt(point.x, point.y), `${role} at position ${position}, ${width} px`).toBe(role);
+      // Awake, every control stays in view.
+      for (const control of await inBar(page, ".toolbar > :not([hidden])").all()) {
+        const box = await control.boundingBox();
+        if (!box) continue;
+        expect(box.x, `${position}, ${width} px`).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, `${position}, ${width} px`).toBeLessThanOrEqual(width + 0.5);
+      }
+    }
+  }
+  await page.setViewportSize({ width: 1000, height: 700 });
+
+  await page.evaluate(() => localStorage.removeItem(window.fixture.BAR_STATE_STORAGE_KEY));
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  await toolbar.hover();
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+  const awake = (await toolbar.boundingBox())!;
+  expect(awake.width).toBeGreaterThan(asleep.width);
+  expect(awake.x + awake.width).toBeLessThanOrEqual(viewport.width - 12 + 0.5);
+  await page.mouse.move(5, 5);
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
+
+  // Focus wakes it too.
+  await inBar(page, "[data-role=comment]").focus();
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+});
+
+test("moves along the bottom edge by its grab handle, kept in view, and remembers the place per project", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Thread")]);
+  const project = "/work/shop";
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project });
+  const toolbar = inBar(page, ".toolbar");
+  const viewport = page.viewportSize()!;
+
+  // The grab handle shows at the toolbar's start once it wakes; there is no dock button any more.
+  await expect(inBar(page, "[data-role=dock]")).toHaveCount(0);
+  await inBar(page, "[data-role=comment]").hover();
+  const grab = inBar(page, "[data-role=grab]");
+  await expect(grab).toBeVisible();
+  const handle = (await grab.boundingBox())!;
+  expect(handle.x).toBeLessThan((await inBar(page, "[data-role=comment]").boundingBox())!.x);
+
+  // Dragged left, it follows the pointer; dragged far past the left edge, it stops at the margin.
+  const start = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
+  const before = (await toolbar.boundingBox())!;
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x - 100, start.y, { steps: 5 });
+  expect(Math.round((await toolbar.boundingBox())!.x)).toBe(Math.round(before.x - 100));
+  await page.mouse.move(-500, start.y, { steps: 5 });
+  await page.mouse.up();
+  // At the left margin; asleep (the pointer is away) it keeps room there for the grab handle.
+  await expect.poll(async () => Math.round((await toolbar.boundingBox())!.x)).toBe(12 + 16);
+  await expect(grab).toHaveAttribute("aria-valuetext", "left");
+
+  // And past the right edge, it stops at the right margin.
+  await inBar(page, "[data-role=comment]").hover();
+  const left = (await grab.boundingBox())!;
+  await page.mouse.move(left.x + left.width / 2, left.y + left.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(viewport.width + 400, left.y + left.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const box = (await toolbar.boundingBox())!;
+    return Math.round(box.x + box.width);
+  }).toBe(viewport.width - 12);
+  await expect(grab).toHaveAttribute("aria-valuetext", "right");
+
+  // The place is stored for the project, not for the whole origin.
+  const stored = await page.evaluate((key) => localStorage.getItem(key), `${await page.evaluate(() => window.fixture.BAR_STATE_STORAGE_KEY)}:${project}`);
+  expect(JSON.parse(stored!)).toMatchObject({ x: 1 });
+  expect(await page.evaluate(() => localStorage.getItem(window.fixture.BAR_STATE_STORAGE_KEY))).toBeNull();
+
+  // The inbox opens above the toolbar, along the same edge, without covering it.
+  await openPanel(page, "inbox");
+  const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
+  const bar = (await toolbar.boundingBox())!;
+  expect(panel.y + panel.height).toBeLessThanOrEqual(bar.y);
+  expect(Math.round(panel.x + panel.width)).toBe(viewport.width - 12);
+  await expect(inBar(page, "[data-role=panel] h2").first()).toHaveText("Inbox");
+
+  // Pinned open and reloaded: the place, the pin and the open panel come back for the project.
+  await inBar(page, "[data-role=toggle]").click();
+  await expect(inBar(page, "[data-role=toggle]")).toHaveAttribute("aria-expanded", "true");
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project });
+  await expect(inBar(page, "[data-role=panel]")).toBeVisible();
+  await expect(inBar(page, ".thread")).toHaveCount(1);
+  await expect.poll(async () => {
+    const box = (await toolbar.boundingBox())!;
+    return Math.round(box.x + box.width);
+  }).toBe(viewport.width - 12);
+
+  // A narrower window keeps it in view.
+  await page.setViewportSize({ width: 600, height: viewport.height });
+  await expect.poll(async () => {
+    const box = (await toolbar.boundingBox())!;
+    return Math.round(box.x + box.width);
+  }).toBe(600 - 12);
+});
+
+test("explains every toolbar control in a tooltip, the connection included, which opens Use with your agent", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, []);
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
+  await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
+  await inBar(page, "[data-role=comment]").hover();
+  const tooltip = inBar(page, "[data-role=tooltip]");
+  for (const [role, label] of [
+    ["comment", "Comment"], ["inbox-toggle", "Inbox"], ["drafts-toggle", "Drafts"], ["status-button", "Connected"],
+    ["versions-toggle", "Versions"], ["toggle", "Keep expanded"], ["grab", "Drag to move"],
+  ] as const) {
+    const control = inBar(page, `[data-role=${role}]`);
+    await control.hover();
+    await expect(tooltip, role).toBeVisible();
+    await expect(tooltip.locator(".tooltip-label"), role).toContainText(label);
+    // Every control has an accessible name of its own.
+    expect(await control.getAttribute("aria-label"), role).toBeTruthy();
+  }
+  // The connection is one control, its dot next to its label, and its tooltip says what it is connected to.
+  await inBar(page, "[data-role=status-button]").hover();
+  await expect(tooltip).toContainText("Connected to Iterbar: comments are saved for your coding agent.");
+  await expect(inBar(page, "[data-role=status-button]")).toHaveAttribute("aria-describedby", "iterbar-tooltip");
+  const dot = (await inBar(page, "[data-role=status-dot]").boundingBox())!;
+  const label = (await inBar(page, "[data-role=status]").boundingBox())!;
+  expect(label.x - (dot.x + dot.width)).toBeLessThan(10);
+  await page.mouse.move(5, 5);
+  await expect(tooltip).toBeHidden();
+
+  // Clicking it opens "Use with your agent", with the project's path in the setup commands and a prompt to copy.
+  await inBar(page, "[data-role=comment]").hover();
+  await inBar(page, "[data-role=status-button]").click();
+  await expect(inBar(page, "[data-role=panel] h2").first()).toHaveText("Use with your agent");
+  await expect(inBar(page, "[data-step=connect] .snippet-text")).toHaveText("claude mcp add iterbar -- iterbar mcp --root /work/shop");
+  await inBar(page, "#iterbar-agent-codex").click();
+  await expect(inBar(page, "[data-step=connect] .snippet-text")).toContainText('args = ["mcp", "--root", "/work/shop"]');
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: fixtureServer.origin });
+  await inBar(page, "[data-role=copy-prompt]").click();
+  await expect(inBar(page, "[data-role=copy-prompt]")).toHaveText("Copied");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Use the iterbar MCP tools");
+  // The chosen agent is remembered.
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem(`${window.fixture.BAR_STATE_STORAGE_KEY}:/work/shop`)))!))
+    .toMatchObject({ agent: "codex", panel: "agent" });
+});
+
+test("applies an expanded property set before the element was defined, over the saved state", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => {
+    localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ expanded: false }));
+    const bar = document.createElement("iterbar-bar") as HTMLElement & { expanded: boolean };
+    bar.expanded = true;
+    document.body.append(bar);
+    window.fixture.defineIterbarBar();
+  });
+  await expect(inBar(page, ".dock")).toHaveAttribute("data-expanded", "");
+  await expect(inBar(page, "[data-role=grab]")).toBeVisible();
+  // The earlier `collapsed` property still works, as the opposite of `expanded`.
+  await page.evaluate(() => {
+    (document.querySelector("iterbar-bar") as HTMLElement & { collapsed: boolean }).collapsed = true;
+  });
+  await expect(inBar(page, ".dock")).not.toHaveAttribute("data-expanded", "");
+  expect(await page.evaluate(() => localStorage.getItem(window.fixture.BAR_STATE_STORAGE_KEY))).toContain('"expanded":false');
+});
+
+test("fits a narrow screen asleep, awake and with a panel open", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("A rather long comment ".repeat(20))]);
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  for (const width of [1280, 320, 280]) {
+    await page.setViewportSize({ width, height: 568 });
+    const inside = async () => {
+      for (const selector of [".toolbar", ".toolbar > :not([hidden])", "[data-role=panel]:not([hidden])"]) {
+        for (const element of await inBar(page, selector).all()) {
+          const box = await element.boundingBox();
+          if (!box) continue;
+          expect(box.x, selector).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width, selector).toBeLessThanOrEqual(width + 0.5);
+        }
+      }
+    };
+    await inside();
+    await inBar(page, "[data-role=comment]").focus();
+    await inside();
+    await openPanel(page, "inbox");
+    await inside();
+    // A long comment wraps inside the panel rather than overflowing it.
+    const text = (await inBar(page, ".thread-text").boundingBox())!;
+    const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
+    expect(text.x + text.width).toBeLessThanOrEqual(panel.x + panel.width);
+    await inBar(page, "[data-role=panel-close]").click();
+  }
+});
+
+test("ignores a corrupt stored state and keeps working without storage", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, "{corrupt"));
+  await mountBar(page);
+  await expect(inBar(page, "[data-role=grab]")).toHaveAttribute("aria-valuetext", "centre");
+  await page.evaluate(() => {
+    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new DOMException("denied", "SecurityError"); } });
+  });
+  await inBar(page, ".toolbar").hover();
+  await inBar(page, "[data-role=toggle]").click();
+  await expect(inBar(page, ".dock")).toHaveAttribute("data-expanded", "");
+});
+
+test("a panel opened from a woken toolbar on a narrow screen stays on screen", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Thread")]);
+  await page.setViewportSize({ width: 360, height: 700 });
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const inbox = (await inBar(page, "[data-role=inbox-toggle]").boundingBox())!;
+  // The pointer stays on the toolbar throughout.
+  await page.mouse.move(inbox.x + inbox.width / 2, inbox.y + inbox.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(inBar(page, "[data-role=panel]")).toBeVisible();
+  const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
+  expect(panel.x).toBeGreaterThanOrEqual(0);
+  expect(panel.x + panel.width).toBeLessThanOrEqual(360);
+});
+
+test("a tap on a page control that stops the event still ends a wake begun by a tap", async ({ browser, fixtureServer }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 700 } });
+  const page = await context.newPage();
+  try {
+    await page.goto(fixtureServer.origin);
+    await page.waitForFunction(() => window.fixture !== undefined);
+    await page.evaluate(() => document.getElementById("page-button")!.addEventListener("pointerdown", (event) => event.stopPropagation()));
+    await mountBar(page);
+    await touchToolbar(page);
+    await expect(inBar(page, "[data-role=toggle]")).toBeVisible();
+    await page.locator("#page-button").tap();
+    await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
+  } finally {
+    await context.close();
+  }
+});
+
+test("a toolbar taken off the page and put back starts asleep at its dock", async ({ page, openFixture }) => {
   await openFixture();
   await mountBar(page);
-  const bar = inBar(page, ".bar");
-  const viewport = page.viewportSize()!;
-  // Default: bottom right.
-  let box = (await bar.boundingBox())!;
-  expect(Math.round(box.x + box.width)).toBe(viewport.width - 12);
-  expect(Math.round(box.y + box.height)).toBe(viewport.height - 12);
-
-  const handle = inBar(page, "[data-role=handle]");
-  /** Drags the handle to (x, y) and returns where the bar's box was when it was dropped. */
-  const drag = async (x: number, y: number) => {
-    const start = (await handle.boundingBox())!;
-    const from = (await bar.boundingBox())!;
-    const grabX = start.x + start.width / 2;
-    const grabY = start.y + start.height / 2;
-    await page.mouse.move(grabX, grabY);
-    await page.mouse.down();
-    await page.mouse.move(x, y, { steps: 8 });
-    await page.mouse.up();
-    return { x: from.x + x - grabX, y: from.y + y - grabY };
-  };
-  const near = (actual: number, expected: number) => Math.abs(actual - expected) < 1;
-
-  // Each drop docks to the nearest edge and stays where it was dropped along that edge.
-  let dropped = await drag(20, viewport.height / 2);
-  await expect.poll(async () => (await bar.boundingBox())?.x).toBe(12);
-  expect(near((await bar.boundingBox())!.y, dropped.y)).toBe(true);
-
-  dropped = await drag(viewport.width / 2, 15);
-  await expect.poll(async () => (await bar.boundingBox())?.y).toBe(12);
-  expect(near((await bar.boundingBox())!.x, dropped.x)).toBe(true);
-
-  dropped = await drag(viewport.width / 3, viewport.height - 5);
-  await expect(bar).toHaveAttribute("data-edge", "bottom");
-  box = (await bar.boundingBox())!;
-  expect(Math.round(box.y + box.height)).toBe(viewport.height - 12);
-  expect(near(box.x, dropped.x)).toBe(true);
-
-  dropped = await drag(viewport.width - 5, viewport.height / 2);
-  await expect.poll(async () => {
-    const current = (await bar.boundingBox())!;
-    return Math.round(current.x + current.width);
-  }).toBe(viewport.width - 12);
-  const placed = (await bar.boundingBox())!;
-  expect(near(placed.y, dropped.y)).toBe(true);
-
-  // A click on the handle without moving it is not a drag.
-  await handle.click();
-  expect(await bar.boundingBox()).toEqual(placed);
-
-  // The position comes back exactly after a reload, and so does the collapsed state.
-  const reload = async () => {
-    await page.reload();
-    await page.waitForFunction(() => window.fixture !== undefined);
-    await mountBar(page);
-  };
-  await reload();
-  await expect(inBar(page, ".bar")).toHaveAttribute("data-edge", "right");
-  box = (await bar.boundingBox())!;
-  expect(near(box.x, placed.x) && near(box.y, placed.y)).toBe(true);
-
-  await inBar(page, "[data-role=toggle]").click();
-  await expect(inBar(page, "#iterbar-body")).toBeHidden();
-  await reload();
-  await expect(inBar(page, "#iterbar-body")).toBeHidden();
-  await expect(inBar(page, ".bar")).toHaveAttribute("data-edge", "right");
-  await expect.poll(async () => {
-    const current = (await bar.boundingBox())!;
-    return Math.round(current.x + current.width);
-  }).toBe(viewport.width - 12);
-});
-
-test("applies a collapsed property set before the element was defined, over the saved state", async ({ page, openFixture }) => {
-  await openFixture();
+  const asleep = (await inBar(page, ".toolbar").boundingBox())!;
+  await inBar(page, "[data-role=comment]").hover();
+  await expect(inBar(page, ".dock")).toHaveAttribute("data-held", "");
   await page.evaluate(() => {
-    localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ collapsed: false }));
-    const bar = document.createElement("iterbar-bar") as HTMLElement & { collapsed: boolean };
-    bar.collapsed = true;
-    document.body.append(bar);
-    window.fixture.defineIterbarBar();
-  });
-  await expect(inBar(page, "#iterbar-body")).toBeHidden();
-  await page.evaluate(() => {
-    (document.querySelector("iterbar-bar") as HTMLElement & { collapsed: boolean }).collapsed = false;
-  });
-  await expect(inBar(page, "#iterbar-body")).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem(window.fixture.BAR_STATE_STORAGE_KEY))).toContain('"collapsed":false');
-});
-
-test("applies a collapsed property assigned after definition but before connection, over saved or unreadable state", async ({ page, openFixture }) => {
-  await openFixture();
-  // Saved collapsed, then an explicit `false` (the default) before the element is added: it opens expanded.
-  await page.evaluate(() => {
-    localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ collapsed: true }));
-    window.fixture.defineIterbarBar();
-    const bar = document.createElement("iterbar-bar") as HTMLElement & { collapsed: boolean };
-    bar.collapsed = false;
+    const bar = document.querySelector("iterbar-bar")!;
+    bar.remove();
     document.body.append(bar);
   });
-  await expect(inBar(page, "#iterbar-body")).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem(window.fixture.BAR_STATE_STORAGE_KEY))).toContain('"collapsed":false');
-
-  // Storage that cannot be read, then an explicit `true` before the element is added: it opens collapsed.
-  await page.evaluate(() => {
-    document.querySelector("iterbar-bar")!.remove();
-    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new DOMException("denied", "SecurityError"); } });
-    const bar = document.createElement("iterbar-bar") as HTMLElement & { collapsed: boolean };
-    bar.collapsed = true;
-    document.body.append(bar);
-  });
-  await expect(inBar(page, "#iterbar-body")).toBeHidden();
-  // Later assignments and the toggle still apply.
-  await page.evaluate(() => {
-    (document.querySelector("iterbar-bar") as HTMLElement & { collapsed: boolean }).collapsed = false;
-  });
-  await expect(inBar(page, "#iterbar-body")).toBeVisible();
-  await inBar(page, "[data-role=toggle]").click();
-  await expect(inBar(page, "#iterbar-body")).toBeHidden();
+  await page.mouse.move(5, 5);
+  await expect(inBar(page, ".dock")).not.toHaveAttribute("data-held", "");
+  await expect(inBar(page, ".dock")).not.toHaveAttribute("data-hovered", "");
+  expect(await inBar(page, ".toolbar").boundingBox()).toEqual(asleep);
 });
 
-test("fits narrow screens, expanded and collapsed, while reconnecting, and keeps one row when there is room", async ({ page, openFixture, fixtureServer }) => {
-  // Nothing answers the socket, so the bar keeps reconnecting.
+test("the warning dot on a sleeping Inbox does not change its size", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin, [], { socket: false });
   await openFixture();
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   await expect(inBar(page, "[data-role=status]")).toHaveText("Reconnecting…");
-  const toggle = inBar(page, "[data-role=toggle]");
-  const fits = async (width: number) => {
-    const bar = (await inBar(page, ".bar").boundingBox())!;
-    const boxes = await Promise.all((await inBar(page, ".header > *").all()).map(async (control) => (await control.boundingBox())!));
-    for (const box of [bar, ...boxes]) {
-      expect(box.x).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width).toBeLessThanOrEqual(Math.min(width, bar.x + bar.width) + 0.5);
-    }
-    // The header wraps only when its controls do not fit side by side in it; font metrics differ by platform, so the
-    // room is measured rather than assumed from the viewport.
-    const room = await page.evaluate(() => {
-      const header = document.querySelector("iterbar-bar")!.shadowRoot!.querySelector<HTMLElement>(".header")!;
-      const style = getComputedStyle(header);
-      const controls = [...header.children].map((control) => control.getBoundingClientRect().width);
-      const needed = controls.reduce((sum, controlWidth) => sum + controlWidth, 0) + parseFloat(style.columnGap) * (controls.length - 1);
-      return header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - needed;
+  const asleep = (await inBar(page, "[data-role=inbox-toggle]").boundingBox())!;
+  await page.mouse.move(asleep.x + 3, asleep.y + asleep.height / 2);
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+  expect(await inBar(page, "[data-role=inbox-toggle]").boundingBox()).toEqual(asleep);
+});
+
+test("a tap on a bar inside a closed shadow root keeps it awake", async ({ browser, fixtureServer }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 700 } });
+  const page = await context.newPage();
+  try {
+    await page.goto(fixtureServer.origin);
+    await page.waitForFunction(() => window.fixture !== undefined);
+    const box = await page.evaluate(() => {
+      window.fixture.defineIterbarBar();
+      const host = document.createElement("div");
+      const bar = document.createElement("iterbar-bar");
+      host.attachShadow({ mode: "closed" }).append(bar);
+      document.body.append(host);
+      (window as unknown as { closedBar: Element }).closedBar = bar;
+      const rect = bar.shadowRoot!.querySelector("[data-role=status-dot]")!.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     });
-    const rows = new Set(boxes.map((box) => Math.round(box.y + box.height / 2))).size;
-    if (room >= 0.5) expect(rows).toBe(1);
-    return rows;
-  };
-  for (const width of [1280, 320, 280]) {
-    await page.setViewportSize({ width, height: 568 });
-    await fits(width);
-    await toggle.click();
-    await expect(inBar(page, "#iterbar-body")).toBeHidden();
-    // Collapsed, the bar is as wide as its header, so on a wide screen it is one row.
-    const collapsedRows = await fits(width);
-    if (width === 1280) expect(collapsedRows).toBe(1);
-    await toggle.focus();
-    await page.keyboard.press("Enter");
-    await expect(inBar(page, "#iterbar-body")).toBeVisible();
+    await page.touchscreen.tap(box.x, box.y);
+    // The finger has lifted and the toolbar is still awake: its pin shows.
+    await expect.poll(() => page.evaluate(() => {
+      const bar = (window as unknown as { closedBar: Element }).closedBar;
+      return getComputedStyle(bar.shadowRoot!.querySelector("[data-role=toggle]")!).display;
+    })).not.toBe("none");
+  } finally {
+    await context.close();
   }
 });
 
-test("ignores a corrupt stored position and keeps working without storage", async ({ page, openFixture }) => {
+test("a press outside followed at once by one inside leaves the toolbar awake", async ({ page, openFixture }) => {
   await openFixture();
-  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, "{corrupt"));
   await mountBar(page);
-  await expect(inBar(page, ".bar")).toHaveAttribute("data-edge", "bottom");
-  await page.evaluate(() => {
-    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new DOMException("denied", "SecurityError"); } });
+  // Both presses are dispatched before either one's decision runs.
+  const awake = await page.evaluate(async () => {
+    const bar = document.querySelector("iterbar-bar")!;
+    const dot = bar.shadowRoot!.querySelector("[data-role=status-dot]")!;
+    const dock = bar.shadowRoot!.querySelector(".dock")!;
+    document.getElementById("page-text")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true, pointerType: "touch" }));
+    dot.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" }));
+    bar.shadowRoot!.querySelector(".toolbar")!.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" }));
+    dot.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true, pointerType: "touch" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return dock.hasAttribute("data-hovered");
   });
-  await inBar(page, "[data-role=toggle]").click();
-  await expect(inBar(page, "#iterbar-body")).toBeHidden();
+  expect(awake).toBe(true);
+});
+
+test("a tap wakes the sleeping toolbar until the next tap elsewhere", async ({ browser, fixtureServer }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1000, height: 700 } });
+  const page = await context.newPage();
+  try {
+    await page.goto(fixtureServer.origin);
+    await page.waitForFunction(() => window.fixture !== undefined);
+    await mountBar(page);
+    await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
+    await touchToolbar(page);
+    // The finger has lifted, and the toolbar stays awake: its pin is there to tap.
+    await expect(inBar(page, "[data-role=toggle]")).toBeVisible();
+    await inBar(page, "[data-role=toggle]").tap();
+    await expect(inBar(page, "[data-role=toggle]")).toHaveAttribute("aria-expanded", "true");
+    await inBar(page, "[data-role=toggle]").tap();
+    await page.locator("#page-text").tap();
+    await expect(inBar(page, "[data-role=toggle]")).toBeHidden();
+  } finally {
+    await context.close();
+  }
+});
+
+test("a toolbar removed in the middle of a drag comes back asleep at its saved place", async ({ page, openFixture }) => {
+  await openFixture();
+  await mountBar(page, { project: "/work/shop" });
+  const toolbar = inBar(page, ".toolbar");
+  const asleep = (await toolbar.boundingBox())!;
+  await inBar(page, "[data-role=comment]").hover();
+  const grab = (await inBar(page, "[data-role=grab]").boundingBox())!;
+  await page.mouse.move(grab.x + grab.width / 2, grab.y + grab.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grab.x - 150, grab.y + grab.height / 2, { steps: 4 });
+  await page.evaluate(() => {
+    const bar = document.querySelector("iterbar-bar")!;
+    bar.remove();
+    document.body.append(bar);
+  });
+  await page.mouse.up();
+  await page.mouse.move(5, 5);
+  for (const attribute of ["data-held", "data-hovered", "data-dragging"]) {
+    await expect(inBar(page, ".dock")).not.toHaveAttribute(attribute, "");
+  }
+  // Nothing was saved, and the toolbar sleeps where it was.
+  expect(await toolbar.boundingBox()).toEqual(asleep);
+  await expect(inBar(page, "[data-role=grab]")).toHaveAttribute("aria-valuetext", "centre");
+});
+
+test("dragging with the wide agent panel open keeps the panel in view and drops without a jump", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, []);
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
+  await inBar(page, "[data-role=comment]").hover();
+  await inBar(page, "[data-role=status-button]").click();
+  const panel = inBar(page, "[data-role=panel]");
+  await expect(panel).toBeVisible();
+  const width = page.viewportSize()!.width;
+  const grabBox = (await inBar(page, "[data-role=grab]").boundingBox())!;
+  const y = grabBox.y + grabBox.height / 2;
+  await page.mouse.move(grabBox.x + grabBox.width / 2, y);
+  await page.mouse.down();
+  // Across the two-thirds mark, where the toolbar turns to run right to left.
+  for (const target of [width * 0.6, width * 0.75, width * 0.95, width + 200]) {
+    await page.mouse.move(target, y, { steps: 3 });
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(12 - 0.5);
+    expect(box.x + box.width).toBeLessThanOrEqual(width - 12 + 0.5);
+  }
+  const handle = (await inBar(page, "[data-role=grab]").boundingBox())!;
+  const panelBefore = (await panel.boundingBox())!;
+  await page.mouse.up();
+  // Dropped: neither the handle nor the panel moves.
+  expect((await inBar(page, "[data-role=grab]").boundingBox())!.x).toBeCloseTo(handle.x, 0);
+  expect((await panel.boundingBox())!.x).toBeCloseTo(panelBefore.x, 0);
+});
+
+test("copies without the Clipboard API from inside the bar, keeping focus on the copy button", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, []);
+  await openFixture();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, get: () => undefined });
+    const copies: string[] = [];
+    (window as unknown as { copies: string[] }).copies = copies;
+    document.execCommand = ((command: string) => {
+      const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+      const area = root.querySelector<HTMLTextAreaElement>(".copy-buffer");
+      if (command === "copy" && area && root.activeElement === area) copies.push(area.value);
+      return command === "copy" && area !== null;
+    }) as typeof document.execCommand;
+    document.head.insertAdjacentHTML("beforeend", "<style>textarea { display: none !important; }</style>");
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
+  await inBar(page, "[data-role=comment]").hover();
+  await inBar(page, "[data-role=status-button]").click();
+  const copy = inBar(page, "[data-role=copy-prompt]");
+  await copy.focus();
+  await page.keyboard.press("Enter");
+  await expect(copy).toHaveText("Copied");
+  await expect(copy).toBeFocused();
+  expect(await page.evaluate(() => (window as unknown as { copies: string[] }).copies)).toEqual([
+    // Not "the latest batch": a comment sent on its own has no batch, and the prompt must not skip it.
+    "Use the iterbar MCP tools to read my open Iterbar feedback (with get_batch for comments I sent together), make the changes, and reply on each item when done.",
+  ]);
+  // The page never saw a text area of the bar's.
+  expect(await page.evaluate(() => document.querySelectorAll("textarea").length)).toBe(0);
+  expect(await inBar(page, ".copy-buffer").count()).toBe(0);
+  // Cursor's snippet names the project's own folder when the bar knows it.
+  await inBar(page, "#iterbar-agent-cursor").click();
+  await expect(inBar(page, "[data-step=connect] .snippet-text")).toContainText('"args": ["mcp", "--root", "/work/shop"]');
+});
+
+test("a project with nothing stored yet starts from the state the origin kept", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => {
+    localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ dock: "left", expanded: true }));
+    localStorage.setItem(`${window.fixture.BAR_STATE_STORAGE_KEY}:/work/other`, JSON.stringify({ x: 0.8 }));
+  });
+  await mountBar(page, { project: "/work/shop" });
+  await expect(inBar(page, "[data-role=grab]")).toHaveAttribute("aria-valuetext", "left");
+  await expect(inBar(page, ".dock")).toHaveAttribute("data-expanded", "");
+  // A project that has its own state keeps it.
+  await openFixture();
+  await mountBar(page, { project: "/work/other" });
+  await expect(inBar(page, "[data-role=grab]")).toHaveAttribute("aria-valuenow", "80");
+});
+
+test("on a short, narrow screen the panel fits between the top and the wrapped toolbar", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Thread")]);
+  await page.setViewportSize({ width: 280, height: 280 });
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
+  await inBar(page, "[data-role=comment]").focus();
+  await inBar(page, "[data-role=status-button]").click();
+  const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
+  const toolbar = (await inBar(page, ".toolbar").boundingBox())!;
+  expect(panel.y).toBeGreaterThanOrEqual(0);
+  expect(panel.y + panel.height).toBeLessThanOrEqual(toolbar.y);
+});
+
+test("a drag that starts from a wrapped, narrow-screen wake keeps the toolbar's shape and follows the pointer", async ({ page, openFixture }) => {
+  await page.setViewportSize({ width: 280, height: 600 });
+  await openFixture();
+  await mountBar(page, { project: "/work/shop" });
+  await inBar(page, "[data-role=comment]").hover();
+  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
+  const toolbar = inBar(page, ".toolbar");
+  const woken = (await toolbar.boundingBox())!;
+  const grab = (await inBar(page, "[data-role=grab]").boundingBox())!;
+  const y = grab.y + grab.height / 2;
+  await page.mouse.move(grab.x + grab.width / 2, y);
+  await page.mouse.down();
+  // Pressing the handle changes nothing about the toolbar's shape.
+  expect(await toolbar.boundingBox()).toEqual(woken);
+  // A small move right moves it right (or not at all when it is at the edge), never left, and it stays in view.
+  await page.mouse.move(grab.x + grab.width / 2 + 6, y);
+  const moved = (await toolbar.boundingBox())!;
+  expect(moved.x).toBeGreaterThanOrEqual(woken.x - 0.5);
+  expect(moved.x + moved.width).toBeLessThanOrEqual(280 - 12 + 0.5);
+  expect(moved.width).toBeCloseTo(woken.width, 0);
+  await page.mouse.up();
+});
+
+test("an open composer moves clear of a panel opened under it", async ({ page, openFixture }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await openFixture();
+  await page.evaluate(() => {
+    const target = document.createElement("button");
+    target.id = "low-target";
+    target.textContent = "Low target";
+    target.style.cssText = "position: absolute; left: 380px; top: 470px";
+    document.body.append(target);
+  });
+  await mountBar(page, { daemonUrl: "http://127.0.0.1:9", token: "0".repeat(64) });
+  await inBar(page, "[data-role=comment]").click();
+  await page.locator("#low-target").click();
+  const composer = inBar(page, "[data-section=composer]");
+  await expect(composer).toBeVisible();
+  await inBar(page, "[data-role=drafts-toggle]").click();
+  const panel = inBar(page, "[data-role=panel]");
+  await expect(panel).toBeVisible();
+  await expect.poll(async () => {
+    const c = (await composer.boundingBox())!;
+    const p = (await panel.boundingBox())!;
+    const overlaps = c.x < p.x + p.width && p.x < c.x + c.width && c.y < p.y + p.height && p.y < c.y + c.height;
+    return overlaps;
+  }).toBe(false);
 });

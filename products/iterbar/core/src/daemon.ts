@@ -5,6 +5,7 @@ import { slotReportSchema } from "./registry.js";
 import {
   absolutePathSchema,
   assertSafeId,
+  idSchema,
   originSchema,
   pidSchema,
   schemaVersionSchema,
@@ -92,6 +93,8 @@ export const feedbackListQuerySchema = z.object({
   status: feedbackStatusSchema.optional(),
   kind: feedbackKindSchema.optional(),
   since: timestampSchema.optional(),
+  /** Only feedback sent in this batch from the bar's draft tray. */
+  batchId: idSchema.optional(),
 });
 
 export const feedbackListResponseSchema = z.object({

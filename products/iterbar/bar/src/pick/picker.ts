@@ -13,8 +13,11 @@ export interface PickerOptions {
   readonly container: ParentNode;
   /** A page element was clicked, or Enter or Space pressed on it. Returns whether it is now the picked element (`false` keeps the previous one). */
   readonly onPick: (element: Element) => boolean;
-  /** Escape was pressed: the caller leaves comment mode. */
-  readonly onEscape: () => void;
+  /**
+   * Escape was pressed: the caller leaves comment mode and returns `true`, or returns `false` to leave the key to
+   * whatever it was pressed in (a control of the bar that handles Escape itself).
+   */
+  readonly onEscape: (event: KeyboardEvent) => boolean;
 }
 
 /**
@@ -30,7 +33,10 @@ export class ElementPicker {
   readonly #layer = h("div", { class: "pick-layer", popover: "manual", "aria-hidden": "true", "data-role": "pick-layer" });
   readonly #hoverBox = h("div", { class: "pick-box", "data-role": "pick-hover", hidden: true });
   readonly #pickedBox = h("div", { class: "pick-box picked", "data-role": "pick-picked", hidden: true });
+  readonly #markBox = h("div", { class: "pick-box marked", "data-role": "pick-marked", hidden: true });
   #active = false;
+  /** An element outlined on request (a draft's, while the pointer is on it in the tray), picking or not. */
+  #marked: Element | null = null;
   #hovered: Element | null = null;
   #picked: Element | null = null;
   #frame: number | null = null;
@@ -43,7 +49,7 @@ export class ElementPicker {
 
   constructor(options: PickerOptions) {
     this.#options = options;
-    this.#layer.append(this.#hoverBox, this.#pickedBox);
+    this.#layer.append(this.#hoverBox, this.#pickedBox, this.#markBox);
     options.container.append(this.#layer);
   }
 
@@ -69,6 +75,10 @@ export class ElementPicker {
     window.addEventListener("scroll", this.#queueLayout, { capture: true, passive: true });
     window.addEventListener("resize", this.#queueLayout, { passive: true });
     this.#layer.toggleAttribute("data-active", true);
+    this.#showLayer();
+  }
+
+  #showLayer(): void {
     if (typeof this.#layer.showPopover === "function" && !this.#layer.matches(":popover-open")) {
       try {
         this.#layer.showPopover();
@@ -76,6 +86,32 @@ export class ElementPicker {
         // Left as a fixed-position element.
       }
     }
+  }
+
+  #hideLayer(): void {
+    if (this.#active || this.#marked) return;
+    if (typeof this.#layer.hidePopover === "function" && this.#layer.matches(":popover-open")) this.#layer.hidePopover();
+  }
+
+  /** Outlines `element` (or nothing, for `null`) whether or not picking is on, until the next call. */
+  mark(element: Element | null): void {
+    if (element === this.#marked) return;
+    this.#marked = element;
+    this.#layer.toggleAttribute("data-marking", element !== null);
+    if (element) {
+      this.#showLayer();
+      if (!this.#active) {
+        window.addEventListener("scroll", this.#queueLayout, { capture: true, passive: true });
+        window.addEventListener("resize", this.#queueLayout, { passive: true });
+      }
+    } else {
+      if (!this.#active) {
+        window.removeEventListener("scroll", this.#queueLayout, true);
+        window.removeEventListener("resize", this.#queueLayout);
+      }
+      this.#hideLayer();
+    }
+    this.#layout();
   }
 
   /** Removes every listener and hides the layer; the page gets its events back at once. */
@@ -89,15 +125,17 @@ export class ElementPicker {
     window.removeEventListener("keyup", this.#onKeyup, true);
     window.removeEventListener("blur", this.#onWindowBlur);
     document.removeEventListener("visibilitychange", this.#onVisibilityChange);
-    window.removeEventListener("scroll", this.#queueLayout, true);
-    window.removeEventListener("resize", this.#queueLayout);
-    if (this.#frame !== null) cancelAnimationFrame(this.#frame);
-    this.#frame = null;
+    if (!this.#marked) {
+      window.removeEventListener("scroll", this.#queueLayout, true);
+      window.removeEventListener("resize", this.#queueLayout);
+      if (this.#frame !== null) cancelAnimationFrame(this.#frame);
+      this.#frame = null;
+    }
     this.#heldKey = null;
     this.#hovered = null;
     this.#picked = null;
     this.#layer.removeAttribute("data-active");
-    if (typeof this.#layer.hidePopover === "function" && this.#layer.matches(":popover-open")) this.#layer.hidePopover();
+    this.#hideLayer();
     this.#layout();
   }
 
@@ -193,9 +231,9 @@ export class ElementPicker {
       return;
     }
     if (event.key !== "Escape" || event.isComposing) return;
+    if (!this.#options.onEscape(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    this.#options.onEscape();
   };
 
   readonly #onKeyup = (event: KeyboardEvent): void => {
@@ -224,6 +262,7 @@ export class ElementPicker {
   #layout(): void {
     place(this.#hoverBox, this.#active && this.#hovered !== this.#picked ? this.#hovered : null);
     place(this.#pickedBox, this.#active ? this.#picked : null);
+    place(this.#markBox, this.#marked);
   }
 }
 

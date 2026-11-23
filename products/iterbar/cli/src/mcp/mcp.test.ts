@@ -19,7 +19,7 @@ import { deliveryContractProblems } from "./test-support/delivery.js";
 /** The built command line; the package's test script builds it first. */
 const cli = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
 const CLIENT_INFO = { name: "iterbar-protocol-test", version: "1.0.0" };
-const TOOL_NAMES = ["get_feedback", "list_feedback", "list_slots", "reply", "set_status", "wait_for_feedback"];
+const TOOL_NAMES = ["get_batch", "get_feedback", "list_feedback", "list_slots", "reply", "set_status", "wait_for_feedback"];
 
 let root: string;
 let cleanup: () => Promise<void>;
@@ -164,6 +164,38 @@ describe("iterbar mcp", { timeout: 60_000 }, () => {
     expect(resolved.items.map((item) => item.id)).toEqual([comment.id]);
   });
 
+  it("reads a batch sent from the draft tray as one unit, and filters listings by batch", async () => {
+    const daemon = await start();
+    const { client } = await connect();
+    const alone = await sendFeedback(daemon);
+    const first = await sendFeedback(daemon, { ...commentDraft, text: "First of the batch.", batchId: "batch-a1", batchSize: 3 });
+    const second = await sendFeedback(daemon, { ...commentDraft, text: "Second of the batch.", evidenceWindow: null, batchId: "batch-a1", batchSize: 3 }, false);
+    await sendFeedback(daemon, { ...commentDraft, evidenceWindow: null, batchId: "batch-b2" }, false);
+    expect(alone).not.toHaveProperty("batchId");
+    expect(first.batchId).toBe("batch-a1");
+
+    const listed = await ok<{ items: Feedback[] }>(client, "list_feedback", { batchId: "batch-a1" });
+    expect(listed.items.map((item) => item.id)).toEqual([first.id, second.id]);
+
+    const batch = await call(client, "get_batch", { batchId: "batch-a1" });
+    expect(batch.isError, JSON.stringify(batch.content)).toBeFalsy();
+    // Two of three have arrived: the agent is told the batch is not complete yet.
+    expect(batch.structuredContent).toMatchObject({
+      batchId: "batch-a1",
+      count: 2,
+      expectedCount: 3,
+      complete: false,
+      items: [
+        { feedback: { id: first.id, text: "First of the batch." }, attachments: [{ kind: "screenshot", inlined: true }, { kind: "evidence" }] },
+        { feedback: { id: second.id, text: "Second of the batch." }, attachments: [] },
+      ],
+    });
+    expect(batch.content.filter((block) => block.type === "image")).toHaveLength(1);
+    expect(batch.content).toContainEqual({ type: "text", text: `Attachments of ${first.id}:` });
+
+    expect(errorOf(await call(client, "get_batch", { batchId: "batch-none" })).code).toBe("not_found");
+  });
+
   it("lists the slots and versions that pages reported", async () => {
     const daemon = await start();
     const { client } = await connect();
@@ -202,6 +234,7 @@ describe("daemon_unavailable", { timeout: 60_000 }, () => {
   const everyTool: Array<[string, Record<string, unknown>]> = [
     ["list_feedback", {}],
     ["get_feedback", { feedbackId: "feedback-1" }],
+    ["get_batch", { batchId: "batch-1" }],
     ["reply", { feedbackId: "feedback-1", text: "On it." }],
     ["set_status", { feedbackId: "feedback-1", status: "working" }],
     ["list_slots", {}],

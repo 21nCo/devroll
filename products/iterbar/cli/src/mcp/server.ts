@@ -24,7 +24,9 @@ rule below says. After that, take new work only from list_feedback without filte
 events are what arrived since that cursor, and its cursor moves past them) or from wait_for_feedback with your latest
 cursor. For each item: get_feedback, set_status "working", change the code, read the thread again, reply with what
 you did, set_status "done" (or reply with a question and set_status "needs-info"). Always continue with the newest cursor, including one that a failed wait_for_feedback returns next to
-its error. A filtered list_feedback (status, kind or since) hands your cursor back unchanged, so use it only to look
+its error. Items the user sent together from the bar's draft tray share a batchId: when new or unfinished items carry one, read
+the batch with get_batch and work through its unfinished items as one change, replying on and closing each of them.
+A later user reply on one item of a batch concerns that thread only. A filtered list_feedback (status, kind, since or batchId) hands your cursor back unchanged, so use it only to look
 things up, never to pick up work.
 ${SESSION_RULE}
 ${HANDLED_EVENT_RULE}`;

@@ -18,7 +18,16 @@ attributes. The bar never writes the token to an attribute.
 
 ## What it shows
 
-- **Slots** on the current page, read through the `window.__ITERBAR__` page
+The bar is a toolbar docked at the bottom of the page. By default it sleeps as
+a small pill with the Comment and Inbox buttons (icons, named for assistive
+technology and in their tooltips) and the count of open feedback; it wakes
+while the pointer or focus is on it, after a tap until the next tap elsewhere,
+while a panel is open or comment mode is on, and **Ctrl/Cmd+.** keeps it
+expanded. Waking only adds controls beyond the sleeping buttons, away from the
+docked edge, so nothing under the pointer moves. The inbox, the draft
+tray and the versions open as a panel above the toolbar.
+
+- **Versions**: the slots on the current page, read through the `window.__ITERBAR__` page
   API that `@iterbar/variants` installs. When the bar loads before the
   registry, it waits until the registry appears. With one slot the bar shows
   its name; with more than one, a dropdown chooses which slot's versions to
@@ -27,9 +36,24 @@ attributes. The bar never writes the token to an attribute.
   `history.replaceState`, keeping every other parameter and the fragment. The
   bar also reports the page's slots to the daemon (`POST /slots`) under the
   page URL without its fragment or `iterbar` parameter.
-- **Comment mode**: the Comment button sets `commentMode` and dispatches the
-  `iterbar-comment-mode` event (bubbling and composed). See below.
-- **Feedback threads**, newest first, with status and replies. The bar lists
+- **Comment mode**: the Comment button (or **C** anywhere outside a text
+  field) sets `commentMode` and dispatches the `iterbar-comment-mode` event
+  (bubbling and composed). See below.
+- **Draft tray**: comments picked and written but kept in the page (in
+  memory, for this tab) until **Send all** posts them, in order, as one batch.
+  Each draft can be edited or removed first, and hovering one outlines its
+  element. Every comment of a batch carries the same `batchId` and the
+  batch's `batchSize`, which agents read with the MCP `get_batch` tool (it
+  says whether the whole batch has arrived). A draft the daemon refuses stays
+  in the tray with the reason, and Send all retries it in the same batch,
+  with any drafts added since. A draft added while a batch is being sent
+  waits for the next Send all.
+- **Inbox**: the feedback threads, newest first, with status (Open, In
+  progress, Needs info, Done, Resolved), the target and page, and replies,
+  which arrive live. Filters show all threads, open ones (open or needing
+  info), those in progress or those done. Long comments and replies wrap.
+  The counts (the toolbar's open count included) cover the newest 100
+  threads the inbox holds. The bar lists
   them with `GET /feedback` each time the `/events` WebSocket opens, then
   applies `feedback.created` and `feedback.updated` events as they arrive.
   Each listing replaces the threads, except that a listed copy older than the
@@ -57,18 +81,27 @@ context menu and the key, with its repeats and release, are all swallowed,
 including presses on the document root, which is never picked itself. That
 key stops being swallowed once it is released, the window loses focus or is
 hidden, or it is pressed again. Clicks and keys inside the bar are left
-alone, except Escape, which leaves comment mode from the bar too. The
-composer then opens in the bar, which expands if collapsed. Picking another element keeps the typed text, Cancel
+alone, except Escape, which leaves comment mode from the bar too. The pointer
+is a crosshair over the page (an inline `cursor` on the root element while
+comment mode is on). The composer then opens as a small popover next to the
+picked element: below it, or above it when there is no room below. It names
+the element readably, by its accessible name or a short excerpt of its text
+and the source file and line when known (`On “Suggestions” · AskBox.svelte:45`),
+with the full source location and the selector in its tooltip. Picking another element keeps the typed text, Cancel
 drops the pick, and Escape leaves comment mode from anywhere, discarding a
 draft not yet posted (see below for one already posted). While comment mode
 is off the picker has no page listeners and its outline layer is hidden, so
-the page gets every event apart from the bar's Alt+Shift+I shortcut. A page
+the page gets every event apart from the bar's shortcuts (Ctrl/Cmd+., C
+outside text fields, and Alt+Shift+I). A page
 script's own `element.click()` is never taken for a pick. The picker listens
 on `window` in the capture phase, so only capture listeners the page added
 to `window` before it can still see picking input.
 
-Send (or Ctrl/Cmd+Enter) creates a `comment` with `POST /feedback`. The
-element is described when it is picked:
+**Add draft** (or Ctrl/Cmd+Enter) moves the comment into the draft tray and
+leaves comment mode on for the next pick; its screenshot carries on in the
+background. **Send** (or Ctrl/Cmd+Shift+Enter) creates the `comment` at once,
+on its own, with `POST /feedback`, and ends comment mode. The element is
+described when it is picked:
 
 - **Selector**: from a closed set, tried in order: `[data-testid="…"]` when
   that test id is unique, `#id` when unique, then a tag/class/`:nth-of-type`
@@ -161,6 +194,10 @@ element is described when it is picked:
   `modern-screenshot` is bundled into `dist/` (its licence is in
   `THIRD-PARTY-NOTICES.md`) rather than imported, so a Vite dev server has no
   extra dependency to discover, and the page needs no reload on first load.
+  The bundled copy is patched (`patches/modern-screenshot@4.7.0.patch` at the
+  repository root, applied by pnpm) to escape the id of a `<use href="#…">`
+  target before it builds a selector, so an icon sprite id such as
+  `ph:sparkle` no longer fails the capture.
 
 The page URL is filed as for slot reports. While Send waits for the
 screenshot, Cancel or Escape withdraws the comment and nothing is posted.
@@ -191,14 +228,43 @@ Removing the element closes the stream and cancels every timer.
 
 ## Layout, keyboard and styling
 
-- **Alt+Shift+I** collapses or expands the bar from anywhere on the page.
-  Expanding moves focus to the bar's toggle.
+- **Ctrl/Cmd+.** keeps the toolbar expanded or lets it sleep, from anywhere
+  on the page, and moves focus to the Comment button (Alt+Shift+I does the
+  same). **C** toggles comment mode. Neither shortcut applies while focus is
+  in a text field, an editable element or a custom element whose shadow root
+  the bar cannot read (it may hold a field); the toolbar's buttons still work. **Escape** leaves comment mode, cancels a draft being edited,
+  or closes the open panel and returns focus to its button.
 - Every control is a native button, select or summary, so it can be reached
-  with Tab, and each one shows a focus ring.
-- Drag the handle (⠿) to dock the bar to any screen edge, or focus the handle
-  and press an arrow key. The edge, the position along it and whether the bar
-  is collapsed are saved in local storage under `iterbar:bar`, so each origin
-  remembers its own.
+  with Tab in visual order (the toolbar, then the open panel), and each one
+  shows a focus ring. Counts, the connection and what a send did are
+  announced to screen readers.
+- The toolbar sits 20 px above the bottom edge. While it is awake, a grab
+  handle shows at its start: drag it to move the toolbar anywhere along the
+  bottom edge (it stops at the margins), or focus it and press ← and → (Shift
+  for bigger steps), Home or End. The position is kept as a share of the room
+  between the margins, so the toolbar stays in view at any window width. The
+  panel above it is placed by the same share over its own width, so it stays
+  in view too. Past two thirds of the way along, the toolbar runs right to
+  left. Waking it by pointer never moves the button under the pointer: it
+  grows away from its edge, and what does not fit wraps onto a row above.
+- The position, whether the toolbar stays expanded, the open panel, the inbox
+  filter and the agent chosen in "Use with your agent" are saved in local
+  storage under `iterbar:toolbar:<project>` when the bar is given a `project`
+  (the Vite plugin passes the project's root), or `iterbar:toolbar` for the
+  whole origin otherwise. The toolbar and panel take pointer events only
+  where they are drawn.
+- Every toolbar control has an accessible name and a tooltip, shown on hover
+  (after a short delay) and on keyboard focus: a short label, its shortcut
+  where there is one, and for some a line that explains it.
+- The connection status is one control: a dot next to its label. "Connected"
+  means the bar's link to the project's Iterbar daemon is open, so comments
+  are saved for a coding agent, which reaches the same daemon on its own
+  through `iterbar mcp`. Offline, comments stay as drafts. Clicking it opens
+  "Use with your agent": for Claude Code, Codex, Cursor or another MCP client,
+  the one-time command that registers the iterbar MCP server (with the
+  project's path filled in when the bar knows it), the optional skill install
+  and a prompt to paste, each with a copy button. The draft tray links to it
+  too.
 - Styles stay inside the shadow root. The host resets every inherited
   property with `!important`, which a page rule cannot override, so page CSS
   cannot hide, move or restyle the bar. The bar is shown in the top layer
@@ -206,13 +272,19 @@ Removing the element closes the stream and cancels every timer.
   `html`, `body` or any other ancestor cannot move, cover or hide it, and it
   cancels any `zoom` it inherits.
 - Light and dark themes follow `prefers-color-scheme`.
-- The bar never loads a remote resource of its own. It uses system fonts and
-  text icons, and its network traffic goes to the daemon, except that a
-  screenshot re-reads the images and fonts the picked element already uses.
+- It looks like the 21n apps: the tidigit iris colour scheme's tokens from
+  `@21n/theme`, the Twenty One Native typeface from `@21n/fonts` and Phosphor
+  Light icons from `@iconify-json/ph` (`scripts/phosphor-icons.mjs` writes the
+  icons it uses into `src/phosphor.ts`).
+- The bar never loads a remote resource of its own. The build bundles its two
+  Twenty One Native weights as data URLs and registers them under a family
+  name of its own, so the page's fonts are unchanged; icons are inline SVG.
+  Its network traffic goes to the daemon, except that a screenshot re-reads
+  the images and fonts the picked element already uses.
 
 ## Tests
 
-- `pnpm test`: unit tests for placement, merging, URL handling, text
+- `pnpm test`: unit tests for stored state, composer placement, labels, merging, URL handling, text
   excerpts and screenshot scaling.
 - `pnpm test:browser`: Playwright tests in Chromium, against a fake daemon
   built from Playwright routes and against the real daemon from

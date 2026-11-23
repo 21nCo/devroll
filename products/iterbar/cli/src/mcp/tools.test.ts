@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MAX_CURSOR_SEEN, MAX_CURSOR_TIME_MS } from "./cursor.js";
 import type { DaemonClient } from "./daemon-client.js";
 import { feedbackItem } from "./test-support/feedback.js";
-import { registerTools } from "./tools.js";
+import { MAX_BATCH_INLINE_BYTES, registerTools } from "./tools.js";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -16,10 +16,14 @@ afterEach(async () => {
 });
 
 /** The official SDK client connected in memory to the Iterbar tools over a daemon client whose listings the test supplies. */
-async function connect(list: (query: FeedbackListQuery, signal?: AbortSignal) => Feedback[] | Promise<Feedback[]>): Promise<Client> {
+async function connect(
+  list: (query: FeedbackListQuery, signal?: AbortSignal) => Feedback[] | Promise<Feedback[]>,
+  extra: Partial<Record<keyof DaemonClient, unknown>> = {},
+): Promise<Client> {
   const daemon = {
     listFeedback: async (query: FeedbackListQuery = {}, signal?: AbortSignal) => list(query, signal),
     openEvents: async () => Object.assign(new EventEmitter(), { terminate: () => undefined }),
+    ...extra,
   } as unknown as DaemonClient;
   const server = new McpServer({ name: "iterbar", version: "0.0.0" });
   registerTools({ server, client: daemon, closing: new AbortController().signal, heartbeatMs: 60_000, onError: (error) => { throw error; } });
@@ -116,5 +120,100 @@ describe("a cursor whose times are past the end of year 9999", () => {
         ]);
       }
     }
+  });
+});
+
+describe("batches from a daemon that predates them", () => {
+  it("still returns only the batch's items when the daemon ignores the batchId filter", async () => {
+    const base = Date.now() - 60_000;
+    const inBatch = { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 1, batchIndex: 0 };
+    const other = feedbackItem("feedback-b", base + 10);
+    // The daemon ignores every filter and lists everything.
+    const client = await connect(() => [inBatch, other]);
+    const batch = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect(batch).toMatchObject({ count: 1, expectedCount: 1, complete: true });
+    expect((batch.items as { feedback: Feedback }[]).map((entry) => entry.feedback.id)).toEqual(["feedback-a"]);
+    const listed = await ok(client, "list_feedback", { batchId: "batch-1" });
+    expect((listed.items as Feedback[]).map((item) => item.id)).toEqual(["feedback-a"]);
+    const none = (await client.callTool({ name: "get_batch", arguments: { batchId: "batch-2" } })) as CallToolResult;
+    expect(none.structuredContent).toMatchObject({ error: { code: "not_found" } });
+  });
+});
+
+describe("batch completeness", () => {
+  it("counts a comment stored twice once, by its batch index, and says when the newest arrived", async () => {
+    const base = Date.now() - 60_000;
+    const first = { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 2, batchIndex: 0 };
+    const retried = { ...feedbackItem("feedback-b", base + 10), batchId: "batch-1", batchSize: 2, batchIndex: 0 };
+    let items = [first, retried];
+    const client = await connect(() => items);
+    const partial = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect(partial).toMatchObject({ count: 2, expectedCount: 2, complete: false, lastArrivedAt: retried.createdAt });
+    // The newest copy of a comment sent again is the one to act on, whatever its text.
+    expect((partial.items as { supersededBy?: string }[]).map((entry) => entry.supersededBy)).toEqual(["feedback-b", undefined]);
+    const third = { ...feedbackItem("feedback-d", base + 15), text: "Edited, then sent a third time", batchId: "batch-1", batchSize: 2, batchIndex: 0 };
+    items = [first, retried, third];
+    const resent = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect((resent.items as { supersededBy?: string }[]).map((entry) => entry.supersededBy)).toEqual(["feedback-d", "feedback-d", undefined]);
+    items = [first, retried, { ...feedbackItem("feedback-c", base + 20), batchId: "batch-1", batchSize: 2, batchIndex: 1 }];
+    expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ count: 3, complete: true });
+  });
+
+  it("takes the newest item in the store's order, whatever offsets the timestamps carry", async () => {
+    // B arrived after A (05:00 UTC, then 06:00 UTC), though its timestamp text sorts first.
+    const items = [
+      { ...feedbackItem("feedback-a", 0), createdAt: "2026-11-21T10:00:00+05:00", updatedAt: "2026-11-21T10:00:00+05:00", batchId: "batch-1", batchSize: 3, batchIndex: 0 },
+      { ...feedbackItem("feedback-b", 0), createdAt: "2026-11-21T06:00:00Z", updatedAt: "2026-11-21T06:00:00Z", batchId: "batch-1", batchSize: 2, batchIndex: 2 },
+    ];
+    const client = await connect(() => items);
+    expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false }))
+      .toMatchObject({ expectedCount: 2, complete: true, lastArrivedAt: "2026-11-21T06:00:00Z" });
+  });
+
+  it("lists a batch in tray order, so a retried comment keeps its place, and counts unindexed copies each", async () => {
+    const base = Date.now() - 60_000;
+    // A (index 0) was refused and retried after B (index 1) was stored; C has no index.
+    const items = [
+      { ...feedbackItem("feedback-b", base), batchId: "batch-1", batchSize: 3, batchIndex: 1 },
+      { ...feedbackItem("feedback-a", base + 10), batchId: "batch-1", batchSize: 3, batchIndex: 0 },
+      { ...feedbackItem("feedback-c", base + 20), batchId: "batch-1" },
+    ];
+    const client = await connect(() => items);
+    const batch = await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false });
+    expect((batch.items as { feedback: Feedback }[]).map((entry) => entry.feedback.id)).toEqual(["feedback-a", "feedback-b", "feedback-c"]);
+    expect(batch).toMatchObject({ count: 3, expectedCount: 3, complete: true });
+  });
+
+  it("takes the expected size from the newest item, which a withdrawn comment lowers", async () => {
+    const base = Date.now() - 60_000;
+    // A was stored as one of two; B failed and was withdrawn; C, added later, says the batch now holds two.
+    const items = [
+      { ...feedbackItem("feedback-a", base), batchId: "batch-1", batchSize: 2, batchIndex: 0 },
+      { ...feedbackItem("feedback-c", base + 10), batchId: "batch-1", batchSize: 2, batchIndex: 2 },
+    ];
+    const client = await connect(() => items);
+    expect(await ok(client, "get_batch", { batchId: "batch-1", includeAttachments: false })).toMatchObject({ expectedCount: 2, complete: true });
+  });
+});
+
+describe("a large batch", () => {
+  it("inlines screenshots up to the batch limit and references the rest by path", async () => {
+    const base = Date.now() - 60_000;
+    const byteLength = 7 * 1024 * 1024;
+    const shot = (index: number) => ({ id: `shot-${index}`, kind: "screenshot" as const, mediaType: "image/png" as const, byteLength, sha256: "0".repeat(64) });
+    const items = Array.from({ length: 5 }, (_, index) => ({
+      ...feedbackItem(`feedback-${index}`, base + index), batchId: "batch-1", batchSize: 5, batchIndex: index, screenshot: shot(index),
+      screenshotUnavailableReason: null,
+    }));
+    const client = await connect(() => items, {
+      paths: { projectRoot: "/tmp/iterbar-test-project" },
+      getAttachment: async () => new Uint8Array(byteLength),
+    });
+    const result = (await client.callTool({ name: "get_batch", arguments: { batchId: "batch-1" } }, undefined, { timeout: 60_000 })) as CallToolResult;
+    expect(result.isError).toBeFalsy();
+    const inlined = (result.structuredContent as { items: { attachments: { inlined: boolean }[] }[] }).items.map((entry) => entry.attachments[0]!.inlined);
+    const fits = Math.floor(MAX_BATCH_INLINE_BYTES / byteLength);
+    expect(inlined).toEqual(Array.from({ length: 5 }, (_, index) => index < fits));
+    expect(result.content.filter((block) => block.type === "image")).toHaveLength(fits);
   });
 });

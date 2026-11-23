@@ -29,7 +29,7 @@
     "directory": "products/iterbar/bar"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean",
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean --loader .woff2=dataurl",
     "clean": "rm -rf dist coverage test-results playwright-report",
     "lint": "eslint src test playwright.config.ts vitest.config.ts",
     "test": "vitest run",
@@ -41,6 +41,8 @@
     "iterbar": "workspace:*"
   },
   "devDependencies": {
+    "@21n/fonts": "1.0.1",
+    "@iconify-json/ph": "1.2.2",
     "@iterbar/cli": "workspace:*",
     "@playwright/test": "1.64.1",
     "@types/node": "^22.15.30",

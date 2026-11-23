@@ -493,6 +493,15 @@ describe("schema versions", () => {
 });
 
 describe("feedback invariants", () => {
+  it("accepts feedback with or without a batchId, and only a safe id as one", () => {
+    expect(parseMessage(feedbackSchema, comment)).not.toHaveProperty("batchId");
+    expect(parseMessage(feedbackSchema, { ...comment, batchId: "batch-1" }).batchId).toBe("batch-1");
+    expect(() => parseMessage(feedbackSchema, { ...comment, batchId: "Batch 1" })).toThrow(InvalidMessageError);
+    expect(() => parseMessage(feedbackSchema, { ...comment, batchId: null })).toThrow(InvalidMessageError);
+    expect(parseMessage(feedbackSchema, { ...comment, batchId: "batch-1", batchSize: 3 }).batchSize).toBe(3);
+    expect(() => parseMessage(feedbackSchema, { ...comment, batchId: "batch-1", batchSize: 0 })).toThrow(InvalidMessageError);
+  });
+
   it("rejects a screenshot together with a reason it is unavailable", () => {
     expect(() => parseMessage(feedbackSchema, { ...comment, screenshotUnavailableReason: "failed" })).toThrow(InvalidMessageError);
   });

@@ -17,6 +17,12 @@ import type { DaemonClient } from "./daemon-client.js";
 import { IterbarToolError } from "./errors.js";
 import { DEFAULT_WAIT_SECONDS, MAX_WAIT_SECONDS, waitForFeedback } from "./wait.js";
 
+/**
+ * Most attachment bytes one `get_batch` returns inline; the rest are referenced by their file paths, so a large batch
+ * still fits in one tool result.
+ */
+export const MAX_BATCH_INLINE_BYTES = 24 * 1024 * 1024;
+
 /** Largest evidence attachment returned inline by `get_feedback`; a larger one is referenced by its file path. */
 export const MAX_INLINE_EVIDENCE_BYTES = 1024 * 1024;
 
@@ -108,7 +114,34 @@ const cursorInput = z.string().max(1_000_000).optional();
 
 const feedbackId = idSchema.describe("The feedback item's id, as returned by list_feedback or wait_for_feedback.");
 
-/** Registers the six Iterbar tools on `context.server`; each one is a client of the project's daemon. */
+/** The items of `items` in batch `batchId`. */
+function inBatch(items: readonly Feedback[], batchId: string): Feedback[] {
+  return items.filter((item) => item.batchId === batchId);
+}
+
+/** Reads `feedback`'s attachment references and, when `inline`, their contents as content blocks. */
+async function readAttachments(
+  client: DaemonClient, feedback: Feedback, inline: boolean, budget: { remaining: number } = { remaining: Infinity },
+) {
+  const blocks: ContentBlock[] = [];
+  const attachments = [];
+  for (const ref of attachmentsOf(feedback)) {
+    const path = attachmentPath(client.paths.projectRoot, feedback.id, ref);
+    let inlined = false;
+    if (inline && (ref.kind === "screenshot" || ref.byteLength <= MAX_INLINE_EVIDENCE_BYTES) && ref.byteLength <= budget.remaining) {
+      budget.remaining -= ref.byteLength;
+      const data = Buffer.from(await client.getAttachment(feedback.id, ref.id));
+      blocks.push(ref.kind === "screenshot"
+        ? { type: "image", data: data.toString("base64"), mimeType: ref.mediaType }
+        : { type: "resource", resource: { uri: pathToFileURL(path).href, mimeType: ref.mediaType, text: data.toString("utf8") } });
+      inlined = true;
+    }
+    attachments.push({ id: ref.id, kind: ref.kind, mediaType: ref.mediaType, byteLength: ref.byteLength, path, inlined });
+  }
+  return { attachments, blocks };
+}
+
+/** Registers the seven Iterbar tools on `context.server`; each one is a client of the project's daemon. */
 export function registerTools(context: ToolContext): void {
   const { server, client } = context;
 
@@ -125,12 +158,16 @@ export function registerTools(context: ToolContext): void {
       status: feedbackStatusSchema.optional().describe("Only items with this status (a lookup; it leaves your cursor unchanged)."),
       kind: feedbackKindSchema.optional().describe("\"comment\" or \"choose_variant\"."),
       since: timestampSchema.optional().describe("Only items updated at or after this ISO 8601 timestamp."),
+      batchId: idSchema.optional().describe(
+        "Only items the user sent together in this batch (an item's batchId). Use get_batch to read a batch in full.",
+      ),
       cursor: cursorInput.describe("Your latest cursor from list_feedback or wait_for_feedback."),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, (input) => run(context, async () => {
     const cursor = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
-    const filtered = input.status !== undefined || input.kind !== undefined || input.since !== undefined;
+    const filtered = input.status !== undefined || input.kind !== undefined || input.since !== undefined
+      || input.batchId !== undefined;
     // Lists every item updated at or after `since`; observe() uses it to keep a cursor small enough to issue.
     const relist = (since: string | undefined) => client.listFeedback(since === undefined ? {} : { since });
     if (!filtered) {
@@ -148,11 +185,14 @@ export function registerTools(context: ToolContext): void {
     // comes back unchanged. Without one, the cursor starts now; it is taken before the filtered listing, so an item
     // that arrives in between is handed over again by the next wait, never skipped.
     const next = cursor ?? (await observe(cursorProvenBy(await client.listFeedback()), await client.listFeedback(), relist)).cursor;
-    const items = await client.listFeedback({
+    const listed = await client.listFeedback({
       ...(input.status ? { status: input.status } : {}),
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.since ? { since: input.since } : {}),
+      ...(input.batchId ? { batchId: input.batchId } : {}),
     });
+    // A daemon from before batches ignores the batchId filter, so it is applied here as well.
+    const items = input.batchId ? inBatch(listed, input.batchId) : listed;
     return success({ items, cursor: encodeCursor(next) });
   }));
 
@@ -169,21 +209,70 @@ export function registerTools(context: ToolContext): void {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, (input) => run(context, async () => {
     const feedback = await client.getFeedback(input.feedbackId);
-    const blocks: ContentBlock[] = [];
-    const attachments = [];
-    for (const ref of attachmentsOf(feedback)) {
-      const path = attachmentPath(client.paths.projectRoot, feedback.id, ref);
-      let inlined = false;
-      if (input.includeAttachments && (ref.kind === "screenshot" || ref.byteLength <= MAX_INLINE_EVIDENCE_BYTES)) {
-        const data = Buffer.from(await client.getAttachment(feedback.id, ref.id));
-        blocks.push(ref.kind === "screenshot"
-          ? { type: "image", data: data.toString("base64"), mimeType: ref.mediaType }
-          : { type: "resource", resource: { uri: pathToFileURL(path).href, mimeType: ref.mediaType, text: data.toString("utf8") } });
-        inlined = true;
-      }
-      attachments.push({ id: ref.id, kind: ref.kind, mediaType: ref.mediaType, byteLength: ref.byteLength, path, inlined });
-    }
+    const { attachments, blocks } = await readAttachments(client, feedback, input.includeAttachments);
     return success({ feedback, attachments }, blocks);
+  }));
+
+  server.registerTool("get_batch", {
+    title: "Read an Iterbar batch",
+    description:
+      "Read every feedback item the user sent together in one batch from the bar's draft tray, in the order they were " +
+      "put in the tray, each with its thread, target element, source location and active variants. Items share a batchId (shown on " +
+      "each item by list_feedback and wait_for_feedback). By default each item's screenshot is included as an image, " +
+      "labelled with the item's id, and evidence as JSON, up to 24 MiB in all; past that an attachment has inlined: " +
+      "false and is read from its path. The bar posts a batch one comment at a time: expectedCount is " +
+      "how many it holds once all are sent, and complete says whether all have arrived. When complete is false and " +
+      "lastArrivedAt is under a minute ago, wait_for_feedback with timeoutSeconds no longer than what is left of that " +
+      "minute and call get_batch again; otherwise the rest was " +
+      "not sent (the user may have dropped a failed comment), so work on the items present. Work through the batch as one change: read all of it " +
+      "first, then set each unfinished item working, make the edits, reply on each of those items and set each one " +
+      "done. Leave items already done alone: a comment retried later arrives on its own. An entry with supersededBy " +
+      "is an earlier copy of a comment the user sent again (perhaps edited): act on the copy it names, and on this one " +
+      "reply that it was sent again and set it resolved. Judge the newest copy against the code as it is now: if the " +
+      "code already does what it asks, reply that it is done and set it done; otherwise make the change.",
+    inputSchema: {
+      batchId: idSchema.describe("The batch's id: the batchId of any item in it."),
+      includeAttachments: z.boolean().default(true).describe("Return each item's screenshot and evidence contents (default true)."),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (input) => run(context, async () => {
+    // A daemon from before batches ignores the filter and lists everything, so membership is checked here too.
+    const items = inBatch(await client.listFeedback({ batchId: input.batchId }), input.batchId);
+    if (items.length === 0) throw new IterbarToolError("not_found", `No feedback has batchId ${input.batchId}`);
+    // The newest item's size is the latest the bar knew: a draft withdrawn after a failed send lowers it.
+    // Items come in the store's time order, oldest first, whatever offsets their timestamps carry.
+    const expectedCount = [...items].reverse().find((item) => item.batchSize !== undefined)?.batchSize ?? null;
+    // A comment stored twice (a retry after a lost answer) keeps its index, so it is counted once.
+    // Copies of one comment share its index and count once; comments without an index count each.
+    const indexes = new Set(items.flatMap((item) => (item.batchIndex === undefined ? [] : [item.batchIndex])));
+    const arrived = indexes.size + items.filter((item) => item.batchIndex === undefined).length;
+    const lastArrivedAt = items.at(-1)!.createdAt;
+    const blocks: ContentBlock[] = [];
+    const entries = [];
+    // A comment sent again after a lost answer (perhaps edited) shares its batchIndex with the earlier copies; the
+    // newest copy (items come oldest first) is the one the user means, and it supersedes the others.
+    const newestOfIndex = new Map<number, string>();
+    for (const feedback of items) if (feedback.batchIndex !== undefined) newestOfIndex.set(feedback.batchIndex, feedback.id);
+    const budget = { remaining: MAX_BATCH_INLINE_BYTES };
+    // In the order the user put them in the tray (by index), so a retried comment does not move; items without an
+    // index keep their arrival order, after the indexed ones.
+    const ordered = items.map((item, arrival) => ({ item, arrival })).sort((left, right) =>
+      (left.item.batchIndex ?? Infinity) - (right.item.batchIndex ?? Infinity) || left.arrival - right.arrival)
+      .map(({ item }) => item);
+    for (const feedback of ordered) {
+      const read = await readAttachments(client, feedback, input.includeAttachments, budget);
+      if (read.blocks.length) blocks.push({ type: "text", text: `Attachments of ${feedback.id}:` }, ...read.blocks);
+      const newest = feedback.batchIndex === undefined ? undefined : newestOfIndex.get(feedback.batchIndex);
+      entries.push({ feedback, attachments: read.attachments, ...(newest && newest !== feedback.id ? { supersededBy: newest } : {}) });
+    }
+    return success({
+      batchId: input.batchId,
+      count: items.length,
+      expectedCount,
+      complete: expectedCount === null ? null : arrived >= expectedCount,
+      lastArrivedAt,
+      items: entries,
+    }, blocks);
   }));
 
   server.registerTool("reply", {

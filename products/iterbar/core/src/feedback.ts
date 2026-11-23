@@ -121,6 +121,18 @@ const contentFields = {
   activeVariants: activeVariantsSchema,
   /** Why no screenshot was captured; `null` when one was, or none was attempted. */
   screenshotUnavailableReason: screenshotUnavailableReasonSchema,
+  /**
+   * Groups feedback the user sent together from the bar's draft tray, so an agent can take it as one unit. Absent on
+   * feedback sent on its own and on feedback from bars that predate batches.
+   */
+  batchId: idSchema.optional(),
+  /**
+   * How many comments the batch holds once it is all sent; with {@link batchId}. The bar posts a batch's comments one
+   * at a time, so an agent that sees fewer items than this knows more are on their way.
+   */
+  batchSize: z.number().int().positive().max(1000).optional(),
+  /** This comment's place in its batch, from 0; a retried comment keeps it, so a duplicate is not counted twice. */
+  batchIndex: z.number().int().nonnegative().max(999).optional(),
 };
 
 const commentFields = { kind: z.literal("comment"), text: nonBlankText };

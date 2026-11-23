@@ -32,6 +32,8 @@ async function bundleFixture(): Promise<string> {
     target: "chrome120",
     write: false,
     logLevel: "warning",
+    // As the package build does: the bar's fonts are bundled as data URLs.
+    loader: { ".woff2": "dataurl" },
   });
   return result.outputFiles.map((file) => file.text).join("\n");
 }
@@ -86,10 +88,19 @@ export async function registerSlots(page: Page, slots: readonly SlotDefinitionIn
 }
 
 /** Adds the bar with an optional daemon configuration. */
-export async function mountBar(page: Page, options: { daemonUrl?: string; token?: string } = {}): Promise<void> {
+export async function mountBar(page: Page, options: { daemonUrl?: string; token?: string; project?: string } = {}): Promise<void> {
   await page.evaluate((config) => {
     window.fixture.mountIterbarBar(config);
   }, options);
+}
+
+/** Opens the toolbar's `inbox`, `drafts` or `versions` panel, unless it is already open. */
+export async function openPanel(page: Page, panel: "inbox" | "drafts" | "versions"): Promise<void> {
+  const button = page.locator(`iterbar-bar [data-role=${panel}-toggle]`);
+  // Asleep, the versions button shows only on hover; the toolbar wakes for the keyboard too.
+  await page.locator("iterbar-bar [data-role=comment]").hover();
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+  await page.mouse.move(0, 0);
 }
 
 /** A locator inside the bar's shadow root (Playwright's CSS engine pierces open shadow roots). */

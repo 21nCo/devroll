@@ -114,7 +114,13 @@ class DeadlineError extends Error {}
  * daemon's own `reason` when its body had one.
  */
 export class DaemonRequestError extends Error {
-  constructor(message: string, readonly status: number | null = null, readonly reason: string | null = null) {
+  constructor(
+    message: string,
+    readonly status: number | null = null,
+    readonly reason: string | null = null,
+    /** Whether the daemon may have stored the comment all the same (no answer, or a failure after its write). */
+    readonly mayBeStored = false,
+  ) {
     super(message);
   }
 }
@@ -225,25 +231,25 @@ export class DaemonConnection {
         if (error.status === null || error.status < 500) throw error;
         const why = `The daemon failed (${error.status})${error.reason === null ? "" : `: ${error.reason}`}`;
         this.#refreshThreads();
-        throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, error.status, error.reason);
+        throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, error.status, error.reason, true);
       }
       // No answer (a lost connection or the deadline): the daemon stores a comment before it answers, so the outcome
       // is unknown and sending again could file it twice.
       // A success whose body cannot be read was stored.
       if (error instanceof SyntaxError) {
         this.#refreshThreads();
-        throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.");
+        throw new DaemonRequestError("The daemon accepted the comment, but its answer could not be read. Check the threads before sending it again.", null, null, true);
       }
       let why = `The daemon did not answer (${(error as Error).message})`;
       if (error instanceof DeadlineError) why = `The daemon did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds`;
       if (this.#stopped) why = "The bar was disconnected from the daemon before it answered";
       this.#refreshThreads();
-      throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`);
+      throw new DaemonRequestError(`${why}, so the comment may already be stored. Check the threads before sending it again.`, null, null, true);
     }
     const feedback = feedbackSchema.safeParse(response);
     if (!feedback.success) {
       this.#refreshThreads();
-      throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.");
+      throw new DaemonRequestError("The daemon accepted the comment, but its answer was not a feedback item. Check the threads before sending it again.", null, null, true);
     }
     return feedback.data;
   }
@@ -424,6 +430,8 @@ export class DaemonConnection {
         reject(new DeadlineError("The daemon did not answer in time."));
       }, REQUEST_TIMEOUT_MS);
     });
+    /** The status of an error answer, kept once its headers arrive, in case reading its body runs out of time. */
+    let refusedStatus: number | null = null;
     const exchange = async (): Promise<unknown> => {
       const headers: Record<string, string> = { authorization: bearerAuthorization(this.#config.token) };
       if (typeof body === "string") headers["content-type"] = "application/json";
@@ -436,11 +444,20 @@ export class DaemonConnection {
         signal: deadline.signal,
       });
       if (response.status === 401) throw new UnauthorizedError("unauthorized");
-      if (!response.ok) throw await answerError(response);
+      if (!response.ok) {
+        refusedStatus = response.status;
+        throw await answerError(response);
+      }
       return body === undefined || endpoint === "createFeedback" ? await response.json() : undefined;
     };
     try {
       return await Promise.race([exchange(), timeout]);
+    } catch (error) {
+      // A refusal (4xx) is definite from its status alone, even when its body never finishes arriving.
+      if (error instanceof DeadlineError && refusedStatus !== null && refusedStatus < 500) {
+        throw new DaemonRequestError(`The daemon answered ${refusedStatus}.`, refusedStatus);
+      }
+      throw error;
     } finally {
       clearTimeout(timer);
       this.#abort.signal.removeEventListener("abort", cancel);

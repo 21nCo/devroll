@@ -37,16 +37,30 @@ async function openCases(page: Page, openFixture: (path?: string) => Promise<voi
   await mountBar(page, daemon ? { daemonUrl: daemon.url, token: daemon.token } : {});
 }
 
+/**
+ * Lays the cases out in a row, so the comment box, which opens below a picked element, never covers the next one a
+ * test picks while it is open.
+ */
+async function spreadCases(page: Page): Promise<void> {
+  await page.addStyleTag({ content: ".cases, .cases .card, .cases ul { display: flex; gap: 48px; align-items: flex-start } .cases ul { padding: 0 }" });
+}
+
 async function enterCommentMode(page: Page): Promise<void> {
   await inBar(page, "[data-role=comment]").click();
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
 }
 
+/**
+ * How long a test waits for a comment to reach the daemon. A send waits for its screenshot, and drawing and encoding
+ * a large one takes several seconds on slow CI runners.
+ */
+const SEND_TIMEOUT_MS = 20_000;
+
 /** Types `text` and sends it from the keyboard (Ctrl+Enter), leaving the pointer where the pick left it. */
 async function typeAndSend(page: Page, text: string): Promise<void> {
   const box = inBar(page, "[data-role=composer-text]");
   await box.fill(text);
-  await box.press("Control+Enter");
+  await box.press("Control+Shift+Enter");
 }
 
 /** Picks `target` (clicked at `position`, else its centre), types `text` and sends it; resolves with what the daemon received. */
@@ -55,7 +69,7 @@ async function comment(page: Page, daemon: FakeDaemon, target: Locator, text: st
   await enterCommentMode(page);
   await target.click(position ? { position } : {});
   await typeAndSend(page, text);
-  await expect.poll(() => daemon.posts.length).toBe(before + 1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(before + 1);
   return daemon.posts[before]!;
 }
 
@@ -155,7 +169,7 @@ async function commentOnDrawing(page: Page, daemon: FakeDaemon, id: string, befo
   await enterCommentMode(page);
   const restore = await clickDrawing(page, id, beforeClick);
   await typeAndSend(page, id);
-  await expect.poll(() => daemon.posts.length).toBe(index + 1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(index + 1);
   await restore();
   expect(daemon.posts[index]!.draft.target?.selector).toBe(`[data-testid="${id}"]`);
   return daemon.posts[index]!;
@@ -352,7 +366,7 @@ test("the screenshot shows the element as it was when picked", async ({ page, op
   });
   await inBar(page, "[data-role=composer-text]").fill("Was red");
   await inBar(page, "[data-role=composer-send]").click();
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   expect((await pngPixels(page, daemon.posts[0]!.screenshot!, [[30, 20]])).at).toEqual([[255, 0, 0, 255]]);
 });
 
@@ -387,7 +401,7 @@ test("a transformed element still contains its fixed descendants", async ({ page
   await enterCommentMode(page);
   await page.getByTestId("framed").click({ position: { x: -40, y: -40 } });
   await typeAndSend(page, "Framed");
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.target?.selector).toBe('[data-testid="framed"]');
   expect((await pngPixels(page, screenshot!, [[10, 10], [100, 100]])).at).toEqual([[255, 0, 0, 255], [0, 0, 255, 255]]);
@@ -1075,7 +1089,7 @@ test("the fake daemon times a held post from its arrival, not its release", asyn
   const arrived = Date.now();
   await page.waitForTimeout(500);
   answer();
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   expect(daemon.posts[0]!.receivedAt).toBeLessThanOrEqual(arrived);
 });
 
@@ -1476,6 +1490,7 @@ test("a capture withdrawn while it is drawn finishes before another draws, so en
     };
   });
   const encoding = () => page.evaluate(() => (window as unknown as { encoding: number }).encoding);
+  await spreadCases(page);
   await enterCommentMode(page);
   // Each pick replaces, or Cancel withdraws, a capture that is being encoded.
   for (const target of ['[data-case="testid"]', '[data-case="id"]', '[data-case="stamped"]', '[data-case="slot"]']) {
@@ -1486,7 +1501,7 @@ test("a capture withdrawn while it is drawn finishes before another draws, so en
   await page.locator('[data-case="root"]').click();
   await expect.poll(encoding).toBe(1);
   await typeAndSend(page, "Last");
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   expect(daemon.posts[0]!.screenshot).not.toBeNull();
   expect(await page.evaluate(() => (window as unknown as { maxEncoding: number }).maxEncoding)).toBe(1);
 });
@@ -1497,14 +1512,15 @@ test("a withdrawn capture still waiting inside its render holds up no later capt
   const release = await heldImage(page, `${fixtureServer.origin}/stalled.svg`, 40, 40);
   await openCases(page, openFixture, daemon);
   await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin",
-    '<div data-testid="stalled" style="width: 80px; height: 40px; background: url(/stalled.svg)"></div>'));
+    // Off to the right, so the comment box it opens does not cover the element picked next.
+    '<div data-testid="stalled" style="position: absolute; top: 8px; right: 8px; width: 80px; height: 40px; background: url(/stalled.svg)"></div>'));
   await enterCommentMode(page);
   await page.getByTestId("stalled").click();
   await page.waitForTimeout(500);
   const started = Date.now();
   await page.locator('[data-case="testid"]').click();
   await typeAndSend(page, "Not held up");
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.target?.selector).toBe('[data-testid="save"]');
   expect(draft.screenshotUnavailableReason).toBeNull();
@@ -1527,7 +1543,7 @@ test("keeps the screenshot within 4 MP when the element grows while it is being 
   await typeAndSend(page, "Grew");
   await expect(inBar(page, "[data-role=composer-send]")).toHaveText("Sending…");
   release();
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   expect(await page.getByTestId("grows").evaluate((element) => element.getBoundingClientRect().width)).toBe(2500);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.screenshotUnavailableReason).toBeNull();
@@ -1601,7 +1617,7 @@ test("sends no screenshot, and says why, when a page element has focus at the pi
     if (picked === null) await page.keyboard.press("Enter");
     else await page.getByTestId(picked).click({ position: { x: 2, y: 2 } });
     await typeAndSend(page, focused);
-    await expect.poll(() => daemon.posts.length).toBe(index + 1);
+    await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(index + 1);
     const { draft, screenshot } = daemon.posts[index]!;
     expect(draft.target?.selector, focused).toBe(`[data-testid="${picked ?? focused}"]`);
     expect(screenshot, focused).toBeNull();
@@ -1672,7 +1688,7 @@ test("keeps the screenshot when the pointer moves on the page after the pick, co
     }
     releases.get(id)!();
     await typeAndSend(page, id);
-    await expect.poll(() => daemon.posts.length).toBe(index + 1);
+    await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(index + 1);
     const { draft, screenshot } = daemon.posts[index]!;
     expect(draft.target?.selector, id).toBe(`[data-testid="${id}"]`);
     // Never refused for the pointer: copied once its image loaded, after the pointer moved, so as the page shows it
@@ -1689,25 +1705,26 @@ test("keeps the screenshot when the comment box opens over a still pointer, copy
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   const release = await heldImage(page, `${fixtureServer.origin}/held-corner.svg`, 4, 4);
   await openFixture();
-  // A blue box, red while hovered, filling the corner the bar is docked in: covered by the comment box, it loses the
-  // hover it was picked with before it is copied.
+  // A blue box, red while hovered, filling the viewport: the comment box opens over it, at the pointer, so it loses
+  // the hover it was picked with before it is copied.
   await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", `
     <style>.corner:hover { background: rgb(255, 0, 0) !important }</style>
-    <div class="corner" data-testid="corner" style="position: fixed; right: 0; bottom: 0; width: 400px; height: 400px; background: rgb(0, 0, 255)">
+    <div class="corner" data-testid="corner" style="position: fixed; inset: 0; background: rgb(0, 0, 255)">
       <img src="/held-corner.svg" width="4" height="4" alt="" style="pointer-events: none"></div>`));
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   await enterCommentMode(page);
-  // Picked just above the bar, where the comment box then opens.
-  const bar = (await inBar(page, ".bar").boundingBox())!;
-  const point = { x: bar.x + bar.width / 2, y: bar.y - 10 };
+  // An element taller than the room above and below it gets the comment box at the bottom left, above the toolbar.
+  const toolbar = (await inBar(page, ".toolbar").boundingBox())!;
+  const point = { x: 100, y: toolbar.y - 60 };
   await page.mouse.click(point.x, point.y);
-  const open = (await inBar(page, ".bar").boundingBox())!;
-  expect(open.y).toBeLessThan(point.y - 10);
+  const open = (await inBar(page, ".composer").boundingBox())!;
+  expect(open.y).toBeLessThan(point.y);
+  expect(open.y + open.height).toBeGreaterThan(point.y);
   expect(point.x).toBeGreaterThan(open.x);
   await expect.poll(() => page.getByTestId("corner").evaluate((corner) => corner.matches(":hover"))).toBe(false);
   release();
   await typeAndSend(page, "Corner");
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.target?.selector).toBe('[data-testid="corner"]');
   expect(draft.screenshotUnavailableReason).toBeNull();
@@ -1730,7 +1747,7 @@ test("keeps the screenshot when the pointer moves to the comment box and clicks 
   await expect(inBar(page, "[data-role=composer-send]")).toHaveText("Sending…");
   expect(daemon.posts).toHaveLength(0);
   release();
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   const { draft, screenshot } = daemon.posts[0]!;
   expect(draft.target?.selector).toBe('[data-testid="plain"]');
   expect(draft.screenshotUnavailableReason).toBeNull();
@@ -1747,7 +1764,7 @@ test("sends no screenshot for an element without area, and says why", async ({ p
   await page.getByTestId("flat").focus();
   await page.keyboard.press("Enter");
   await typeAndSend(page, "Invisible");
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   expect(daemon.posts[0]!.screenshot).toBeNull();
   expect(daemon.posts[0]!.draft.screenshotUnavailableReason).toBe("The screenshot failed: the element has no visible area");
 });
@@ -1769,7 +1786,7 @@ test("the page receives every event while comment mode is off, and none of a pic
   expect(await inBar(page, "[data-role=pick-hover]").boundingBox()).toEqual(await save.boundingBox());
   await save.click();
   expect(await events()).toEqual([]);
-  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On button");
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On “Save”");
   await expect(inBar(page, "[data-role=pick-picked]")).toBeVisible();
   // Focus moved to the composer, not to the clicked page button.
   expect(await page.evaluate(() => document.activeElement?.localName)).toBe("iterbar-bar");
@@ -1844,7 +1861,7 @@ test("Enter or Space on a focused page control, the context menu and the documen
   await page.getByTestId("custom").focus();
   await events();
   await page.keyboard.press(" ");
-  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On div");
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On “Custom”");
   expect(await events()).toEqual([]);
 
   // Holding the key: its repeats and release, which follow focus into the composer, reach neither it nor the page.
@@ -1855,7 +1872,7 @@ test("Enter or Space on a focused page control, the context menu and the documen
   await page.keyboard.down(" ");
   await page.keyboard.down(" ");
   await page.keyboard.up(" ");
-  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On div");
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On “Custom”");
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("");
   expect(await page.evaluate(() => window.pageEvents.splice(0).filter((entry) => !entry.startsWith("focusin:")))).toEqual([]);
 
@@ -1884,7 +1901,7 @@ test("the key that picked is no longer swallowed once its press ends without a k
   for (const [ending, end] of Object.entries(endings)) {
     await button.focus();
     await page.keyboard.down("Enter");
-    await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On button");
+    await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On “Save”");
     // While the press lasts its repeats are swallowed, even in the composer.
     await text.focus();
     await page.keyboard.down("Enter");
@@ -1922,7 +1939,7 @@ test("picking another element keeps the text, Cancel keeps comment mode, and a r
   await page.locator('[data-case="testid"]').click();
   await inBar(page, "[data-role=composer-text]").fill("Draft text");
   await page.locator('[data-case="id"]').click();
-  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On button#dup-b");
+  await expect(inBar(page, "[data-role=composer-target]")).toHaveText("On “B”");
   await expect(inBar(page, "[data-role=composer-text]")).toHaveValue("Draft text");
 
   await inBar(page, "[data-role=composer-cancel]").click();
@@ -1941,8 +1958,8 @@ test("picking another element keeps the text, Cancel keeps comment mode, and a r
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "true");
 
   daemon.failFeedback = null;
-  await inBar(page, "[data-role=composer-text]").press("Control+Enter");
-  await expect.poll(() => daemon.posts.length).toBe(1);
+  await inBar(page, "[data-role=composer-text]").press("Control+Shift+Enter");
+  await expect.poll(() => daemon.posts.length, { timeout: SEND_TIMEOUT_MS }).toBe(1);
   expect(daemon.posts[0]!.draft.target?.selector).toBe('[data-iterbar-src="src/Card.tsx:4:3"] > p.lead:nth-of-type(2)');
   await expect(inBar(page, '[data-feedback-id="posted-1"] .thread-text')).toHaveText("Retry me");
 });

@@ -210,6 +210,14 @@ function checkEvidence(data: unknown): Buffer {
   return bytes;
 }
 
+/** Whether `feedback` passes every filter of a list query; `since` is the parsed `since` time. */
+function matchesListQuery(feedback: Feedback, filter: FeedbackListQuery, since: number | undefined): boolean {
+  return (filter.status === undefined || feedback.status === filter.status)
+    && (filter.kind === undefined || feedback.kind === filter.kind)
+    && (filter.batchId === undefined || feedback.batchId === filter.batchId)
+    && (since === undefined || Date.parse(feedback.updatedAt) >= since);
+}
+
 class FileFeedbackStore implements FeedbackStore {
   readonly paths: IterbarPaths;
   readonly #lock: StoreLockHandle;
@@ -302,11 +310,7 @@ class FileFeedbackStore implements FeedbackStore {
     for (const entry of await listDirectory(this.paths.feedbackDirectory)) {
       if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
       const feedback = (await this.#read(entry.name))?.feedback;
-      if (!feedback) continue;
-      if (filter.status !== undefined && feedback.status !== filter.status) continue;
-      if (filter.kind !== undefined && feedback.kind !== filter.kind) continue;
-      if (since !== undefined && Date.parse(feedback.updatedAt) < since) continue;
-      items.push(feedback);
+      if (feedback && matchesListQuery(feedback, filter, since)) items.push(feedback);
     }
     return items.sort((left, right) =>
       Date.parse(left.createdAt) - Date.parse(right.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));

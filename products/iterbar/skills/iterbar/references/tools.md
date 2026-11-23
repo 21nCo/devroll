@@ -32,11 +32,14 @@ Every tool that returns feedback returns full items:
 - `target`: `null`, or the element: `selector`, `textExcerpt`, `boundingBox` and `sourceLocation`
   (`{ path, line, column }`, project relative, or `null`);
 - `screenshot` and `evidence` attachment references (or `null`), and `screenshotUnavailableReason`;
-- `replies`: `[{ id, author: { kind: "user" | "agent", name }, text, createdAt }]`, oldest first.
+- `replies`: `[{ id, author: { kind: "user" | "agent", name }, text, createdAt }]`, oldest first;
+- `batchId`, `batchSize` and `batchIndex` (its place in the batch), only on items the user sent together from the bar's draft tray: the same id on every item
+  of that batch, and how many items the batch holds once all are sent.
 
 ## `list_feedback`
 
-Inputs, all optional: `status`, `kind`, `since` (ISO 8601; items updated at or after it); `cursor` (your latest one,
+Inputs, all optional: `status`, `kind`, `since` (ISO 8601; items updated at or after it), `batchId` (only the items of
+that batch); `cursor` (your latest one,
 from `list_feedback` or `wait_for_feedback`).
 
 Result: `{ items, cursor }`, oldest first; with a `cursor` and no filters, also `events` (as in
@@ -70,6 +73,28 @@ With `includeAttachments`, the content also has the screenshot as an `image` blo
 `resource` block (JSON text, `file://` URI of its file). Evidence larger than 1 MiB is not inlined; read the file at
 its `path` instead. Screenshots are always inlined when attachments are requested; they can be up to the store's
 screenshot limit, so pass `includeAttachments: false` and read the `path` when you do not need the image.
+
+## `get_batch`
+
+Inputs: `batchId` (any item's `batchId`); `includeAttachments` (default `true`).
+
+Result: `{ batchId, count, expectedCount, complete, lastArrivedAt, items }`, where each entry of `items` is
+`{ feedback, attachments }` as `get_feedback` returns them, plus `supersededBy` (the newest copy's id) on an earlier copy
+of a comment the user sent again after a lost answer, perhaps edited: act on the copy it names, reply on this one that
+it was sent again and set it `resolved`. Judge the newest copy against the code as it is now: if the code already
+does what it asks, reply that it is done and set it `done`; otherwise make the change. Attachments are inlined up to
+24 MiB per call; past that an attachment has `inlined: false` and is read from its `path`. Entries come in the order the user put them in the tray (by `batchIndex`; a retried comment keeps its place), then any
+without an index in arrival order. If `wait_for_feedback` returns events for other threads while you wait for the rest of
+a batch, keep them and handle them after the batch, then go on with the cursor it returned. With `includeAttachments`, the content also has each item's screenshot
+as an `image` block and its evidence as a `resource` block, each group after a text block `Attachments of <id>:`.
+The bar posts a batch one item at a time. `expectedCount` is how many items the batch holds (the newest item's
+`batchSize`, since a comment the user withdrew after a failed send lowers it), and `complete` says whether all of them
+have arrived (`null` when no item gives a size; a comment stored twice counts once, by its `batchIndex`). When
+`complete` is `false` and `lastArrivedAt` (the newest item's `createdAt`) is under a minute ago, call
+`wait_for_feedback` with a `timeoutSeconds` no longer than what is left of that minute, then `get_batch` again.
+Otherwise the rest will not come (the user may have dropped a comment that failed to send): work on the items present.
+Work only on unfinished items; one retried later arrives on its own and leaves the done ones alone. Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
+your cursor.
 
 ## `reply`
 
