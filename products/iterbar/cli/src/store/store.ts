@@ -481,7 +481,29 @@ class FileFeedbackStore implements FeedbackStore {
       } catch {
         // Left for the sweep.
       }
+      if (record?.feedback.batchId !== undefined) await this.#shrinkBatch(record.feedback).catch(() => undefined);
     });
+  }
+
+  /**
+   * After a batch member is deleted, the batch holds one comment fewer: the survivors' batchSize goes down by one, so
+   * get_batch can still find the batch complete. Not when another copy of the same comment (a retry sharing its
+   * batchIndex) survives, since that comment is still there. Best effort, after the delete is durable; a member
+   * still being sent carries the size the bar knew, which get_batch then reads as the newest.
+   */
+  async #shrinkBatch(deleted: Feedback): Promise<void> {
+    const siblings: StoredRecord[] = [];
+    for (const entry of await listDirectory(this.paths.feedbackDirectory)) {
+      if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
+      const record = await this.#read(entry.name);
+      if (record && record.feedback.batchId === deleted.batchId) siblings.push(record);
+    }
+    if (deleted.batchIndex !== undefined && siblings.some((each) => each.feedback.batchIndex === deleted.batchIndex)) return;
+    for (const sibling of siblings) {
+      const size = sibling.feedback.batchSize;
+      // Metadata only: updatedAt stays, so the change is not reported as an update to the thread.
+      if (size !== undefined && size > 1) await this.#update(sibling, { batchSize: size - 1 });
+    }
   }
 
   close(): Promise<void> {

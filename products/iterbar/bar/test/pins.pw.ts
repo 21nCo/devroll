@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION } from "iterbar";
 import { comment, fakeDaemon } from "./support/fake-daemon.js";
-import { expect, inBar, mountBar, test } from "./support/fixtures.js";
+import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
 
 // Comment pins: a pin on the element of each unfinished thread on this page.
 
@@ -155,4 +155,30 @@ test("a wrapper with display: contents clips nothing", async ({ page, openFixtur
   await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin", '<div style="display: contents; overflow: hidden"><p id="in-contents" style="width: 200px">Inside</p></div>'));
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
   await expect(pins(page)).toHaveCount(1);
+});
+
+test("a thread made on one variant of a slot pins only while that variant shows, even when variants share a selector", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  const onV1 = comment("On v1", { pageUrl: here, target: target("#shared"), activeVariants: [{ slot: "pricing", variant: "v1" }] });
+  const onV2 = comment("On v2", { pageUrl: here, target: target("#shared"), activeVariants: [{ slot: "pricing", variant: "v2" }] });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [onV1, onV2]);
+  await openFixture();
+  await page.evaluate(() => {
+    const slot = document.createElement("div");
+    slot.setAttribute("data-iterbar-slot", "pricing");
+    slot.innerHTML = '<p id="shared" style="width: 200px">Variant text</p>';
+    document.body.prepend(slot);
+  });
+  await registerSlots(page, [PRICING]);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  await expect(pins(page)).toHaveCount(1);
+  await expect(pins(page).locator(".pin-count")).toBeHidden();
+  await pins(page).click();
+  await expect(inBar(page, `[data-feedback-id="${onV1.id}"] details`)).toHaveAttribute("open", "");
+  await page.keyboard.press("Escape");
+  // Switched to v2 (the element keeps its selector): the pin is now v2's thread.
+  await page.evaluate(() => (window as unknown as { __ITERBAR__: { select(selection: unknown): void } }).__ITERBAR__.select({ schemaVersion: 2, slot: "pricing", variant: "v2" }));
+  await expect(pins(page)).toHaveCount(1);
+  await pins(page).click();
+  await expect(inBar(page, `[data-feedback-id="${onV2.id}"] details`)).toHaveAttribute("open", "");
 });

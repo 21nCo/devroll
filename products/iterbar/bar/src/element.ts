@@ -1122,6 +1122,7 @@ export class IterbarBarElement extends ElementBase {
     this.#slotCount.textContent = String(slots.length);
     this.#slotCount.hidden = slots.length === 0;
     this.#variantsButton.toggleAttribute("data-has", slots.length > 0);
+    this.#pins.setActiveVariants(slots.map((slot) => ({ slot: slot.slot, variant: slot.activeVariant })));
     this.#variantsButton.setAttribute("aria-label", slots.length ? `Variants, ${slots.length} ${slots.length === 1 ? "slot" : "slots"}` : "Variants");
     this.#queueReport(slots);
   }

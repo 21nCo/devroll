@@ -99,8 +99,9 @@ const V1_RENAMES: Readonly<Record<string, string>> = Object.freeze({
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value) as unknown;
-  return prototype === Object.prototype || prototype === null;
+  // Any realm's Object.prototype (an iframe's page API hands over its own realm's objects), or none; not a class instance.
+  const prototype = Object.getPrototypeOf(value) as object | null;
+  return prototype === null || Object.getPrototypeOf(prototype) === null;
 }
 
 /**

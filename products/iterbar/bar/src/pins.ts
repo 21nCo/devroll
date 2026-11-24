@@ -2,6 +2,9 @@ import type { Feedback } from "iterbar";
 import { h } from "./dom.js";
 import { icon } from "./icons.js";
 
+/** The attribute that marks a slot's rendered variant with the slot's name (see @iterbar/variants slotRootAttributes). */
+const SLOT_ATTRIBUTE = "data-iterbar-slot";
+
 /** Statuses whose threads still show a pin on the page: everything the agent or the user has not closed. */
 const PINNED_STATUSES: ReadonlySet<Feedback["status"]> = new Set(["open", "working", "needs-info"]);
 
@@ -103,6 +106,7 @@ export class PinLayer {
   /** One pin per element: threads whose recorded selectors find the same element share it. */
   readonly #pins = new Map<Element, Pin>();
   #threads: readonly Feedback[] = [];
+  #active = new Map<string, string>();
   #enabled = true;
   #attached = false;
   #frame: number | null = null;
@@ -181,6 +185,26 @@ export class PinLayer {
     }
   }
 
+  /**
+   * The variant each slot on the page shows. A thread made on an element inside a slot gets its pin only while that
+   * slot shows the variant the thread recorded, since two variants can share a selector.
+   */
+  setActiveVariants(active: readonly { readonly slot: string; readonly variant: string }[]): void {
+    const next = new Map(active.map((each) => [each.slot, each.variant]));
+    if (next.size === this.#active.size && [...next].every(([slot, variant]) => this.#active.get(slot) === variant)) return;
+    this.#active = next;
+    this.#rebuild();
+  }
+
+  /** Whether `element` shows what `thread` was made on: outside any slot, or in its recorded variant of the slot. */
+  #onRecordedVariant(thread: Feedback, element: Element): boolean {
+    const slot = element.closest(`[${SLOT_ATTRIBUTE}]`)?.getAttribute(SLOT_ATTRIBUTE);
+    if (!slot) return true;
+    const recorded = thread.activeVariants?.find((each) => each.slot === slot)?.variant;
+    const shown = this.#active.get(slot);
+    return recorded === undefined || shown === undefined || recorded === shown;
+  }
+
   /** The threads the bar holds; the unfinished ones on this page get pins. */
   update(threads: readonly Feedback[]): void {
     this.#threads = threads;
@@ -201,7 +225,7 @@ export class PinLayer {
         const { selector } = thread.target;
         if (!found.has(selector)) found.set(selector, this.#find(selector));
         const element = found.get(selector);
-        if (!element) continue;
+        if (!element || !this.#onRecordedVariant(thread, element)) continue;
         const ids = groups.get(element);
         if (ids) ids.push(thread.id);
         else groups.set(element, [thread.id]);

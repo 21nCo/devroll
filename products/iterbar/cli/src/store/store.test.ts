@@ -281,6 +281,24 @@ describe("records", () => {
     await expect(store.delete(item.id)).rejects.toMatchObject({ code: "not_found" });
   });
 
+  it("lowers a batch's size when one of its comments is deleted, but not while a retried copy of it survives", async () => {
+    const store = await open();
+    const batch = { ...commentDraft, evidenceWindow: null, batchId: "batch-delete", batchSize: 3 };
+    const first = await store.create({ ...batch, batchIndex: 0 });
+    const second = await store.create({ ...batch, batchIndex: 1 });
+    const retry = await store.create({ ...batch, batchIndex: 1 });
+    const third = await store.create({ ...batch, batchIndex: 2 });
+    // The retried copy of comment 1 survives, so the batch still holds three comments.
+    await store.delete(second.id);
+    expect((await store.get(first.id)).batchSize).toBe(3);
+    await store.delete(retry.id);
+    expect((await store.get(first.id)).batchSize).toBe(2);
+    const kept = await store.get(third.id);
+    expect(kept.batchSize).toBe(2);
+    // Metadata only: the survivors' updatedAt does not move.
+    expect(kept.updatedAt).toBe(third.updatedAt);
+  });
+
   it("finishes a delete whose record is gone but whose directory is still there", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });

@@ -133,6 +133,14 @@ describe("iterbar init", () => {
     expect(await runInit(["--root", root, "--agent", "codex"], codex.io, { home, codexHome: `${join(base, "codex-link")}/`, skillSource: skill })).toBe(0);
     expect(codex.out()).toContain("is a link");
     await expect(readFile(join(realCodex, "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
+    // CODEX_HOME under the home, through a linked folder on the way (~/.config pointing at shared dotfiles).
+    const dotfiles = join(base, "dotfiles");
+    await mkdir(join(dotfiles, "codex"), { recursive: true });
+    await symlink(dotfiles, join(home, ".config"));
+    const nested = capture();
+    expect(await runInit(["--root", root, "--agent", "codex"], nested.io, { home, codexHome: join(home, ".config", "codex"), skillSource: skill })).toBe(0);
+    expect(nested.out()).toContain(`${join(home, ".config")} is a link`);
+    await expect(readFile(join(dotfiles, "codex", "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
   });
 
   it("registers the running CLI with node when the package is neither installed in the project nor fetched by npx", async () => {

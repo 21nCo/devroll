@@ -12,3 +12,10 @@ npx @iterbar/cli dev                   # the daemon, when no Iterbar dev-server 
 
 Run `iterbar <command> --help` for each command's options. The Vite plugin (`@iterbar/vite`) starts the daemon
 with the dev server and shows the bar; see the skill's `references/setup.md` for the full setup.
+
+## Known limits
+
+- **Feedback ids follow the wall clock.** The store gives every item an id from the time it was created, strictly
+  increasing while the daemon runs and past every stored item when it starts. If the newest item is deleted and the
+  daemon restarts after the system clock has gone back past that item's time, a new item can get the deleted item's
+  id. An agent still holding that id would then read the new item.

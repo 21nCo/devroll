@@ -1,7 +1,7 @@
 import { chmod, cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The npm package that carries the `iterbar` command, the MCP server and the agent skill. */
@@ -212,6 +212,12 @@ async function linkedParent(base: string, path: string): Promise<string | null> 
   return null;
 }
 
+/** Whether `path` lies under `folder` (not the folder itself). */
+function isInside(folder: string, path: string): boolean {
+  const rel = relative(folder, path);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -311,7 +317,9 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
       say(`\n${{ claude: "Claude Code", codex: "Codex", cursor: "Cursor" }[agent]}`);
       const target = skillDirectory(agent, parsed, root, env);
       // Codex's home (CODEX_HOME or ~/.codex) is checked too: a link there would redirect the skill as well.
-      const skillBase = agent === "codex" ? (env.codexHome ?? env.home) : parsed.scope === "project" ? root : env.home;
+      // Codex's home under the user's home (~/.config/codex) is checked from the home on, so a linked ~/.config counts.
+      const codexBase = env.codexHome && !isInside(env.home, env.codexHome) ? env.codexHome : env.home;
+      const skillBase = agent === "codex" ? codexBase : parsed.scope === "project" ? root : env.home;
       const codexHomeLink = agent === "codex" && env.codexHome && (await linkTarget(env.codexHome)) !== null ? env.codexHome : null;
       const linkedFolder = codexHomeLink ?? await linkedParent(skillBase, target);
       const link = await linkTarget(target);

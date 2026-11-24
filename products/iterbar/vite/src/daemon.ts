@@ -7,6 +7,7 @@ import {
   daemonInfoSchema,
   daemonPath,
   type DaemonInfo,
+  LEGACY_SCHEMA_VERSION,
   safeParseMessage,
   SCHEMA_VERSION,
 } from "iterbar";
@@ -191,6 +192,11 @@ async function canonicalRoot(recorded: string): Promise<string> {
  * passes the root's real path; the recorded root is resolved too, as a daemon started directly may record a symlink.
  */
 export async function readMatchingDaemonFile(projectRoot: string): Promise<DaemonInfo | null> {
+  return (await readMatchingDaemon(projectRoot))?.info ?? null;
+}
+
+/** {@link readMatchingDaemonFile}, and whether that daemon speaks protocol version 1, which this one can't use. */
+async function readMatchingDaemon(projectRoot: string): Promise<{ info: DaemonInfo; legacy: boolean } | null> {
   const paths = iterbarPaths(projectRoot);
   let json: unknown;
   try {
@@ -201,7 +207,8 @@ export async function readMatchingDaemonFile(projectRoot: string): Promise<Daemo
   const parsed = safeParseMessage(daemonInfoSchema, json, "daemon info");
   if (!parsed.success) return null;
   const recorded = parsed.data.projectRoot;
-  return recorded === paths.projectRoot || (await canonicalRoot(recorded)) === paths.projectRoot ? parsed.data : null;
+  if (recorded !== paths.projectRoot && (await canonicalRoot(recorded)) !== paths.projectRoot) return null;
+  return { info: parsed.data, legacy: (json as { schemaVersion?: unknown }).schemaVersion === LEGACY_SCHEMA_VERSION };
 }
 
 /** Whether a process runs with this id (`EPERM`: it runs as another user). */
@@ -329,8 +336,16 @@ export class DaemonLink {
 
   /** The daemon `daemon.json` names for the same root; `null` when there is none, or it is gone. */
   async #viaDaemonFile(projectRoot: string, origins: readonly string[]): Promise<DaemonAccess | null> {
-    const info = await readMatchingDaemonFile(projectRoot);
-    if (!info) return null;
+    const matched = await readMatchingDaemon(projectRoot);
+    if (!matched) return null;
+    const { info, legacy } = matched;
+    if (legacy) {
+      // A daemon from the previous protocol version refuses this version's requests. While it runs it holds the store,
+      // so this dev server can't start its own: say so. Once its process is gone, its daemon.json is stale.
+      if (!isRunning(info.pid)) return null;
+      throw new Error(`An Iterbar daemon from an earlier version is running for this project (process ${info.pid}). `
+        + "Stop it (restart the dev server that started it, or end its `iterbar dev`), then restart this dev server.");
+    }
     const access: DaemonAccess = { daemonUrl: `http://${DAEMON_HOST}:${info.port}`, token: info.token, started: false };
     const registration = await this.#register(access, origins);
     if (registration.result === "ok") return access;

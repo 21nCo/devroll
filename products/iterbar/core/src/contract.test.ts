@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import * as api from "./index.js";
@@ -620,6 +621,16 @@ describe("page API", () => {
     adapted.subscribe((snapshot) => received.push(snapshot));
     notify(legacySnapshot);
     expect((received[0] as typeof read).slots[0]?.variants).toEqual(["v1", "v2"]);
+  });
+
+  it("upgrades a version 1 snapshot made in another realm, as an iframe's registry hands it over", () => {
+    const foreign = runInNewContext(`({
+      schemaVersion: 1,
+      slots: [{ slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v1", mounts: 1 }],
+      warnings: [],
+    })`) as unknown;
+    const adapted = readPageApi({ [PAGE_API_GLOBAL]: { schemaVersion: 1, getSnapshot: () => foreign, select: () => undefined, subscribe: () => () => undefined } })!;
+    expect(registrySnapshotSchema.parse(adapted.getSnapshot()).slots[0]).toMatchObject({ variants: ["v1", "v2"], activeVariant: "v1" });
   });
 });
 
