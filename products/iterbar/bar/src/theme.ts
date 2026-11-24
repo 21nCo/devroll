@@ -467,7 +467,8 @@ p { margin: 0 0 6px; }
   pointer-events: auto;
   cursor: pointer;
 }
-.pin:hover:not(:disabled) { background: var(--ib-accent); filter: brightness(1.1); }
+/* The general button hover colour never applies to a pin: it keeps its accent fill and brightens. */
+button.pin:hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { background: var(--ib-accent); filter: brightness(1.1); }
 .pin .glyph { width: 12px; height: 12px; }
 .pin-count {
   position: absolute;
