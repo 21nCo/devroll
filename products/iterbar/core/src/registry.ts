@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { InvalidMessageError, LEGACY_SCHEMA_VERSION, parseMessage, SCHEMA_VERSION } from "./errors.js";
+import { InvalidMessageError, LEGACY_SCHEMA_VERSION, legacyUpgrade, parseMessage, SCHEMA_VERSION, withLegacyUpgrade } from "./errors.js";
 import {
   isVariantName,
   pageUrlSchema,
@@ -91,6 +91,13 @@ export const slotReportSchema = z.object({
   reportedAt: timestampSchema,
   slots: slotStatesSchema,
 });
+
+// Version 1 input: a snapshot's and a report's slot states and warning codes, and a selection's own fields.
+withLegacyUpgrade(registrySnapshotSchema, (input) => legacyUpgrade.message(input, {
+  slots: legacyUpgrade.each(legacyUpgrade.slotFields), warnings: legacyUpgrade.each(legacyUpgrade.warning),
+}));
+withLegacyUpgrade(slotReportSchema, (input) => legacyUpgrade.message(input, { slots: legacyUpgrade.each(legacyUpgrade.slotFields) }));
+withLegacyUpgrade(variantSelectionSchema, (input) => legacyUpgrade.slotFields(legacyUpgrade.message(input)));
 
 export type ActiveVariant = z.infer<typeof activeVariantSchema>;
 export type SlotState = z.infer<typeof slotStateSchema>;

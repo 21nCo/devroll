@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { crc32 } from "node:zlib";
 import {
@@ -121,6 +121,16 @@ async function ensureGitignore(paths: IterbarPaths): Promise<void> {
       // ENOENT: the store's owner swept `tmp/` while the temporary file was in it.
       if (errnoCode(error) !== "ENOENT" || attempt >= 3) throw error;
     }
+  }
+}
+
+/** Whether `path` is a directory (empty or not); `false` when it does not exist. */
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    if (errnoCode(error) === "ENOENT") return false;
+    throw error;
   }
 }
 
@@ -272,7 +282,7 @@ class FileFeedbackStore implements FeedbackStore {
       feedback = parseMessageJson(feedbackSchema, text, "feedback");
       // A valid record is a JSON object. A version 1 record is upgraded here too, so a write (a reply, a status) saves
       // it as version 2, unknown fields kept.
-      json = upgradeMessage(JSON.parse(text)) as Record<string, unknown>;
+      json = upgradeMessage(JSON.parse(text), feedbackSchema) as Record<string, unknown>;
     } catch (error) {
       if (error instanceof InvalidMessageError) {
         throw new IterbarStoreError("corrupt_store", `${path} is not a valid feedback record: ${error.message}`, { cause: error });
@@ -455,7 +465,7 @@ class FileFeedbackStore implements FeedbackStore {
       const record = await this.#read(feedbackId);
       // No record, but its directory is still there: an earlier delete removed the record and could not sync. A retry
       // finishes that delete (syncs, then cleans up) instead of reporting it gone before it is durable.
-      const unfinished = !record && (await listDirectory(feedbackDirectoryPath(this.#root, feedbackId))).length > 0;
+      const unfinished = !record && await directoryExists(feedbackDirectoryPath(this.#root, feedbackId));
       if (!record && !unfinished) throw new IterbarStoreError("not_found", `Feedback ${feedbackId} does not exist`);
       // The record goes first: a crash after it leaves a directory without feedback.json, which the next open sweeps,
       // so the item never comes back half deleted.

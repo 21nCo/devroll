@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { legacyUpgrade, withLegacyUpgrade } from "./errors.js";
 import { activeVariantSchema, activeVariantsSchema } from "./registry.js";
 import { idSchema, pageUrlSchema, schemaVersionSchema, sha256Schema, timestampSchema } from "./primitives.js";
 
@@ -218,3 +219,18 @@ export function parseSourceLocation(value: string | null | undefined): SourceLoc
   const result = sourceLocationSchema.safeParse({ path: match[1], line: Number(match[2]), column: Number(match[3]) });
   return result.success ? result.data : null;
 }
+
+/**
+ * A version 1 feedback record or draft: its active variants, and the choice of a variant choice, take the version 2
+ * field names. Nothing else is renamed (a comment's extension field named `choice` keeps its fields).
+ */
+function upgradeLegacyFeedback(input: unknown): unknown {
+  const kind = (input as { kind?: unknown } | null)?.kind;
+  return legacyUpgrade.message(input, {
+    activeVariants: legacyUpgrade.each(legacyUpgrade.slotFields),
+    ...(kind === "choose_variant" ? { choice: legacyUpgrade.slotFields } : {}),
+  });
+}
+
+withLegacyUpgrade(feedbackDraftSchema, upgradeLegacyFeedback);
+withLegacyUpgrade(feedbackSchema, upgradeLegacyFeedback);

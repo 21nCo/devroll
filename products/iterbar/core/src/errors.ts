@@ -102,16 +102,6 @@ const LEGACY_NAMES: Readonly<Record<string, string>> = Object.freeze(
   Object.fromEntries(Object.entries(V1_RENAMES).map(([legacy, current]) => [current, legacy])),
 );
 
-/** Most levels of nesting {@link upgradeMessage} walks; protocol messages are far shallower. */
-const MAX_UPGRADE_DEPTH = 32;
-
-/** Copies `record`, upgrading the values under `keys` with `upgrade` and keeping every other field as it is. */
-function copyWith(record: Record<string, unknown>, keys: readonly string[], upgrade: (value: unknown) => unknown): Record<string, unknown> {
-  const copy: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(record)) copy[key] = keys.includes(key) ? upgrade(value) : value;
-  return copy;
-}
-
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value) as unknown;
@@ -119,67 +109,72 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * A slot state, active variant, choice or selection with its version 1 slot fields renamed. A version 2 name next
- * to its version 1 field was an unknown, ignored field in version 1: the version 1 field decides, in any key order.
+ * Helpers for the version 1 upgrades the schemas declare with {@link withLegacyUpgrade}. Each takes a value as it
+ * came in and returns a copy; anything it does not expect (not an object, a missing field) passes through unchanged,
+ * for the schema to judge.
+ * @internal
  */
-function upgradeSlotFields(value: unknown): unknown {
-  if (!isPlainRecord(value)) return value;
-  const upgraded: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    const legacy = LEGACY_NAMES[key];
-    if (legacy !== undefined && Object.hasOwn(value, legacy)) continue;
-    upgraded[Object.hasOwn(V1_RENAMES, key) ? V1_RENAMES[key]! : key] = item;
-  }
-  return upgraded;
-}
+export const legacyUpgrade = Object.freeze({
+  /**
+   * A message's own fields, `schemaVersion` set to 2 when it was 1 (its own fields only: the schema reads the version
+   * even when inherited), and the fields under `keys` upgraded with `upgrade`; every other field is kept as it is.
+   */
+  message(value: unknown, keys: Readonly<Record<string, (item: unknown) => unknown>> = {}): unknown {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const copy: Record<string, unknown> = { ...value };
+    if ((value as { schemaVersion?: unknown }).schemaVersion === LEGACY_SCHEMA_VERSION) copy.schemaVersion = SCHEMA_VERSION;
+    for (const [key, upgrade] of Object.entries(keys)) if (Object.hasOwn(copy, key)) copy[key] = upgrade(copy[key]);
+    return copy;
+  },
+  /**
+   * A slot state, active variant, choice or selection with its version 1 slot fields renamed. A version 2 name next
+   * to its version 1 field was an unknown, ignored field in version 1: the version 1 field decides, in any key order.
+   */
+  slotFields(value: unknown): unknown {
+    if (!isPlainRecord(value)) return value;
+    const upgraded: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const legacy = LEGACY_NAMES[key];
+      if (legacy !== undefined && Object.hasOwn(value, legacy)) continue;
+      upgraded[Object.hasOwn(V1_RENAMES, key) ? V1_RENAMES[key]! : key] = item;
+    }
+    return upgraded;
+  },
+  /** `upgrade` applied to each item of an array; anything else as it is. */
+  each(upgrade: (item: unknown) => unknown): (value: unknown) => unknown {
+    return (value) => (Array.isArray(value) ? value.map(upgrade) : value);
+  },
+  /** A registry warning with the version 1 code `unknown_version` renamed. */
+  warning(value: unknown): unknown {
+    return isPlainRecord(value) && value.code === "unknown_version" ? { ...value, code: "unknown_variant" } : value;
+  },
+});
 
-const each = (upgrade: (value: unknown) => unknown) => (value: unknown): unknown =>
-  Array.isArray(value) ? value.map(upgrade) : value;
-
-function upgradeWarning(value: unknown): unknown {
-  return isPlainRecord(value) && value.code === "unknown_version" ? { ...value, code: "unknown_variant" } : value;
-}
-
-/** Keys of a version 1 selection (`{ schemaVersion: 1, slot, version }`); a message with any other key is not one. */
-const SELECTION_KEYS = new Set(["schemaVersion", "slot", "version", "variant"]);
+const LEGACY_UPGRADE = Symbol("iterbar.legacyUpgrade");
 
 /**
- * A version 1 message rewritten as version 2, by message type: a feedback record or draft (it has a `kind`) renames
- * its `activeVariants` and `choice`; an event (a `type`) its `feedback` and `report`; a listing its `items`; a slot
- * list its `pages`; a snapshot or slot report its `slots` and `warnings`; a selection its own fields. Nothing else is
- * renamed, so extension fields an older writer added are kept as they are, whatever their names.
+ * Declares how a version 1 message read with `schema` becomes version 2 (see {@link upgradeMessage}). The upgrade
+ * knows the message's type from its schema, so it renames exactly that type's fields and nothing else. Returns
+ * `schema`.
  */
-function upgradeV1(value: unknown, depth: number): unknown {
-  if (depth > MAX_UPGRADE_DEPTH || !isPlainRecord(value)) return value;
-  const nested = (item: unknown) => upgradeV1(item, depth + 1);
-  const record: Record<string, unknown> = { ...value, ...(value.schemaVersion === LEGACY_SCHEMA_VERSION ? { schemaVersion: SCHEMA_VERSION } : {}) };
-  if (typeof record.kind === "string") {
-    return copyWith(record, ["activeVariants", "choice"], (item) => (Array.isArray(item) ? item.map(upgradeSlotFields) : upgradeSlotFields(item)));
-  }
-  if (typeof record.type === "string") return copyWith(record, ["feedback", "report"], nested);
-  if (Array.isArray(record.items)) return copyWith(record, ["items"], each(nested));
-  if (Array.isArray(record.pages)) return copyWith(record, ["pages"], each(nested));
-  if (Array.isArray(record.slots)) {
-    return copyWith(copyWith(record, ["slots"], each(upgradeSlotFields)), ["warnings"], each(upgradeWarning));
-  }
-  if (typeof record.slot === "string" && Object.keys(record).every((key) => SELECTION_KEYS.has(key))) return upgradeSlotFields(record);
-  return record;
+export function withLegacyUpgrade<S extends z.ZodType>(schema: S, upgrade: (input: unknown) => unknown): S {
+  Object.defineProperty(schema, LEGACY_UPGRADE, { value: upgrade, enumerable: false });
+  return schema;
 }
 
 /**
- * A version 1 message rewritten as version 2: the `versions`, `defaultVersion`, `activeVersion` and `version` fields
- * of its slot states, selections, choices and active variants take their version 2 names, nested messages included,
- * and `schemaVersion` becomes 2. Any other input is
- * returned as it is. {@link parseMessage} applies it before checking the shape, so stored items and older bars and
- * pages keep working for one version.
+ * A version 1 message read with `schema`, rewritten as version 2: the schema's declared upgrade renames that message
+ * type's slot fields (`versions`, `defaultVersion`, `activeVersion`, `version`) at the paths the protocol defines
+ * them, nested messages included, and sets `schemaVersion` to 2. A schema without one only has its `schemaVersion`
+ * set. Extension fields an older writer added are kept as they are, whatever their names. Any other input (version 2,
+ * not an object) is returned as it is. {@link parseMessage} applies it before checking the shape, so stored items and
+ * older bars and pages keep working for one version.
  */
-export function upgradeMessage(input: unknown): unknown {
+export function upgradeMessage(input: unknown, schema?: z.ZodType): unknown {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
   if ((input as { schemaVersion?: unknown }).schemaVersion !== LEGACY_SCHEMA_VERSION) return input;
-  // Its own fields are copied (the schema reads the version even when inherited); nested messages are plain JSON.
-  const upgraded = upgradeV1({ ...input }, 0) as Record<string, unknown>;
-  upgraded.schemaVersion = SCHEMA_VERSION;
-  return upgraded;
+  const upgrade = (schema as { [LEGACY_UPGRADE]?: (input: unknown) => unknown } | undefined)?.[LEGACY_UPGRADE];
+  return upgrade ? upgrade(input) : legacyUpgrade.message(input);
 }
 
 /**
@@ -190,7 +185,7 @@ export function upgradeMessage(input: unknown): unknown {
  */
 export function parseMessage<S extends z.ZodType>(schema: S, input: unknown, label = "message"): z.output<S> {
   assertSupportedSchemaVersion(input, label);
-  const result = schema.safeParse(upgradeMessage(input));
+  const result = schema.safeParse(upgradeMessage(input, schema));
   if (!result.success) {
     throw new InvalidMessageError(label, result.error.issues.map((issue) =>
       `${[label, ...issue.path.map(String)].join(".")}: ${issue.message}`));

@@ -51,15 +51,27 @@ function visibleRect(element: Element): DOMRect | null {
   let top = rect.top;
   let right = rect.right;
   let bottom = rect.bottom;
+  // A fixed element is laid out against the viewport, so the boxes it sits in do not clip it.
+  if (getComputedStyle(element).position === "fixed") return rect.width > 0 && rect.height > 0 ? rect : null;
   for (let ancestor = element.parentElement; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
     const style = getComputedStyle(ancestor);
-    if (style.overflowX === "visible" && style.overflowY === "visible") continue;
-    const box = ancestor.getBoundingClientRect();
-    left = Math.max(left, box.left);
-    top = Math.max(top, box.top);
-    right = Math.min(right, box.right);
-    bottom = Math.min(bottom, box.bottom);
-    if (right <= left || bottom <= top) return null;
+    const clipsX = style.overflowX !== "visible";
+    const clipsY = style.overflowY !== "visible";
+    if (clipsX || clipsY) {
+      // Each axis is clipped only where the ancestor clips it.
+      const box = ancestor.getBoundingClientRect();
+      if (clipsX) {
+        left = Math.max(left, box.left);
+        right = Math.min(right, box.right);
+      }
+      if (clipsY) {
+        top = Math.max(top, box.top);
+        bottom = Math.min(bottom, box.bottom);
+      }
+      if (right <= left || bottom <= top) return null;
+    }
+    // Past a fixed ancestor, the boxes further out do not clip what is inside it.
+    if (style.position === "fixed") break;
   }
   return new DOMRect(left, top, right - left, bottom - top);
 }

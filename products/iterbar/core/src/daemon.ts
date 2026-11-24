@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseMessage } from "./errors.js";
+import { legacyUpgrade, parseMessage, upgradeMessage, withLegacyUpgrade } from "./errors.js";
 import { feedbackKindSchema, feedbackSchema, feedbackStatusSchema, replyAuthorSchema } from "./feedback.js";
 import { slotReportSchema } from "./registry.js";
 import {
@@ -153,6 +153,22 @@ export const daemonEventSchema = z.discriminatedUnion("type", [
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("feedback.deleted"), feedbackId: idSchema }),
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("slots.reported"), report: slotReportSchema }),
 ]);
+
+// Version 1 input: the feedback items, slot reports and events that carry them.
+withLegacyUpgrade(feedbackListResponseSchema, (input) => legacyUpgrade.message(input, {
+  items: legacyUpgrade.each((item) => upgradeMessage(item, feedbackSchema)),
+}));
+withLegacyUpgrade(slotListResponseSchema, (input) => legacyUpgrade.message(input, {
+  pages: legacyUpgrade.each((page) => upgradeMessage(page, slotReportSchema)),
+}));
+withLegacyUpgrade(daemonEventSchema, (input) => {
+  const type = (input as { type?: unknown } | null)?.type;
+  if (type === "feedback.created" || type === "feedback.updated") {
+    return legacyUpgrade.message(input, { feedback: (feedback) => upgradeMessage(feedback, feedbackSchema) });
+  }
+  if (type === "slots.reported") return legacyUpgrade.message(input, { report: (report) => upgradeMessage(report, slotReportSchema) });
+  return legacyUpgrade.message(input);
+});
 
 export type DaemonInfo = z.infer<typeof daemonInfoSchema>;
 export type StoreLock = z.infer<typeof storeLockSchema>;

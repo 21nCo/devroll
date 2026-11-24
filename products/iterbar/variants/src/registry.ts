@@ -8,6 +8,7 @@ import {
   slotStateSchema,
   VARIANT_STORAGE_KEY,
   LEGACY_SCHEMA_VERSION,
+  registrySnapshotSchema,
   upgradeMessage,
   variantSelectionSchema,
   type ActiveVariant,
@@ -255,7 +256,7 @@ export class VariantsRegistry {
    */
   select(selection: unknown): void {
     // A bar from the previous protocol version selects with `{ schemaVersion: 1, slot, version }`.
-    const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection));
+    const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection, variantSelectionSchema));
     if (!parsed.success) {
       this.#rejectSelection(warning(
         "invalid_selection", "api", describe(selection),
@@ -492,12 +493,12 @@ function legacyBridge(legacy: LegacyRegistry): VariantsRegistry {
     subscribe: (listener: () => void) => legacy.subscribe(listener),
     // Selections in either version reach it in its own terms.
     select: (selection: unknown) => {
-      const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection));
+      const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection, variantSelectionSchema));
       legacy.select?.(parsed.success
         ? { schemaVersion: LEGACY_SCHEMA_VERSION, slot: parsed.data.slot, version: parsed.data.variant }
         : selection);
     },
-    getSnapshot: () => upgradeMessage(legacy.getSnapshot?.() ?? legacy.pageApi.getSnapshot()),
+    getSnapshot: () => upgradeMessage(legacy.getSnapshot?.() ?? legacy.pageApi.getSnapshot(), registrySnapshotSchema),
   } as unknown as VariantsRegistry;
   bridges.set(legacy, bridge);
   return bridge;

@@ -728,7 +728,7 @@ describe("protocol version 1 input", () => {
   it("keeps the version 1 field when a version 1 message also carries its version 2 name", () => {
     for (const choice of [{ slot: "pricing", version: "v2", variant: "metadata" }, { variant: "metadata", slot: "pricing", version: "v2" }]) {
       expect(api.parseMessage(api.activeVariantsSchema, [{ ...choice }], "x")).toBeDefined();
-      expect(api.upgradeMessage({ schemaVersion: 1, kind: "choose_variant", choice })).toEqual({ schemaVersion: 2, kind: "choose_variant", choice: { slot: "pricing", variant: "v2" } });
+      expect(api.upgradeMessage({ schemaVersion: 1, kind: "choose_variant", choice }, api.feedbackSchema)).toEqual({ schemaVersion: 2, kind: "choose_variant", choice: { slot: "pricing", variant: "v2" } });
     }
   });
 
@@ -737,15 +737,24 @@ describe("protocol version 1 input", () => {
       schemaVersion: 1, kind: "choose_variant", metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
       choice: { slot: "pricing", version: "v2" },
     };
-    expect(api.upgradeMessage(stored)).toEqual({
+    expect(api.upgradeMessage(stored, api.feedbackSchema)).toEqual({
       schemaVersion: 2, kind: "choose_variant", metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
       choice: { slot: "pricing", variant: "v2" },
     });
     // A feedback record's own extension fields named like a selection's, or like a listing's, stay as they are.
     const record = { schemaVersion: 1, kind: "comment", slot: "sidebar", version: "design-3", items: [{ slot: "x", version: "y" }] };
-    expect(api.upgradeMessage(record)).toEqual({ ...record, schemaVersion: 2 });
+    expect(api.upgradeMessage(record, api.feedbackSchema)).toEqual({ ...record, schemaVersion: 2 });
+    // A comment's extension named `choice` is not a variant choice: its fields stay.
+    expect(api.upgradeMessage({ schemaVersion: 1, kind: "comment", choice: { version: "design-3" } }, api.feedbackSchema))
+      .toEqual({ schemaVersion: 2, kind: "comment", choice: { version: "design-3" } });
+    // A selection with an extra field is still a selection; an event with an extra `kind` is still an event.
+    expect(api.parseMessage(api.variantSelectionSchema, { schemaVersion: 1, slot: "pricing", version: "b", source: "toolbar" }))
+      .toEqual({ schemaVersion: 2, slot: "pricing", variant: "b" });
+    const feedbackV1 = { ...(api.upgradeMessage(stored, api.feedbackSchema) as object) };
+    expect(api.upgradeMessage({ schemaVersion: 1, type: "feedback.updated", kind: "x", feedback: { ...stored } }, api.daemonEventSchema))
+      .toEqual({ schemaVersion: 2, type: "feedback.updated", kind: "x", feedback: feedbackV1 });
     // Nested messages (an event's feedback, a slot list's pages) are upgraded at their own paths.
-    expect(api.upgradeMessage({ schemaVersion: 1, type: "slots.reported", report: { schemaVersion: 1, slots: [{ slot: "a", versions: ["x"] }] } }))
+    expect(api.upgradeMessage({ schemaVersion: 1, type: "slots.reported", report: { schemaVersion: 1, slots: [{ slot: "a", versions: ["x"] }] } }, api.daemonEventSchema))
       .toEqual({ schemaVersion: 2, type: "slots.reported", report: { schemaVersion: 2, slots: [{ slot: "a", variants: ["x"] }] } });
   });
 

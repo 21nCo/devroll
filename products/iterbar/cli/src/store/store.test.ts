@@ -285,6 +285,8 @@ describe("records", () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
     await rm(feedbackRecordPath(root, item.id));
+    // Even with nothing left in it (an item without attachments restored without its empty folder).
+    await rm(join(feedbackRecordPath(root, item.id), "..", "attachments"), { recursive: true });
     await store.delete(item.id);
     expect(await readdir(iterbarPaths(root).feedbackDirectory)).toEqual([]);
   });
