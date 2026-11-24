@@ -302,6 +302,36 @@ export class ThreadsPanel {
     return this.#selected.size;
   }
 
+  /** Every thread kept, newest first (the comment pins read them). */
+  get threads(): readonly Feedback[] {
+    return this.#state.shown();
+  }
+
+  /**
+   * Shows a thread: lists it (switching to a filter that has it, and paging to it), opens it, scrolls it into view and
+   * highlights it briefly. Returns whether the thread is held.
+   */
+  reveal(id: string): boolean {
+    const item = this.#state.get(id);
+    if (!item || this.#pendingDelete?.ids.has(id)) return false;
+    if (!inFilter(item.status, this.#filter)) {
+      this.filter = filterOf(item.status) === "archived" ? "archived" : "all";
+      this.#options.onFilter?.(this.#filter);
+    }
+    const index = this.#filtered().findIndex((each) => each.id === id);
+    if (index >= THREADS_PAGE_SIZE * this.#pages) this.#pages = Math.floor(index / THREADS_PAGE_SIZE) + 1;
+    this.#render();
+    const row = this.#rows.get(id);
+    if (!row) return false;
+    const details = row.element.querySelector("details");
+    if (details) details.open = true;
+    row.element.scrollIntoView({ block: "nearest" });
+    row.element.toggleAttribute("data-revealed", true);
+    setTimeout(() => row.element.removeAttribute("data-revealed"), 1600);
+    row.element.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
+    return true;
+  }
+
   clearSelection(): void {
     if (this.#selected.size === 0) return;
     this.#selected.clear();

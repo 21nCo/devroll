@@ -20,14 +20,26 @@ attributes. The bar never writes the token to an attribute.
 
 The bar is a toolbar docked at the bottom of the page. Collapsed (the default)
 it shows only the Iterbar logo. Clicking the logo, or **Ctrl/Cmd+.**,
-expands it (Comment, Inbox with its open count, Drafts, the connection
-status and Variants); clicking it again collapses it. Hovering and focus
+expands it (Comment, Inbox with its open count, Drafts, Variants and, at its
+end, Help); clicking it again collapses it. Hovering and focus
 never expand it; a panel, the composer or comment mode show the whole toolbar
 while they last. The logo stays where it is when the toolbar expands, and
 dragging it (or the arrow keys, Home and End on it) moves the toolbar along
 the bottom edge. The place, the expanded state and the open panel are
-remembered per project. The inbox, the draft tray and the variants open as a
-panel above the toolbar.
+remembered per project. The inbox, the draft tray and Help open as a
+full-height sheet on the right of the screen (stopping above the toolbar when
+the toolbar is under it); Variants opens as a fixed-height popover above the
+toolbar.
+
+**Comment pins.** Each thread on the current page that is still open, in
+progress or needing info shows a small comment pin on the top-right corner of
+its element, found again by the selector the bar recorded when the comment was
+picked (one pin per element, with a count when there are several). A pin
+follows its element as the page scrolls, resizes or changes; it hides while the
+element is gone, hidden or out of view, and goes once the thread is done or
+archived. Clicking it opens the inbox at that thread. An element the recorded
+selector no longer finds (the page changed shape, or it is in a closed shadow
+root or a frame) gets no pin; its thread is still in the inbox.
 
 Keys typed into the bar's own fields (the composer, a draft being edited, the
 slot list) stop at the bar, so the page's keyboard shortcuts never see them.
@@ -262,8 +274,8 @@ Removing the element closes the stream and cancels every timer.
   between the margins, so the toolbar stays in view at any window width. The
   panel above it is placed by the same share over its own width, so it stays
   in view too. Past two thirds of the way along, the toolbar runs right to
-  left. Waking it by pointer never moves the button under the pointer: it
-  grows away from its edge, and what does not fit wraps onto a row above.
+  left. Expanding it never moves the logo: the toolbar grows away from it,
+  and what does not fit wraps onto a row above.
 - The position, whether the toolbar stays expanded, the open panel, the inbox
   filter and the agent chosen in "Use with your agent" are saved in local
   storage under `iterbar:toolbar:<project>` when the bar is given a `project`
@@ -273,15 +285,18 @@ Removing the element closes the stream and cancels every timer.
 - Every toolbar control has an accessible name and a tooltip, shown on hover
   (after a short delay) and on keyboard focus: a short label, its shortcut
   where there is one, and for some a line that explains it.
-- The connection status is one control: a dot next to its label. "Connected"
-  means the bar's link to the project's Iterbar daemon is open, so comments
-  are saved for a coding agent, which reaches the same daemon on its own
-  through `iterbar mcp`. Offline, comments stay as drafts. Clicking it opens
-  "Use with your agent": for Claude Code, Codex, Cursor or another MCP client,
-  the one-time command that registers the iterbar MCP server (with the
-  project's path filled in when the bar knows it), the optional skill install
-  and a prompt to paste, each with a copy button. The draft tray links to it
-  too.
+- The Help button (a question mark at the toolbar's end) opens the setup
+  sheet. Its top shows the connection: a dot, its label and what it means.
+  "Connected" means the bar's link to the project's Iterbar daemon is open, so
+  comments are saved for a coding agent, which reaches the same daemon on its
+  own through `iterbar mcp`; offline, comments stay as drafts, and the Help
+  button carries a red dot. Below it, for Claude Code, Codex, Cursor or another
+  MCP client: the one-time `npx iterbar init` command (with the project's path
+  filled in when the bar knows it), a prompt to paste, and the same setup by
+  hand, each with a copy button. The draft tray links to it too.
+- On a page without variants, Variants lists the pages that have some, with
+  each page's variant and slot counts (from the daemon's `GET /slots`: pages
+  opened with the bar since the daemon started), each a link to that page.
 - Styles stay inside the shadow root. The host resets every inherited
   property with `!important`, which a page rule cannot override, so page CSS
   cannot hide, move or restyle the bar. The bar is shown in the top layer

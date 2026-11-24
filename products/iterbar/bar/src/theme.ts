@@ -33,7 +33,7 @@ export const BAR_CSS = String.raw`
   pointer-events: none;
 }
 
-.bar, .composer {
+.bar, .composer, .pin-layer {
   /* 21n tokens, tidigit iris light (cs_tidigit_light_iris in @21n/theme's colorschemes.json). */
   --ib-bg: hsl(0 0% 99%);         /* bgs1 */
   --ib-surface: hsl(0 0% 97%);    /* bgs2 */
@@ -74,7 +74,7 @@ export const BAR_CSS = String.raw`
 }
 
 @media (prefers-color-scheme: dark) {
-  .bar, .composer {
+  .bar, .composer, .pin-layer {
     /* tidigit iris dark (cs_tidigit_dark_iris). */
     --ib-bg: hsl(228 26% 11%);
     --ib-surface: hsl(229 19% 15%);
@@ -133,8 +133,6 @@ export const BAR_CSS = String.raw`
 /* Past two thirds of the way along, the toolbar runs right to left, so it expands away from the edge with the logo at
    its right end. */
 .dock[data-align="end"] .toolbar { flex-direction: row-reverse; }
-/* Running right to left, the status's label grows leftward, away from its dot. */
-.dock[data-align="end"] .status { flex-direction: row-reverse; padding: 0 7px 0 8px; }
 .dock[data-dragging], .dock[data-dragging] * { cursor: grabbing !important; user-select: none; }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
@@ -246,22 +244,22 @@ button:disabled { cursor: default; opacity: 0.55; }
 }
 [data-role=drafts-toggle] .count { background: var(--ib-warn); color: var(--ib-warn-fg); }
 
-/* The connection: a dot and its label, one element with a tooltip that explains it. */
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 8px 0 7px;
-  border-radius: 999px;
-  color: var(--ib-muted);
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-  border-color: transparent;
-  background: transparent;
+/* The connection, at the top of the setup sheet: a dot, its label, what it means and any detail. */
+.connection { display: grid; gap: 4px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--ib-border); border-radius: 8px; background: var(--ib-surface); }
+.connection-head { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.connection-explain, .connection .detail { margin: 0; font-size: 12px; }
+/* The help button at the toolbar's end; a connection problem shows as a dot on it. */
+.help { position: relative; padding: 4px 8px; }
+.dock:is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) .help::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ib-danger);
 }
-.status[aria-expanded="true"] { background: var(--ib-accent-soft); color: var(--ib-fg); }
 .status-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ib-muted); }
 .status-dot[data-status="connected"] { background: var(--ib-success); }
 .status-dot[data-status="retrying"], .status-dot[data-status="connecting"] { background: var(--ib-warn); }
@@ -314,11 +312,24 @@ button:disabled { cursor: default; opacity: 0.55; }
   border-radius: 12px;
   overflow: hidden;
 }
-/* The inbox keeps one height whichever filter is chosen; its list scrolls inside it. */
-.panel[data-panel="inbox"] { --ib-panel-width: min(440px, calc(100vw - 2 * var(--ib-margin))); height: min(540px, 72vh, var(--ib-panel-max)); max-height: none; }
-.panel[data-panel="inbox"] .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
-/* "Use with your agent" holds commands and config, so it takes more width. */
-.panel[data-panel="agent"] { --ib-panel-width: min(480px, calc(100vw - 2 * var(--ib-margin))); max-height: min(78vh, 640px, calc(100vh - var(--ib-bottom) - var(--ib-toolbar-height, 40px) - 8px - var(--ib-margin))); }
+/* Inbox, drafts and setup: a full-height sheet on the right of the screen. It stops above the toolbar when the toolbar
+   is under it (see #layout, which sets --ib-sheet-bottom). */
+.panel[data-mode="sheet"] {
+  --ib-panel-width: min(440px, calc(100vw - 2 * var(--ib-margin)));
+  position: fixed;
+  top: var(--ib-margin);
+  right: var(--ib-margin);
+  bottom: var(--ib-sheet-bottom, var(--ib-margin));
+  left: auto;
+  height: auto;
+  max-height: none;
+}
+.panel[data-mode="sheet"] .panel-body { flex: 1; min-height: 0; }
+/* The inbox keeps its filters and selection row in place; only its list scrolls. */
+.panel[data-panel="inbox"] .panel-body { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+/* Variants: a popover above the toolbar with one height whatever it lists; the list scrolls inside it. */
+.panel[data-mode="popover"] { height: min(420px, 62vh, var(--ib-panel-max)); max-height: none; }
+.panel[data-mode="popover"] .panel-body { flex: 1; min-height: 0; }
 .panel-header {
   display: flex;
   align-items: center;
@@ -398,6 +409,76 @@ p { margin: 0 0 6px; }
 .variant-check .glyph { width: 15px; height: 15px; }
 .variant[aria-pressed="true"] .variant-check { visibility: visible; }
 .warnings { margin: 12px 0 0; padding-left: 16px; color: var(--ib-warn); font-size: 12px; }
+
+/* A page without variants lists the pages that have some. */
+.pages { margin-top: 12px; }
+.pages-title { margin: 0 0 8px; font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
+.variant-pages { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.variant-page {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--ib-border);
+  border-radius: 8px;
+  background: var(--ib-surface);
+  color: var(--ib-fg);
+  text-decoration: none;
+}
+.variant-page:hover { background: var(--ib-hover); }
+.variant-page-path { min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.variant-page-count { margin-left: auto; flex: none; font-size: 12px; color: var(--ib-muted); }
+.pages-note { margin: 8px 0 0; font-size: 12px; }
+
+/* Comment pins: a full-viewport top-layer layer that takes pointer events only on its pins. */
+.pin-layer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+.pin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid var(--ib-bg);
+  border-radius: 999px 999px 999px 4px;
+  background: var(--ib-accent);
+  color: var(--ib-accent-fg);
+  box-shadow: 0 2px 8px rgba(15, 20, 30, 0.25);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.pin:hover:not(:disabled) { background: var(--ib-accent); filter: brightness(1.1); }
+.pin .glyph { width: 12px; height: 12px; }
+.pin-count {
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  min-width: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--ib-fg);
+  color: var(--ib-bg);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+}
+.thread[data-revealed] details { border-color: var(--ib-accent); box-shadow: 0 0 0 3px var(--ib-accent-soft); }
 
 .filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
 .chip { border-radius: 999px; padding: 2px 10px; font-size: 12px; }

@@ -26,6 +26,7 @@ import { applyBarStyles } from "./theme.js";
 import { ElementPicker } from "./pick/picker.js";
 import { captureScreenshot, RenderSlot, type ScreenshotResult } from "./pick/screenshot.js";
 import { describeTarget, labelElement, readActiveVariants, type TargetLabel } from "./pick/target.js";
+import { PinLayer } from "./pins.js";
 import { ThreadsPanel } from "./threads.js";
 
 /** The bar's tag name. */
@@ -79,7 +80,7 @@ const STATUS_DETAIL: Readonly<Record<ConnectionStatus["kind"], string>> = {
 };
 
 const PANEL_TITLES: Readonly<Record<PanelName, string>> = {
-  inbox: "Inbox", drafts: "Drafts", variants: "Variants", agent: "Use with your agent",
+  inbox: "Inbox", drafts: "Drafts", variants: "Variants", agent: "Set up your agent",
 };
 
 /** Hovering a control shows its tooltip after this delay; keyboard focus shows it at once. */
@@ -250,14 +251,19 @@ export class IterbarBarElement extends ElementBase {
   readonly #panel: HTMLDivElement;
   readonly #panelTitle = h("h2", { class: "panel-title", id: "iterbar-panel-title" });
   readonly #panelClose = h("button", { type: "button", class: "icon", "data-role": "panel-close", "aria-label": "Close panel", title: "Close (Esc)" }, icon("close"));
-  /** The connection's label; asleep, only its dot shows and the label is left to assistive technology. */
+  /** The connection's label, at the top of the help sheet. */
   readonly #status = h("span", { class: "status-label", role: "status", "data-role": "status" });
   /** The connection's colour, next to its label. */
   readonly #statusDot = h("span", { class: "status-dot", "aria-hidden": "true", "data-role": "status-dot" });
-  /** The connection as one control: its dot and label, a tooltip that explains them, and "Use with your agent" on click. */
-  readonly #statusButton = h("button", {
-    type: "button", class: "status", "data-role": "status-button", "aria-expanded": "false", "aria-controls": "iterbar-panel",
-  }, this.#statusDot, this.#status);
+  /** What the connection state means. */
+  readonly #statusExplain = h("p", { class: "muted connection-explain", "data-role": "status-explain" });
+  /** The connection, at the top of the help sheet: its dot, label and what they mean, and any detail. */
+  readonly #connectionBox = h("div", { class: "connection", "data-role": "connection" },
+    h("div", { class: "connection-head" }, this.#statusDot, this.#status), this.#statusExplain);
+  /** The help button at the toolbar's end: the setup sheet, with the connection at its top. */
+  readonly #helpButton = h("button", {
+    type: "button", class: "tool help", "data-role": "help-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+  }, icon("help"));
   /**
    * The Iterbar logo: the whole toolbar while it is collapsed. Clicking it (Enter, Space) expands or collapses the
    * toolbar; dragging it (or the arrow keys, Home and End on it) moves the toolbar along the bottom edge.
@@ -299,6 +305,7 @@ export class IterbarBarElement extends ElementBase {
   readonly #zoomProbe = h("span", { class: "zoom-probe", "aria-hidden": "true" });
   #zoomObserver: ResizeObserver | null = null;
   readonly #slots: SlotsPanel;
+  readonly #pins: PinLayer;
   readonly #threads: ThreadsPanel;
   readonly #tray: DraftTray;
   readonly #agentHelp: AgentHelp;
@@ -353,9 +360,15 @@ export class IterbarBarElement extends ElementBase {
     this.#root = this.attachShadow({ mode: "open" });
     applyBarStyles(this.#root);
     registerBarFonts();
-    this.#slots = new SlotsPanel({ onSlots: (slots) => this.#onSlots(slots) });
+    this.#slots = new SlotsPanel({
+      onSlots: (slots) => this.#onSlots(slots),
+      listPages: () => (this.#connection ? this.#connection.listSlots() : Promise.resolve(null)),
+    });
     this.#threads = new ThreadsPanel({
-      onChange: () => this.#renderCounts(),
+      onChange: () => {
+        this.#renderCounts();
+        this.#pins?.update(this.#threads.threads);
+      },
       onFilter: (filter) => this.#saveState({ ...this.#state, filter }),
       onStatus: (ids, status) => this.#setStatuses(ids, status),
       onDelete: (ids) => this.#deleteThreads(ids),
@@ -379,18 +392,27 @@ export class IterbarBarElement extends ElementBase {
       class: "panel", id: "iterbar-panel", role: "region", "aria-labelledby": "iterbar-panel-title", "data-role": "panel", hidden: true,
     },
     h("div", { class: "panel-header" }, this.#panelTitle, this.#panelClose),
-    h("div", { class: "panel-body" }, this.#detail, this.#tray.element, this.#threads.element, this.#slots.element, this.#agentHelp.element));
+    h("div", { class: "panel-body" }, this.#connectionBox, this.#tray.element, this.#threads.element, this.#slots.element, this.#agentHelp.element));
+    this.#connectionBox.append(this.#detail);
     const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
       // The logo comes first and stays where it is when the toolbar expands (see #layout); the rest grows away from it.
-      // Drafts sits before the connection status so it never splits the status's dot from its label.
-      this.#logo, this.#comment, this.#inboxButton, this.#draftsButton, this.#statusButton,
+      this.#logo, this.#comment, this.#inboxButton, this.#draftsButton,
       h("span", { class: "divider", "aria-hidden": "true" }),
-      this.#variantsButton);
+      this.#variantsButton, this.#helpButton);
     this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel, this.#tooltip);
     const mod = modKey();
     tip(this.#comment, "Comment", "C", "Pick an element and write a comment on it. Esc leaves.");
     tip(this.#variantsButton, "Variants", null, "Switch between the variants of each slot on this page");
     this.#toggleKeys = `${mod} .`;
+    this.#pins = new PinLayer({
+      container: this.#root,
+      host: this,
+      pageUrl: () => (/^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null),
+      onOpen: (ids) => {
+        this.#openPanel("inbox", false);
+        this.#threads.reveal(ids[0]!);
+      },
+    });
     this.#root.append(this.#zoomProbe, this.#dock, this.#composer.element, this.#announcer);
     this.#picker = new ElementPicker({
       host: this,
@@ -414,7 +436,7 @@ export class IterbarBarElement extends ElementBase {
       }
       this.#setExpanded(!this.#state.expanded);
     });
-    this.#statusButton.addEventListener("click", () => this.#togglePanel("agent"));
+    this.#helpButton.addEventListener("click", () => this.#togglePanel("agent"));
     this.#logo.addEventListener("pointerdown", (event) => this.#startDrag(event));
     this.#logo.addEventListener("pointermove", (event) => this.#moveDrag(event));
     this.#logo.addEventListener("pointerup", (event) => this.#endDrag(event, true));
@@ -599,6 +621,8 @@ export class IterbarBarElement extends ElementBase {
     this.#layout();
     this.#watchUrl(true);
     this.#slots.attach();
+    this.#pins.attach();
+    this.#pins.update(this.#threads.threads);
     this.#reconnect();
   }
 
@@ -628,6 +652,7 @@ export class IterbarBarElement extends ElementBase {
     this.#layoutFrame = null;
     this.#hideTooltip();
     this.#watchUrl(false);
+    this.#pins.detach();
     this.#zoomObserver?.disconnect();
     this.#zoomObserver = null;
     this.#slots.detach();
@@ -758,7 +783,12 @@ export class IterbarBarElement extends ElementBase {
     this.#composer.element.style.maxHeight = `${Math.max(0, viewport.height - 2 * BAR_MARGIN_PX)}px`;
     const box = this.#composer.element.getBoundingClientRect();
     // The toolbar, and the panel above it when one is open, are kept clear.
-    const barTop = Math.min(this.#dock.getBoundingClientRect().top, this.#panel.hidden ? Infinity : this.#panel.getBoundingClientRect().top);
+    const popover = !this.#panel.hidden && this.#panel.dataset.mode === "popover";
+    const barTop = Math.min(this.#logo.parentElement!.getBoundingClientRect().top, popover ? this.#panel.getBoundingClientRect().top : Infinity);
+    // An open sheet takes the right of the screen: the composer keeps to its left.
+    if (!this.#panel.hidden && !popover) {
+      viewport.width = Math.max(0, Math.min(viewport.width, this.#panel.getBoundingClientRect().left - offset.left - BAR_MARGIN_PX));
+    }
     const reserved = Math.max(0, offset.top + viewport.height - barTop);
     const target = rect
       ? { left: rect.left - offset.left, top: rect.top - offset.top, width: rect.width, height: rect.height }
@@ -1118,7 +1148,7 @@ export class IterbarBarElement extends ElementBase {
       case "drafts": return this.#draftsButton;
       case "inbox": return this.#inboxButton;
       case "variants": return this.#variantsButton;
-      case "agent": return this.#statusButton;
+      case "agent": return this.#helpButton;
     }
   }
 
@@ -1145,6 +1175,8 @@ export class IterbarBarElement extends ElementBase {
   }
 
   readonly #onUrlChange = (): void => {
+    // Pins belong to the page they were left on.
+    this.#pins.update(this.#threads.threads);
     if (this.#slotsForReport && reportPageUrl(location.href) !== this.#reportedUrl) this.#queueReport(this.#slotsForReport);
   };
 
@@ -1185,6 +1217,7 @@ export class IterbarBarElement extends ElementBase {
     this.#composer.element.style.zoom = inverse;
     // The pick layer outlines viewport rectangles, so it cancels the inherited zoom too.
     this.#picker.setZoom(inverse);
+    this.#pins.setZoom(inverse);
     this.#placeComposer();
   }
 
@@ -1248,6 +1281,9 @@ export class IterbarBarElement extends ElementBase {
       onDeleted: (feedbackId) => {
         if (this.#connection === connection) this.#threads.remove(feedbackId);
       },
+      onSlotsReported: () => {
+        if (this.#connection === connection && this.#state.panel === "variants") void this.#slots.refreshPages();
+      },
       onListing: (items, touched): boolean => this.#connection !== connection || this.#threads.replace(items, touched),
       isComplete: (): boolean => this.#connection !== connection || this.#threads.complete,
     });
@@ -1265,10 +1301,11 @@ export class IterbarBarElement extends ElementBase {
       : status.kind === "unconfigured" ? "No daemon URL and token were given, so feedback is unavailable." : "";
     this.#detail.textContent = detail;
     this.#detail.hidden = !detail;
-    this.#statusButton.setAttribute("aria-label", `${STATUS_TEXT[status.kind]}. Use with your agent`);
-    tip(this.#statusButton, STATUS_TEXT[status.kind], null,
-      `${STATUS_DETAIL[status.kind]}${detail && status.kind !== "unconfigured" ? ` ${detail}` : ""} Click for how to use it with your agent.`);
-    if (this.#tooltipFor === this.#statusButton) this.#showTooltip(this.#statusButton);
+    this.#statusExplain.textContent = STATUS_DETAIL[status.kind];
+    this.#helpButton.setAttribute("aria-label", `Help and setup. ${STATUS_TEXT[status.kind]}`);
+    tip(this.#helpButton, "Help and setup", null, `${STATUS_TEXT[status.kind]}. How to connect your coding agent.`);
+    if (this.#tooltipFor === this.#helpButton) this.#showTooltip(this.#helpButton);
+    this.#pins.enabled = status.kind === "connected" || status.kind === "retrying" || status.kind === "connecting";
     this.#renderLogoTip();
   }
 
@@ -1315,8 +1352,11 @@ export class IterbarBarElement extends ElementBase {
     this.#agentHelp.element.hidden = panel !== "agent";
     // An open composer keeps clear of the panel, which may just have opened or closed.
     if (this.#composer.open) this.#queuePlaceComposer();
-    // The connection's details belong with "Use with your agent", where the status opens to.
+    // Inbox, drafts and setup open as a full-height sheet on the right; variants as a popover above the toolbar.
     this.#panel.dataset.panel = panel ?? "";
+    this.#panel.dataset.mode = panel === "variants" ? "popover" : "sheet";
+    this.#connectionBox.hidden = panel !== "agent";
+    if (panel === "variants") void this.#slots.refreshPages();
     for (const name of ["drafts", "inbox", "variants", "agent"] as const) {
       this.#panelButton(name).setAttribute("aria-expanded", String(panel === name));
     }
@@ -1349,9 +1389,19 @@ export class IterbarBarElement extends ElementBase {
       ? toolbarLeft(x, anchor, width, viewport.width, end)
       : leftForPosition(x, anchor, viewport.width);
     this.#dock.style.setProperty("--ib-left", `${Math.round(viewport.left + left)}px`);
-    if (!this.#panel.hidden) {
+    if (!this.#panel.hidden && this.#panel.dataset.mode === "popover") {
       const panelWidth = this.#panel.getBoundingClientRect().width;
       this.#panel.style.left = `${Math.round(panelLeft(left, width, panelWidth, viewport.width, end) - left)}px`;
+    } else {
+      this.#panel.style.removeProperty("left");
+    }
+    if (!this.#panel.hidden && this.#panel.dataset.mode === "sheet") {
+      // The sheet runs the full height on the right, stopping above the toolbar where the toolbar is under it.
+      const sheet = this.#panel.getBoundingClientRect();
+      const toolbar = this.#logo.parentElement!.getBoundingClientRect();
+      const height = document.documentElement.clientHeight || window.innerHeight;
+      const under = toolbar.right > sheet.left && toolbar.left < sheet.right;
+      this.#panel.style.setProperty("--ib-sheet-bottom", `${under ? Math.round(height - toolbar.top + 8) : BAR_MARGIN_PX}px`);
     }
     if (this.#tooltipFor) this.#showTooltip(this.#tooltipFor);
   }

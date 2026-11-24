@@ -11,6 +11,7 @@ import {
   feedbackSchema,
   safeParseMessage,
   SCHEMA_VERSION,
+  slotListResponseSchema,
   slotReportSchema,
   tokenSchema,
   webSocketProtocols,
@@ -18,6 +19,7 @@ import {
   type Feedback,
   type FeedbackDraft,
   type FeedbackStatus,
+  type SlotReport,
   type SlotState,
 } from "@iterbar/core";
 
@@ -95,6 +97,8 @@ export interface ConnectionCallbacks {
   onFeedback(item: Feedback): boolean;
   /** The daemon deleted an item (from this bar or another tab), so the bar stops showing it. */
   onDeleted?(feedbackId: string): void;
+  /** A page (this one or another) reported its slots to the daemon. */
+  onSlotsReported?(report: SlotReport): void;
   /**
    * The daemon's complete feedback listing, which replaces what the bar shows. `touched` holds the ids of items that
    * current events delivered while the listing was in flight; those events may be newer than the listing. Returns
@@ -277,6 +281,24 @@ export class DaemonConnection {
     }
   }
 
+  /** The latest slot report of every page the daemon has heard from since it started (`GET /slots`). */
+  async listSlots(): Promise<readonly SlotReport[]> {
+    if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
+    let body: unknown;
+    try {
+      body = await this.#request("listSlots");
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        this.#reject();
+        throw new DaemonRequestError("The daemon rejected the token. Restart the dev server to get a new one.");
+      }
+      throw error instanceof DaemonRequestError ? error : new DaemonRequestError(`The daemon did not answer (${(error as Error).message}).`);
+    }
+    const parsed = safeParseMessage(slotListResponseSchema, body, "slot list");
+    if (!parsed.success) throw new DaemonRequestError("The daemon's slot list did not match the contract.");
+    return parsed.data.pages;
+  }
+
   /** A request the user started from the inbox: refused while stopped, and a `401` stops the connection. */
   async #userRequest(endpoint: "setStatus" | "deleteFeedback", params: Readonly<Record<string, string>>, body?: string): Promise<unknown> {
     if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
@@ -327,6 +349,8 @@ export class DaemonConnection {
         if (this.#callbacks.onFeedback(parsed.data.feedback)) this.#touched?.add(parsed.data.feedback.id);
       } else if (parsed.data.type === "feedback.deleted") {
         this.#callbacks.onDeleted?.(parsed.data.feedbackId);
+      } else if (parsed.data.type === "slots.reported") {
+        this.#callbacks.onSlotsReported?.(parsed.data.report);
       }
     });
     socket.addEventListener("close", () => {
@@ -460,7 +484,7 @@ export class DaemonConnection {
    * answering leads to the usual retry instead of a hang. A `FormData` body sets its own multipart content type.
    */
   async #request(
-    endpoint: Exclude<DaemonEndpointName, "registerOrigins" | "events" | "getFeedback" | "getAttachment" | "reply" | "listSlots">,
+    endpoint: Exclude<DaemonEndpointName, "registerOrigins" | "events" | "getFeedback" | "getAttachment" | "reply">,
     body?: string | FormData,
     params: Readonly<Record<string, string>> = {},
   ): Promise<unknown> {

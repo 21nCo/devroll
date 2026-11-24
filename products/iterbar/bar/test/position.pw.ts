@@ -31,7 +31,7 @@ test("collapses to the logo at the bottom centre; clicking the logo expands it, 
 
   // Collapsed: the logo and nothing else.
   await expect(logo).toBeVisible();
-  for (const role of ["comment", "inbox-toggle", "drafts-toggle", "status-button", "variants-toggle"]) {
+  for (const role of ["comment", "inbox-toggle", "drafts-toggle", "variants-toggle", "help-toggle"]) {
     await expect(inBar(page, `[data-role=${role}]`), role).toBeHidden();
   }
   const collapsed = (await inBar(page, ".toolbar").boundingBox())!;
@@ -108,7 +108,7 @@ test("moves along the bottom edge by dragging the logo, kept in view, and rememb
   expect(await stored(page, project)).toMatchObject({ x: 1, expanded: true });
   expect(await stored(page)).toBeNull();
 
-  // The inbox opens above the toolbar, lined up with its right end, without covering it.
+  // The inbox opens as the sheet on the right; with the toolbar under it, the sheet stops above the toolbar.
   await openPanel(page, "inbox");
   const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
   const bar = (await toolbar.boundingBox())!;
@@ -134,7 +134,7 @@ test("moves along the bottom edge by dragging the logo, kept in view, and rememb
   }).toBe(600 - 12);
 });
 
-test("explains every toolbar control in a tooltip, the connection included, which opens Use with your agent", async ({ page, openFixture, fixtureServer }) => {
+test("explains every toolbar control in a tooltip; help opens the setup sheet with the connection at its top", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin, []);
   await openFixture();
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
@@ -142,7 +142,7 @@ test("explains every toolbar control in a tooltip, the connection included, whic
   const tooltip = inBar(page, "[data-role=tooltip]");
   for (const [role, label] of [
     ["logo", "Collapse Iterbar"], ["comment", "Comment"], ["inbox-toggle", "Inbox"], ["drafts-toggle", "Drafts"],
-    ["status-button", "Connected"], ["variants-toggle", "Variants"],
+    ["variants-toggle", "Variants"], ["help-toggle", "Help and setup"],
   ] as const) {
     const control = inBar(page, `[data-role=${role}]`);
     await control.hover();
@@ -151,20 +151,27 @@ test("explains every toolbar control in a tooltip, the connection included, whic
     // Every control has an accessible name of its own.
     expect(await control.getAttribute("aria-label"), role).toBeTruthy();
   }
-  // The connection is one control, its dot next to its label, and its tooltip says what it is connected to.
-  await inBar(page, "[data-role=status-button]").hover();
-  await expect(tooltip).toContainText("Connected to Iterbar: comments are saved for your coding agent.");
-  await expect(inBar(page, "[data-role=status-button]")).toHaveAttribute("aria-describedby", "iterbar-tooltip");
-  const dot = (await inBar(page, "[data-role=status-dot]").boundingBox())!;
-  const label = (await inBar(page, "[data-role=status]").boundingBox())!;
-  expect(label.x - (dot.x + dot.width)).toBeLessThan(10);
+  // The help button's tooltip says how the bar is connected.
+  await inBar(page, "[data-role=help-toggle]").hover();
+  await expect(tooltip).toContainText("Connected. How to connect your coding agent.");
+  await expect(inBar(page, "[data-role=help-toggle]")).toHaveAttribute("aria-describedby", "iterbar-tooltip");
   await page.mouse.move(5, 5);
   await expect(tooltip).toBeHidden();
 
-  // Clicking it opens "Use with your agent": one init command for the project, a prompt to copy, and the same setup
-  // by hand with the project's path.
-  await inBar(page, "[data-role=status-button]").click();
-  await expect(inBar(page, "[data-role=panel] h2").first()).toHaveText("Use with your agent");
+  // Clicking it opens the setup sheet: the connection at its top, then one init command for the project, a prompt to
+  // copy, and the same setup by hand.
+  await inBar(page, "[data-role=help-toggle]").click();
+  await expect(inBar(page, "[data-role=panel] h2").first()).toHaveText("Set up your agent");
+  await expect(inBar(page, "[data-role=connection]")).toBeVisible();
+  await expect(inBar(page, "[data-role=connection]")).toContainText("ConnectedConnected to Iterbar: comments are saved for your coding agent.");
+  const dot = (await inBar(page, "[data-role=status-dot]").boundingBox())!;
+  const label = (await inBar(page, "[data-role=status]").boundingBox())!;
+  expect(label.x - (dot.x + dot.width)).toBeLessThan(10);
+  // A full-height sheet on the right.
+  const sheet = (await inBar(page, "[data-role=panel]").boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(Math.round(sheet.y)).toBe(12);
+  expect(Math.round(sheet.x + sheet.width)).toBe(viewport.width - 12);
   await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText("cd /work/shop\nnpx iterbar init --agent claude");
   await inBar(page, "[data-role=agent-manual] summary").click();
   await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- npx -y iterbar mcp --root /work/shop");
@@ -285,7 +292,7 @@ test("dragging with the wide agent panel open keeps the panel in view and drops 
   const daemon = await fakeDaemon(page, fixtureServer.origin, []);
   await openFixture();
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
-  await inBar(page, "[data-role=status-button]").click();
+  await inBar(page, "[data-role=help-toggle]").click();
   const panel = inBar(page, "[data-role=panel]");
   await expect(panel).toBeVisible();
   const width = page.viewportSize()!.width;
@@ -325,7 +332,7 @@ test("copies without the Clipboard API from inside the bar, keeping focus on the
     document.head.insertAdjacentHTML("beforeend", "<style>textarea { display: none !important; }</style>");
   });
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
-  await inBar(page, "[data-role=status-button]").click();
+  await inBar(page, "[data-role=help-toggle]").click();
   const copy = inBar(page, "[data-role=copy-prompt]");
   await copy.focus();
   await page.keyboard.press("Enter");
@@ -367,7 +374,7 @@ test("on a short, narrow screen the panel fits between the top and the wrapped t
   await page.setViewportSize({ width: 280, height: 280 });
   await openFixture();
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, project: "/work/shop" });
-  await inBar(page, "[data-role=status-button]").click();
+  await inBar(page, "[data-role=help-toggle]").click();
   const panel = (await inBar(page, "[data-role=panel]").boundingBox())!;
   const toolbar = (await inBar(page, ".toolbar").boundingBox())!;
   expect(panel.y).toBeGreaterThanOrEqual(0);

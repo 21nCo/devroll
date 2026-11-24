@@ -146,6 +146,13 @@ export async function fakeDaemon(
       await route.fulfill({ status: daemon.items.length < before ? 204 : 404, headers: cors });
       return;
     }
+    if (request.method() === "GET" && path === "/slots") {
+      // The latest report per page, as the daemon keeps them.
+      const pages = new Map<string, SlotReport>();
+      for (const report of daemon.slotReports) pages.set(report.pageUrl, report);
+      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, pages: [...pages.values()] }) });
+      return;
+    }
     if (request.method() === "POST" && path === "/slots") {
       daemon.slotReports.push(JSON.parse(request.postData() ?? "null") as SlotReport);
       await route.fulfill({ status: 204, headers: cors });

@@ -1,3 +1,5 @@
+import { SCHEMA_VERSION } from "@iterbar/core";
+import { fakeDaemon } from "./support/fake-daemon.js";
 import { expect, HERO, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 
 test.describe("slot dropdown", () => {
@@ -6,17 +8,39 @@ test.describe("slot dropdown", () => {
     await page.evaluate(() => window.fixture.getVariantsRegistry());
     await mountBar(page);
     await openPanel(page, "variants");
-    await expect(inBar(page, "[data-role=slots-message]")).toHaveText("No slots on this page.");
+    await expect(inBar(page, "[data-role=slots-message]")).toHaveText("No variants on this page.");
     await expect(inBar(page, "[data-role=slot-select]")).toBeHidden();
     await expect(inBar(page, "[data-role=slot-name]")).toBeHidden();
     await expect(inBar(page, "[data-role=variants]")).toBeHidden();
+  });
+
+  test("on a page without variants, lists the pages that have some, with their variant counts, in a fixed-height popover", async ({ page, openFixture, fixtureServer }) => {
+    const daemon = await fakeDaemon(page, fixtureServer.origin);
+    const slot = (name: string, variants: string[]) => ({ slot: name, variants, defaultVariant: variants[0]!, activeVariant: variants[0]!, mounts: 1 });
+    const report = (pageUrl: string, slots: ReturnType<typeof slot>[]) => ({ schemaVersion: SCHEMA_VERSION, pageUrl, reportedAt: "2026-01-01T00:00:00Z", slots });
+    daemon.slotReports.push(
+      report(`${fixtureServer.origin}/pricing`, [slot("pricing", ["v1", "v2", "v3"]), slot("hero", ["a", "b"])]),
+      report(`${fixtureServer.origin}/empty`, []),
+    );
+    await openFixture();
+    await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+    await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
+    await openPanel(page, "variants");
+    await expect(inBar(page, "[data-role=slots-message]")).toHaveText("No variants on this page.");
+    await expect(inBar(page, "[data-role=variant-page]")).toHaveText(["/pricing5 variants · 2 slots"]);
+    await expect(inBar(page, "[data-role=variant-page]")).toHaveAttribute("href", `${fixtureServer.origin}/pricing`);
+    // The popover keeps one height, page list or slots.
+    const empty = (await inBar(page, "[data-role=panel]").boundingBox())!.height;
+    await registerSlots(page, [PRICING]);
+    await expect(inBar(page, "[data-role=pages]")).toBeHidden();
+    expect((await inBar(page, "[data-role=panel]").boundingBox())!.height).toBe(empty);
   });
 
   test("waits for a registry installed after the bar", async ({ page, openFixture }) => {
     await openFixture();
     await mountBar(page);
     await openPanel(page, "variants");
-    await expect(inBar(page, "[data-role=slots-message]")).toHaveText("No Iterbar variants on this page.");
+    await expect(inBar(page, "[data-role=slots-message]")).toHaveText("No variants on this page.");
     await registerSlots(page, [PRICING]);
     await expect(inBar(page, "[data-role=slot-name]")).toHaveText("Slot pricing");
   });

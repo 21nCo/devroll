@@ -10,6 +10,7 @@ import {
   VARIANT_URL_PARAM,
   type IterbarPageApi,
   type RegistrySnapshot,
+  type SlotReport,
   type SlotState,
 } from "@iterbar/core";
 import { h } from "./dom.js";
@@ -82,6 +83,26 @@ function writeSelectionToUrl(slot: string, variant: string): void {
 export interface SlotsPanelOptions {
   /** Called with every snapshot the registry delivers, so the bar can report the page's slots. */
   readonly onSlots: (slots: readonly SlotState[]) => void;
+  /**
+   * The pages the daemon knows have slots, for a page that has none; rejects with a message for the user, or resolves
+   * to `null` when the bar has no daemon.
+   */
+  readonly listPages?: () => Promise<readonly SlotReport[] | null>;
+}
+
+/** A page URL as the list shows it: its path and query, with the host too when it is another origin. */
+function pageLabel(pageUrl: string): string {
+  try {
+    const url = new URL(pageUrl);
+    const path = `${url.pathname}${url.search}`;
+    return url.origin === location.origin ? path : `${url.host}${path}`;
+  } catch {
+    return pageUrl;
+  }
+}
+
+function plural(count: number, one: string): string {
+  return `${count} ${count === 1 ? one : `${one}s`}`;
 }
 
 /**
@@ -98,6 +119,14 @@ export class SlotsPanel {
   readonly #picker = h("div", { class: "field slot-picker", hidden: true }, this.#select, icon("caret"));
   readonly #variants = h("div", { class: "variants", role: "group", "data-role": "variants", hidden: true });
   readonly #warnings = h("ul", { class: "warnings", "data-role": "warnings", hidden: true });
+  /** For a page without slots: the pages that have some, to jump to. */
+  readonly #pagesList = h("ul", { class: "variant-pages", "data-role": "variant-pages" });
+  readonly #pagesNote = h("p", { class: "muted pages-note", "data-role": "variant-pages-note" });
+  readonly #pages = h("div", { class: "pages", "data-role": "pages", hidden: true },
+    h("h3", { class: "pages-title" }, "Pages with variants"), this.#pagesList, this.#pagesNote);
+  /** Whether this page has no slots, so the pages list belongs in the panel. */
+  #empty = false;
+  #pagesRequest = 0;
   #api: IterbarPageApi | null = null;
   #unsubscribe: (() => void) | null = null;
   #poll: ReturnType<typeof setInterval> | null = null;
@@ -109,7 +138,7 @@ export class SlotsPanel {
   constructor(options: SlotsPanelOptions) {
     this.#options = options;
     this.element = h("section", { class: "section", "data-section": "slots", "aria-label": "Variants" },
-      this.#message, this.#single, this.#picker, this.#variants, this.#warnings);
+      this.#message, this.#single, this.#picker, this.#variants, this.#warnings, this.#pages);
     this.#select.addEventListener("change", () => {
       this.#selectedSlot = this.#select.value;
       this.#render();
@@ -147,7 +176,7 @@ export class SlotsPanel {
       return true;
     }
     if (!api) {
-      this.#showMessage("No Iterbar variants on this page.");
+      this.#showMessage("No variants on this page.", true);
       return false;
     }
     this.#api = api;
@@ -179,12 +208,50 @@ export class SlotsPanel {
     this.#render();
   }
 
-  #showMessage(text: string): void {
+  /** Shows `text` in place of the slots; `empty` (the page has no slots) also lists the pages that have some. */
+  #showMessage(text: string, empty = false): void {
     this.#message.textContent = text;
     this.#message.hidden = false;
     this.#single.hidden = true;
     this.#picker.hidden = true;
     this.#variants.hidden = true;
+    const wasEmpty = this.#empty;
+    this.#empty = empty;
+    this.#pages.hidden = !empty;
+    if (empty && !wasEmpty) void this.refreshPages();
+  }
+
+  /**
+   * Lists the pages the daemon has slot reports for, with each page's variant count, when this page has none. The
+   * bar calls it when the panel opens and when a page reports its slots.
+   */
+  async refreshPages(): Promise<void> {
+    if (!this.#empty || !this.#options.listPages) return;
+    const request = ++this.#pagesRequest;
+    let pages: readonly SlotReport[] | null;
+    try {
+      pages = await this.#options.listPages();
+    } catch (error) {
+      if (request !== this.#pagesRequest) return;
+      this.#pagesList.replaceChildren();
+      this.#pagesNote.textContent = `The page list is unavailable: ${(error as Error).message}`;
+      return;
+    }
+    if (request !== this.#pagesRequest) return;
+    const here = reportPageUrl(location.href);
+    const withSlots = (pages ?? []).filter((page) => page.slots.length > 0 && page.pageUrl !== here);
+    this.#pagesList.replaceChildren(...withSlots.map((page) => {
+      const variants = page.slots.reduce((sum, slot) => sum + slot.variants.length, 0);
+      const link = h("a", { class: "variant-page", href: page.pageUrl, "data-role": "variant-page", "data-page-url": page.pageUrl },
+        h("span", { class: "variant-page-path" }, pageLabel(page.pageUrl)),
+        h("span", { class: "variant-page-count" }, `${plural(variants, "variant")} · ${plural(page.slots.length, "slot")}`));
+      return h("li", {}, link);
+    }));
+    this.#pagesNote.textContent = pages === null
+      ? "Connect the bar to its daemon to see which pages have variants."
+      : withSlots.length === 0
+        ? "No other page has reported variants yet. Pages report theirs when they are opened with the bar."
+        : "Pages report their variants when they are opened with the bar.";
   }
 
   #render(): void {
@@ -193,10 +260,12 @@ export class SlotsPanel {
     this.#renderWarnings(snapshot);
     const { slots } = snapshot;
     if (slots.length === 0) {
-      this.#showMessage("No slots on this page.");
+      this.#showMessage("No variants on this page.", true);
       return;
     }
     this.#message.hidden = true;
+    this.#empty = false;
+    this.#pages.hidden = true;
     const slot = slots.find((entry) => entry.slot === this.#selectedSlot) ?? slots[0]!;
     this.#selectedSlot = slot.slot;
 
