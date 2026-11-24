@@ -43,16 +43,6 @@ interface Pin {
   readonly count: HTMLSpanElement;
 }
 
-/**
- * Comment pins: a small comment icon on the page element each unfinished thread on this page is about (open, in
- * progress or needing info), like the pins of a design tool. Clicking one opens its thread in the inbox. A pin goes
- * once its thread is done or archived, hides while its element is gone, hidden or scrolled out of view, and follows
- * it as the page scrolls, resizes or changes. Threads are found by the selector the bar recorded when the comment was
- * picked; an element the selector no longer finds (the page changed shape) gets no pin.
- *
- * The layer is a manual popover in the top layer, like the bar, so page stacking cannot hide it; only the pins take
- * pointer events.
- */
 /** Whether an element with `style` is the containing block of fixed elements inside it, as a transform makes it. */
 function holdsFixed(style: CSSStyleDeclaration): boolean {
   const individual = (value: string | undefined) => value !== undefined && value !== "" && value !== "none";
@@ -109,6 +99,17 @@ function visibleRect(element: Element): DOMRect | null {
   return new DOMRect(left, top, right - left, bottom - top);
 }
 
+/**
+ * Comment pins: a small comment icon on the page element each unfinished thread on this page is about (open, in
+ * progress or needing info), like the pins of a design tool. Clicking one opens its thread in the inbox. A pin goes
+ * once its thread is done or archived, hides while its element is gone, hidden or scrolled out of view, and follows
+ * it as the page scrolls, resizes or changes. Threads are found by the selector the bar recorded when the comment was
+ * picked; an element the selector no longer finds (the page changed shape) gets no pin. Drafts not sent yet get pins
+ * of their own, neutral and dashed, on the elements they were picked on; clicking one opens the draft.
+ *
+ * The layer is a manual popover in the top layer, like the bar, so page stacking cannot hide it; only the pins take
+ * pointer events.
+ */
 export class PinLayer {
   readonly #options: PinLayerOptions;
   readonly #layer = h("div", { class: "pin-layer", popover: "manual", "data-role": "pin-layer" });

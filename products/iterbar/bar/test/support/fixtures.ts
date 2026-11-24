@@ -88,10 +88,9 @@ export async function registerSlots(page: Page, slots: readonly SlotDefinitionIn
   }, slots);
 }
 
-/** Adds the bar with an optional daemon configuration. */
 /**
- * Mounts the bar. It starts expanded, so its controls can be clicked, unless `expanded` is `false` (the collapsed
- * toolbar shows only its logo).
+ * Mounts the bar with an optional daemon configuration. It expands the toolbar, so its controls can be clicked, unless
+ * `expanded` is `false`: then the toolbar is left as it is (collapsed for a new bar, which shows only its logo).
  */
 export async function mountBar(
   page: Page, options: { daemonUrl?: string; token?: string; project?: string; expanded?: boolean } = {},

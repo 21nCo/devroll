@@ -38,10 +38,6 @@ export interface FakeDaemon {
   send(event: DaemonEvent | string): void;
 }
 
-/**
- * A daemon answered by Playwright routes: `GET /feedback`, `POST /feedback`, `POST /feedback/:id/status`,
- * `DELETE /feedback/:id`, `POST /slots` and the `/events` WebSocket.
- */
 /** The error body the fake daemon refuses or fails a `POST /feedback` with, by status. */
 const FEEDBACK_ERRORS: Readonly<Record<number, { code: string; message: string }>> = {
   409: { code: "store_locked", message: "The store is locked" },
@@ -49,6 +45,10 @@ const FEEDBACK_ERRORS: Readonly<Record<number, { code: string; message: string }
   503: { code: "internal", message: "The store is unavailable" },
 };
 
+/**
+ * A daemon answered by Playwright routes: `GET` and `DELETE /feedback`, `POST /feedback`, `POST /feedback/:id/status`,
+ * `DELETE /feedback/:id`, `GET /info`, `POST /shutdown`, `GET` and `POST /slots`, and the `/events` WebSocket.
+ */
 export async function fakeDaemon(
   page: Page,
   origin: string,
