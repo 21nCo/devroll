@@ -219,13 +219,18 @@ export class PinLayer {
     this.#rebuild();
   }
 
-  /** Whether `element` shows what `thread` was made on: outside any slot, or in its recorded variant of the slot. */
+  /**
+   * Whether `element` shows what `thread` was made on: outside any slot, or in the recorded variant of every slot
+   * around it (a slot nested in another one's variant needs the outer variant to match too).
+   */
   #onRecordedVariant(thread: Feedback, element: Element): boolean {
-    const slot = element.closest(`[${SLOT_ATTRIBUTE}]`)?.getAttribute(SLOT_ATTRIBUTE);
-    if (!slot) return true;
-    const recorded = thread.activeVariants?.find((each) => each.slot === slot)?.variant;
-    const shown = this.#active.get(slot);
-    return recorded === undefined || shown === undefined || recorded === shown;
+    for (let at = element.closest(`[${SLOT_ATTRIBUTE}]`); at; at = at.parentElement?.closest(`[${SLOT_ATTRIBUTE}]`) ?? null) {
+      const slot = at.getAttribute(SLOT_ATTRIBUTE)!;
+      const recorded = thread.activeVariants?.find((each) => each.slot === slot)?.variant;
+      const shown = this.#active.get(slot);
+      if (recorded !== undefined && shown !== undefined && recorded !== shown) return false;
+    }
+    return true;
   }
 
   /** The threads the bar holds; the unfinished ones on this page get pins. */

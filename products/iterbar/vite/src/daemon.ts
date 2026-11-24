@@ -290,7 +290,16 @@ export class DaemonLink {
    * `daemon.json` still names it and its process runs.
    */
   async #isGone(access: DaemonAccess, registration: FailedRegistration): Promise<boolean> {
-    if (this.#lease) return this.#lease.stopped;
+    if (this.#lease) {
+      // A daemon of ours asked to stop answers 503 while it drains its last requests: it is waited for (within the
+      // lock wait), so the next discovery starts a new one instead of failing.
+      if (!this.#lease.stopped && registration.result === "gone") {
+        await Promise.race([this.#lease.daemon.closed, delay(this.#lockWaitMs)]);
+        // The lease learns that the daemon closed a few ticks after its `closed` settles.
+        await delay(0);
+      }
+      return this.#lease.stopped;
+    }
     if (registration.result !== "failed") return registration.result === "gone";
     return this.#projectRoot === undefined || !(await isStillListed(this.#projectRoot, access));
   }

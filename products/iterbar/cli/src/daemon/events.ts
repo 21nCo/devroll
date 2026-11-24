@@ -52,6 +52,9 @@ export class EventHub {
   publish(event: DaemonEvent): void {
     const data = JSON.stringify(event);
     const bytes = Buffer.byteLength(data);
+    // An event no client could ever buffer (a huge slot report) is not sent at all, rather than dropping every client;
+    // the bar reads the page list over HTTP whenever it shows it.
+    if (bytes > this.#maxBufferedBytes) return;
     for (const client of this.#server.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
       if (client.bufferedAmount + bytes > this.#maxBufferedBytes) {

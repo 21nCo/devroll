@@ -420,6 +420,20 @@ describe("DaemonConnection", () => {
     expect(pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVariant)).toEqual(["v2", "v2"]);
   });
 
+  it("never resends a slot report the daemon refused as too large", async () => {
+    const connection = connect();
+    socket().open();
+    connection.reportSlots("http://localhost:5173/", [slot("v2")]);
+    pending("/slots")[0]!.respond(413);
+    await settle();
+    await vi.advanceTimersByTimeAsync(60_000);
+    socket().close();
+    await vi.advanceTimersByTimeAsync(1000);
+    socket().open();
+    await settle();
+    expect(pending("/slots")).toHaveLength(1);
+  });
+
   it("resends the latest slot report with backoff while the socket stays open", async () => {
     const connection = connect();
     socket().open();

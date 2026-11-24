@@ -483,6 +483,8 @@ export class DaemonConnection {
         this.#reject();
         return;
       }
+      // Too large for the daemon: sending it again would fail the same way, so it waits for the slots to change.
+      if (error instanceof DaemonRequestError && error.status === 413) return;
       // A report that a newer one has replaced since is dropped; the latest one is resent with backoff, now if the
       // socket is open or else as soon as it opens again.
       if (this.#stopped || this.#pendingReport !== null || pending.generation !== this.#reportGeneration) return;

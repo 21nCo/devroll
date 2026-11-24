@@ -182,3 +182,25 @@ test("a thread made on one variant of a slot pins only while that variant shows,
   await pins(page).click();
   await expect(inBar(page, `[data-feedback-id="${onV2.id}"] details`)).toHaveAttribute("open", "");
 });
+
+test("a thread inside a nested slot keeps its pin only while the outer slot shows its recorded variant too", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  const made = comment("On the inner CTA", {
+    pageUrl: here, target: target("#cta"),
+    activeVariants: [{ slot: "pricing", variant: "v1" }, { slot: "hero", variant: "a" }],
+  });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [made]);
+  await openFixture();
+  await page.evaluate(() => {
+    const outer = document.createElement("div");
+    outer.setAttribute("data-iterbar-slot", "pricing");
+    outer.innerHTML = '<div data-iterbar-slot="hero"><button id="cta" style="width: 120px">Buy</button></div>';
+    document.body.prepend(outer);
+  });
+  await registerSlots(page, [PRICING, { slot: "hero", variants: ["a", "b"], defaultVariant: "a" }]);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  await expect(pins(page)).toHaveCount(1);
+  // The outer slot switches; the inner one (same name, same variant, same selector) still shows "a".
+  await page.evaluate(() => (window as unknown as { __ITERBAR__: { select(selection: unknown): void } }).__ITERBAR__.select({ schemaVersion: 2, slot: "pricing", variant: "v2" }));
+  await expect(pins(page)).toHaveCount(0);
+});

@@ -59,7 +59,7 @@ const sequenceOf = (received: DaemonEvent) =>
   received.type === "slots.reported" ? Number(new URL(received.report.pageUrl).pathname.slice(1)) : NaN;
 
 describe("event backpressure", () => {
-  it("disconnects a client instead of buffering one event larger than the limit", async () => {
+  it("sends nobody an event larger than the limit, and keeps every client connected", async () => {
     const port = await listen(64 * KIB);
     const client = await connect(port);
 
@@ -69,14 +69,10 @@ describe("event backpressure", () => {
     const oversized = event(2, 128 * KIB);
     expect(Buffer.byteLength(JSON.stringify(oversized))).toBeGreaterThan(64 * KIB);
     hub.publish(oversized);
-    // Terminated without a closing handshake, and the oversized event was never queued for it.
-    expect(await client.closed).toBe(1006);
-    expect(client.received.map(sequenceOf)).toEqual([1]);
-
-    // The hub keeps serving: a client that connects next gets the next event.
-    const next = await connect(port);
+    // No client could ever buffer it, so it is not sent; nobody is dropped for it.
     hub.publish(event(3, KIB));
-    await expect.poll(() => next.received.map(sequenceOf)).toEqual([3]);
+    await expect.poll(() => client.received.map(sequenceOf)).toEqual([1, 3]);
+    expect(client.socket.readyState).toBe(WebSocket.OPEN);
   });
 
   it("disconnects a client that stops reading once an event would take it past the limit, while others keep receiving", { timeout: 30_000 }, async () => {
