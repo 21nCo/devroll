@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { comment, fakeDaemon } from "./support/fake-daemon.js";
-import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
+import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 
 /** Rules that try to restyle the bar from outside: inherited properties, the host element, tag names and variables. */
 const HOSTILE_CSS = `
@@ -251,4 +251,45 @@ test("small muted text and links keep 4.5:1 contrast in both themes", async ({ p
     const { value } = await copied(scheme);
     expect(value, `Copied, ${scheme}`).toBeGreaterThanOrEqual(4.5);
   }
+});
+
+test("text sticks to the 12/14px scale (10px count badges) and every control has a 28px hit area", async ({ page, openFixture, fixtureServer }) => {
+  await openFixture();
+  await registerSlots(page, [PRICING]);
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Make the price bolder")]);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const scan = () => page.evaluate(() => {
+    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+    const fonts: string[] = [];
+    const small: string[] = [];
+    for (const element of root.querySelectorAll<HTMLElement>("*")) {
+      const box = element.getBoundingClientRect();
+      if (!box.width || !box.height || element.closest(".sr-only")) continue;
+      const name = `${element.tagName.toLowerCase()}.${element.getAttribute("class") ?? ""}`;
+      if ([...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())) {
+        const size = getComputedStyle(element).fontSize;
+        const badge = element.matches(".count, .pin-count");
+        if (badge ? size !== "10px" : size !== "12px" && size !== "14px") fonts.push(`${name} ${size}`);
+      }
+      if (element.matches("button:not(.link), select, summary, input")) {
+        // A checkbox's hit area is the label around it.
+        const target = element.matches("input[type=checkbox]") ? element.closest("label")?.getBoundingClientRect() ?? box : box;
+        if (target.width < 28 || target.height < 28) small.push(`${name} ${Math.round(target.width)}x${Math.round(target.height)}`);
+      }
+    }
+    return { fonts, small };
+  });
+  for (const panel of ["inbox", "drafts", "variants"] as const) {
+    await openPanel(page, panel);
+    if (panel === "inbox") await inBar(page, ".thread summary").click();
+    expect(await scan(), panel).toEqual({ fonts: [], small: [] });
+  }
+  await inBar(page, "[data-role=help-toggle]").click();
+  expect(await scan(), "help").toEqual({ fonts: [], small: [] });
+
+  // Clicking the edge of a thread's checkbox label, away from the box itself, selects the thread.
+  await openPanel(page, "inbox");
+  const gutter = (await inBar(page, ".thread .thread-gutter").boundingBox())!;
+  await page.mouse.click(gutter.x + 2, gutter.y + gutter.height - 2);
+  await expect(inBar(page, "[data-role=thread-select]")).toBeChecked();
 });

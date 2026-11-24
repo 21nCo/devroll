@@ -61,8 +61,17 @@ export const BAR_CSS = String.raw`
   --ib-shadow: 0 10px 32px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.10);
   --ib-margin: 12px;
   --ib-bottom: 20px;
+  /* The size scale: Tailwind's default steps, as in the 21n apps. Text and icons take their size from here. */
+  --ib-text-2xs: 10px; /* count badges only */
+  --ib-text-xs: 12px;  /* labels, rows, secondary text and code */
+  --ib-text-sm: 14px;  /* body text and panel titles */
+  --ib-icon-xs: 12px;  /* the pin glyph */
+  --ib-icon-sm: 14px;  /* icons inside rows */
+  --ib-icon: 16px;     /* toolbar and standard icons */
+  --ib-icon-lg: 20px;  /* the logo mark */
+  --ib-hit: 28px;      /* the smallest hit area */
   color-scheme: light;
-  font: 13px/1.4 "Iterbar Twenty One Native", "Twenty One Native", ui-sans-serif, system-ui, sans-serif;
+  font: var(--ib-text-sm)/1.4 "Iterbar Twenty One Native", "Twenty One Native", ui-sans-serif, system-ui, sans-serif;
   font-weight: 400;
   letter-spacing: normal;
   text-align: left;
@@ -174,7 +183,7 @@ export const BAR_CSS = String.raw`
 .logo:hover { filter: brightness(1.08); }
 .logo:active { transform: scale(0.96); }
 .dock[data-dragging] .logo { transform: none; }
-.logo-mark { display: block; }
+.logo-mark { display: block; width: var(--ib-icon-lg); height: var(--ib-icon-lg); }
 /* Collapsed, a connection problem still shows as a dot on the logo's corner. */
 .dock:not([data-awake]):is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) .logo::after {
   content: "";
@@ -204,6 +213,7 @@ button, select {
   border: 1px solid var(--ib-border);
   border-radius: 6px;
   padding: 3px 8px;
+  min-height: var(--ib-hit);
   cursor: pointer;
 }
 /* Accent buttons (primary, pressed) keep their colours on hover, so their text stays readable. */
@@ -234,12 +244,12 @@ button:disabled { cursor: default; opacity: 0.55; }
 .tool:hover:not(:disabled) { color: var(--ib-fg); }
 .tool[aria-expanded="true"] { background: var(--ib-accent-soft); color: var(--ib-fg); }
 .tool[aria-pressed="true"] { background: var(--ib-accent); color: var(--ib-accent-fg); }
-.glyph { flex: none; display: block; }
+.glyph { flex: none; display: block; width: var(--ib-icon); height: var(--ib-icon); }
 .count {
   min-width: 18px;
   padding: 1px 5px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--ib-text-2xs);
   font-weight: 500;
   line-height: 16px;
   text-align: center;
@@ -251,7 +261,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 /* The connection, at the top of the setup sheet: a dot, its label, what it means and any detail. */
 .connection { display: grid; gap: 4px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--ib-border); border-radius: 8px; background: var(--ib-surface); }
 .connection-head { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-.connection-explain, .connection .detail { margin: 0; font-size: 12px; }
+.connection-explain, .connection .detail { margin: 0; font-size: var(--ib-text-xs); }
 /* The help button at the toolbar's end; a connection problem shows as a dot on it. */
 .help { position: relative; padding: 4px 8px; }
 .dock:is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) .help::after {
@@ -285,7 +295,7 @@ button:disabled { cursor: default; opacity: 0.55; }
   border-radius: 6px;
   background: var(--ib-tip-bg);
   color: var(--ib-tip-fg);
-  font-size: 12px;
+  font-size: var(--ib-text-xs);
   line-height: 1.35;
   pointer-events: none;
   white-space: normal;
@@ -294,7 +304,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 .tooltip-detail { opacity: 0.85; }
 .tooltip kbd {
   font: inherit;
-  font-size: 11px;
+  font-size: var(--ib-text-xs);
   padding: 0 5px;
   border-radius: 4px;
   border: 1px solid color-mix(in srgb, var(--ib-tip-fg) 35%, transparent);
@@ -341,7 +351,7 @@ button:disabled { cursor: default; opacity: 0.55; }
   padding: 8px 8px 8px 14px;
   border-bottom: 1px solid var(--ib-border);
 }
-.panel-title { margin: 0 auto 0 0; font-size: 13px; font-weight: 500; }
+.panel-title { margin: 0 auto 0 0; font-size: var(--ib-text-sm); font-weight: 500; }
 .panel-body {
   overflow: auto;
   /* Room for a scrollbar is kept whether or not one shows, so opening a thread never shifts the content sideways. */
@@ -350,7 +360,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 }
 
 .section { margin: 0; }
-.section-title { margin: 0 0 8px; font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
+.section-title { margin: 0 0 8px; font-size: var(--ib-text-xs); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
 p { margin: 0 0 6px; }
 .muted { color: var(--ib-muted); }
 .detail { color: var(--ib-warn); margin: 0 0 10px; overflow-wrap: anywhere; }
@@ -379,8 +389,8 @@ p { margin: 0 0 6px; }
 .field select { flex: 1; min-width: 0; }
 
 /* Variants: the slot (named, or chosen from a list), then one row per variant. */
-.slot-name { display: flex; align-items: baseline; gap: 6px; margin: 0 0 12px; font-size: 12px; }
-.slot-name strong { font-weight: 500; font-size: 13px; color: var(--ib-fg); }
+.slot-name { display: flex; align-items: baseline; gap: 6px; margin: 0 0 12px; font-size: var(--ib-text-xs); }
+.slot-name strong { font-weight: 500; font-size: var(--ib-text-sm); color: var(--ib-fg); }
 .slot-picker { position: relative; margin: 0 0 12px; }
 .slot-picker select {
   appearance: none;
@@ -391,7 +401,7 @@ p { margin: 0 0 6px; }
   background: var(--ib-surface);
   font-weight: 500;
 }
-.slot-picker .glyph { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--ib-muted); pointer-events: none; }
+.slot-picker .glyph { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: var(--ib-icon-sm); height: var(--ib-icon-sm); color: var(--ib-muted); pointer-events: none; }
 .variants { display: grid; gap: 6px; }
 .variants .variant {
   display: flex;
@@ -408,15 +418,15 @@ p { margin: 0 0 6px; }
 .variants .variant[aria-pressed="true"] { background: var(--ib-accent-soft); border-color: var(--ib-accent); color: var(--ib-fg); }
 .variants .variant[aria-pressed="true"]:hover:not(:disabled) { filter: none; }
 .variant-name { font-weight: 500; overflow-wrap: anywhere; }
-.variant-tag { font-size: 11px; line-height: 16px; padding: 0 7px; border-radius: 999px; background: var(--ib-hover); color: var(--ib-muted); }
+.variant-tag { font-size: var(--ib-text-xs); line-height: 16px; padding: 0 7px; border-radius: 999px; background: var(--ib-hover); color: var(--ib-muted); }
 .variant-check { margin-left: auto; color: var(--ib-accent); visibility: hidden; }
-.variant-check .glyph { width: 15px; height: 15px; }
+.variant-check .glyph { width: var(--ib-icon); height: var(--ib-icon); }
 .variant[aria-pressed="true"] .variant-check { visibility: visible; }
-.warnings { margin: 12px 0 0; padding-left: 16px; color: var(--ib-warn); font-size: 12px; }
+.warnings { margin: 12px 0 0; padding-left: 16px; color: var(--ib-warn); font-size: var(--ib-text-xs); }
 
 /* A page without variants lists the pages that have some. */
 .pages { margin-top: 12px; }
-.pages-title { margin: 0 0 8px; font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
+.pages-title { margin: 0 0 8px; font-size: var(--ib-text-xs); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ib-muted); }
 .variant-pages { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .variant-page {
   display: flex;
@@ -431,8 +441,8 @@ p { margin: 0 0 6px; }
 }
 .variant-page:hover { background: var(--ib-hover); }
 .variant-page-path { min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
-.variant-page-count { margin-left: auto; flex: none; font-size: 12px; color: var(--ib-muted); }
-.pages-note { margin: 8px 0 0; font-size: 12px; }
+.variant-page-count { margin-left: auto; flex: none; font-size: var(--ib-text-xs); color: var(--ib-muted); }
+.pages-note { margin: 8px 0 0; font-size: var(--ib-text-xs); }
 
 /* Comment pins: a full-viewport top-layer layer that takes pointer events only on its pins. */
 .pin-layer {
@@ -464,12 +474,15 @@ p { margin: 0 0 6px; }
   background: var(--ib-accent);
   color: var(--ib-accent-fg);
   box-shadow: 0 2px 8px rgba(15, 20, 30, 0.25);
+  min-height: 0;
   pointer-events: auto;
   cursor: pointer;
 }
+/* The pin draws at 22px; its hit area reaches 28px. */
+.pin::before { content: ""; position: absolute; inset: -5px; border-radius: 999px; }
 /* The general button hover colour never applies to a pin: it keeps its accent fill and brightens. */
 button.pin:hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { background: var(--ib-accent); filter: brightness(1.1); }
-.pin .glyph { width: 12px; height: 12px; }
+.pin .glyph { width: var(--ib-icon-xs); height: var(--ib-icon-xs); }
 .pin-count {
   position: absolute;
   top: -7px;
@@ -479,21 +492,21 @@ button.pin:hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { backg
   border-radius: 999px;
   background: var(--ib-fg);
   color: var(--ib-bg);
-  font-size: 10px;
+  font-size: var(--ib-text-2xs);
   line-height: 15px;
   text-align: center;
 }
 .thread[data-revealed] details { border-color: var(--ib-accent); box-shadow: 0 0 0 3px var(--ib-accent-soft); }
 
 .filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
-.chip { border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+.chip { border-radius: 999px; padding: 2px 10px; font-size: var(--ib-text-xs); }
 .chip-count { margin-left: 5px; color: var(--ib-muted); font-variant-numeric: tabular-nums; }
 .chip[aria-pressed="true"] .chip-count { color: inherit; opacity: 0.8; }
 
 /* The inbox: filters and the selection row stay put; the threads scroll below them. */
 .inbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .bulk { display: flex; align-items: center; gap: 6px; min-height: 30px; margin: 0 0 6px; }
-.bulk-text { font-size: 12px; color: var(--ib-muted); font-variant-numeric: tabular-nums; }
+.bulk-text { font-size: var(--ib-text-xs); color: var(--ib-muted); font-variant-numeric: tabular-nums; }
 .inbox[data-selecting] .bulk-text { color: var(--ib-fg); font-weight: 500; }
 .bulk-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
 .inbox[data-busy] .bulk-actions, .inbox[data-busy] .thread-actions { opacity: 0.6; }
@@ -502,14 +515,15 @@ button.pin:hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { backg
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
-  margin: 0 -8px 0 0;
-  padding: 0 8px 12px 0;
+  /* 5px of room on the left keeps the checkbox labels' hit areas inside the scroller, which clips. */
+  margin: 0 -8px 0 -5px;
+  padding: 0 8px 12px 5px;
   overscroll-behavior: contain;
 }
 .threads-scroller .empty { margin: 16px 0 0; text-align: center; }
-.older { margin: 8px 0 0; font-size: 12px; text-align: center; }
-button.more { display: block; width: 100%; margin-top: 8px; padding: 5px 8px; font-size: 12px; color: var(--ib-fg2); }
-.inbox-error { margin: 0 0 6px; color: var(--ib-danger-text); font-size: 12px; overflow-wrap: anywhere; }
+.older { margin: 8px 0 0; font-size: var(--ib-text-xs); text-align: center; }
+button.more { display: block; width: 100%; margin-top: 8px; padding: 5px 8px; font-size: var(--ib-text-xs); color: var(--ib-fg2); }
+.inbox-error { margin: 0 0 6px; color: var(--ib-danger-text); font-size: var(--ib-text-xs); overflow-wrap: anywhere; }
 .undo {
   display: flex;
   align-items: center;
@@ -519,27 +533,29 @@ button.more { display: block; width: 100%; margin-top: 8px; padding: 5px 8px; fo
   border-radius: 8px;
   background: var(--ib-tip-bg);
   color: var(--ib-tip-fg);
-  font-size: 12px;
+  font-size: var(--ib-text-xs);
 }
 .undo button.link { color: var(--ib-tip-fg); margin-left: auto; }
 
 /* A checkbox in a gutter before each thread: shown on hover, on focus and while anything is selected. */
 .thread-gutter { flex: none; display: flex; justify-content: center; width: 18px; }
+/* The gutter is the checkbox's label: 18px in the layout, a 28px hit area around the 14px box. */
+label.thread-gutter { width: var(--ib-hit); min-height: var(--ib-hit); margin: -5px; padding: 5px; cursor: pointer; }
 .thread-check { width: 14px; height: 14px; margin: 0; accent-color: var(--ib-accent); cursor: pointer; }
 .thread .thread-check { opacity: 0; transition: opacity 100ms ease; }
 .thread:hover .thread-check, .thread .thread-check:focus-visible, .thread .thread-check:checked,
 .inbox[data-selecting] .thread .thread-check { opacity: 1; }
-.thread { display: flex; align-items: flex-start; gap: 4px; }
-.thread .thread-gutter { padding-top: 11px; }
+.thread { display: flex; align-items: flex-start; gap: 5px; }
+.thread .thread-gutter { padding-top: 16px; }
 .thread details { flex: 1; min-width: 0; }
 .threads[data-dragging] { user-select: none; }
 .thread[data-selected] details { border-color: var(--ib-accent); background: color-mix(in srgb, var(--ib-accent-soft) 55%, var(--ib-surface)); }
 
-.icon.action { min-height: 26px; padding: 2px 8px; gap: 5px; font-size: 12px; color: var(--ib-fg2); }
-.icon.action .glyph { width: 14px; height: 14px; }
+.icon.action { min-height: var(--ib-hit); padding: 2px 8px; gap: 5px; font-size: var(--ib-text-xs); color: var(--ib-fg2); }
+.icon.action .glyph { width: var(--ib-icon-sm); height: var(--ib-icon-sm); }
 .icon.action:hover:not(:disabled) { color: var(--ib-fg); }
 .icon.action.danger { color: var(--ib-danger-text); }
-.bulk-actions .icon { min-height: 28px; padding: 4px 7px; }
+.bulk-actions .icon { min-height: var(--ib-hit); padding: 4px 7px; }
 .thread-actions { display: flex; flex-wrap: wrap; gap: 2px; margin: 2px -4px 0; padding-top: 6px; border-top: 1px solid var(--ib-border); }
 
 .threads, .drafts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -565,18 +581,18 @@ button.more { display: block; width: 100%; margin-top: 8px; padding: 5px 8px; fo
   overflow: hidden;
 }
 .thread details[open] .thread-text { display: block; -webkit-line-clamp: none; overflow: visible; }
-.thread-count { margin-left: auto; color: var(--ib-muted); font-size: 11px; white-space: nowrap; }
+.thread-count { margin-left: auto; color: var(--ib-muted); font-size: var(--ib-text-xs); white-space: nowrap; }
 .thread-body { padding: 0 10px 8px; display: grid; gap: 8px; }
 .thread-content { display: grid; gap: 6px; }
-.thread-meta { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.thread-meta { margin: 0; font-size: var(--ib-text-xs); overflow-wrap: anywhere; }
 .replies { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .reply { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--ib-bg); border: 1px solid var(--ib-border); min-width: 0; }
 .reply[data-author="agent"] { border-left: 3px solid var(--ib-accent); }
-.reply-author { display: block; font-size: 11px; font-weight: 500; color: var(--ib-muted); }
+.reply-author { display: block; font-size: var(--ib-text-xs); font-weight: 500; color: var(--ib-muted); }
 .reply-text { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .badge {
   flex: none;
-  font-size: 11px;
+  font-size: var(--ib-text-xs);
   font-weight: 500;
   padding: 0 7px;
   border-radius: 999px;
@@ -605,21 +621,23 @@ button.more { display: block; width: 100%; margin-top: 8px; padding: 5px 8px; fo
   border-radius: 50%;
   background: var(--ib-warn);
   color: var(--ib-warn-fg);
-  font-size: 11px;
+  font-size: var(--ib-text-xs);
   font-weight: 500;
   line-height: 20px;
   text-align: center;
 }
 .draft-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.draft-target { margin: 0; font-size: 12px; color: var(--ib-muted); overflow-wrap: anywhere; }
+.draft-target { margin: 0; font-size: var(--ib-text-xs); color: var(--ib-muted); overflow-wrap: anywhere; }
 .draft-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .draft-actions { display: flex; gap: 6px; }
-.draft-actions button { padding: 1px 8px; font-size: 12px; }
+.draft-actions button { padding: 1px 8px; font-size: var(--ib-text-xs); }
 .drafts-footer { margin-top: 10px; display: grid; gap: 6px; }
 .empty { margin: 0; }
 
 /* A text button that reads as a link. */
+/* An inline link inside a sentence keeps the line's height. */
 button.link {
+  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -629,15 +647,15 @@ button.link {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.agent-hint { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--ib-border); font-size: 12px; }
+.agent-hint { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--ib-border); font-size: var(--ib-text-xs); }
 
 /* "Use with your agent". */
-.agent-intro { margin: 0 0 10px; font-size: 12px; }
+.agent-intro { margin: 0 0 10px; font-size: var(--ib-text-xs); }
 .agent-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
 .agent-tabs [aria-selected="true"] { background: var(--ib-accent-soft); border-color: transparent; color: var(--ib-fg); font-weight: 500; }
 .agent-body { display: grid; gap: 12px; }
 .agent-step { display: grid; gap: 4px; }
-.agent-step-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 500; }
+.agent-step-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--ib-text-xs); font-weight: 500; }
 .agent-step-number {
   flex: none;
   width: 18px;
@@ -645,13 +663,13 @@ button.link {
   border-radius: 50%;
   background: var(--ib-hover);
   color: var(--ib-fg2);
-  font-size: 11px;
+  font-size: var(--ib-text-xs);
   line-height: 18px;
   text-align: center;
 }
-.agent-caption { margin: 0; font-size: 12px; }
+.agent-caption { margin: 0; font-size: var(--ib-text-xs); }
 .agent-manual { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--ib-border); }
-.agent-manual summary { cursor: pointer; font-size: 12px; font-weight: 500; color: var(--ib-fg2); margin-bottom: 2px; }
+.agent-manual summary { padding: 6px 0; cursor: pointer; font-size: var(--ib-text-xs); font-weight: 500; color: var(--ib-fg2); margin-bottom: 2px; }
 .snippet {
   display: flex;
   align-items: flex-start;
@@ -666,19 +684,19 @@ button.link {
   min-width: 0;
   margin: 0;
   padding: 2px 0;
-  font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: var(--ib-text-xs)/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--ib-fg);
 }
-.snippet[data-kind="prompt"] .snippet-text { font-family: inherit; font-size: 12px; }
+.snippet[data-kind="prompt"] .snippet-text { font-family: inherit; font-size: var(--ib-text-xs); }
 .copy {
   flex: none;
-  min-height: 24px;
+  min-height: var(--ib-hit);
   padding: 2px 8px;
   border: 1px solid var(--ib-border);
   background: var(--ib-bg);
-  font-size: 11px;
+  font-size: var(--ib-text-xs);
   font-weight: 500;
 }
 /* The copy command's text area (only where the Clipboard API is missing), out of sight inside the shadow root. */
@@ -722,7 +740,7 @@ button.link {
   border: 1px solid var(--ib-border);
   border-radius: 6px;
 }
-.composer-hint { margin: 0; font-size: 11px; }
+.composer-hint { margin: 0; font-size: var(--ib-text-xs); }
 .composer-error { margin: 0; color: var(--ib-danger-text); overflow-wrap: anywhere; }
 .composer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 

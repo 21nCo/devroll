@@ -124,7 +124,7 @@ class ThreadItem {
     this.#onAction = onAction;
     this.checkbox = h("input", { type: "checkbox", class: "thread-check", "data-role": "thread-select" });
     this.element = h("li", { class: "thread", "data-feedback-id": feedback.id },
-      h("span", { class: "thread-gutter" }, this.checkbox),
+      h("label", { class: "thread-gutter" }, this.checkbox),
       h("details", {},
         h("summary", {}, h("span", { class: "thread-head" }, this.#badge, this.#count), this.#summary),
         h("div", { class: "thread-body" }, this.#content, this.#actions)));
@@ -289,7 +289,7 @@ export class ThreadsPanel {
     this.#scroller.append(this.#empty, this.#filteredEmpty, this.#list, this.#moreButton, this.#older);
     this.element = h("section", { class: "section inbox", "data-section": "threads", "aria-label": "Feedback threads" },
       this.#filters,
-      h("div", { class: "bulk", "data-role": "bulk" }, h("span", { class: "thread-gutter" }, this.#selectAll), this.#bulkText, this.#bulkActions),
+      h("div", { class: "bulk", "data-role": "bulk" }, h("label", { class: "thread-gutter" }, this.#selectAll), this.#bulkText, this.#bulkActions),
       this.#error, this.#undo, this.#scroller);
     this.#listenForSelection();
     this.#render();
