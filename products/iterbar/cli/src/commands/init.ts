@@ -107,8 +107,9 @@ function hasIterbarCommand(manifest: string): boolean {
 }
 
 /**
- * Whether the npx copy at `cliPath` came from the npm registry, as its npx folder's lockfile records. A copy npx
- * installed from a tarball, a folder or git cannot be fetched again by version, so it is run by its path instead.
+ * Whether the npx copy at `cliPath` came from the npm registry, as its npx folder's lockfile records: resolved to the
+ * registry's tarball of this package at this version (`…/iterbar/-/iterbar-<version>.tgz`). A copy npx installed from
+ * any other tarball URL, a file, a folder or git cannot be fetched again by version, so it is run by its path instead.
  */
 function fromRegistry(cliPath: string): boolean {
   const parts = cliPath.split(sep);
@@ -118,7 +119,9 @@ function fromRegistry(cliPath: string): boolean {
   try {
     const lock = JSON.parse(readFileSync(lockfile, "utf8")) as { packages?: Record<string, { resolved?: unknown }> };
     const resolved = lock.packages?.[`node_modules/${CLI_PACKAGE}`]?.resolved;
-    return typeof resolved !== "string" || /^https?:\/\//.test(resolved);
+    if (typeof resolved !== "string") return true;
+    const registryTarball = `/${CLI_PACKAGE}/-/${CLI_PACKAGE}-${packageVersion()}.tgz`;
+    return /^https?:\/\//.test(resolved) && new URL(resolved).pathname.endsWith(registryTarball);
   } catch {
     // No lockfile to say otherwise: npx fetched it by name.
     return true;

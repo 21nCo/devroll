@@ -179,6 +179,16 @@ describe("iterbar init", () => {
     await writeFile(join(base, "cache", "_npx", "1", "node_modules", ".package-lock.json"), JSON.stringify({ packages: { "node_modules/iterbar": { resolved: "file:../iterbar-0.1.0.tgz" } } }));
     expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [npxCli, "mcp"] });
+    // A tarball from any https URL is not the registry's copy either; the registry's own tarball of this version is.
+    const lockResolved = (resolved: string) => writeFile(join(base, "cache", "_npx", "1", "node_modules", ".package-lock.json"),
+      JSON.stringify({ packages: { "node_modules/iterbar": { resolved } } }));
+    await lockResolved("https://example.com/iterbar-preview.tgz");
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [npxCli, "mcp"] });
+    const { version } = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+    await lockResolved(`https://registry.npmjs.org/iterbar/-/iterbar-${version}.tgz`);
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toBe(`iterbar@${version}`);
     await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", bin: { iterbar: "./dist/cli.js" } }));
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
