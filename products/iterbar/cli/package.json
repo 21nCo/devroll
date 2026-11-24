@@ -38,7 +38,9 @@
     "clean": "rm -rf dist coverage skills",
     "lint": "eslint src",
     "test": "pnpm --filter iterbar... build && vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "node scripts/pack-manifest.mjs prepack",
+    "postpack": "node scripts/pack-manifest.mjs postpack"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

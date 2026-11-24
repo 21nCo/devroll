@@ -177,6 +177,11 @@ describe("iterbar init", () => {
     const run = capture();
     expect(await runInit(["--root", root], run.io, { home, skillSource: skill })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
+    // Also when this init registers a checkout's CLI with node.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp"] } } }));
+    const fromCheckout = capture();
+    expect(await runInit(["--root", root], fromCheckout.io, { home, skillSource: skill, cliPath: "/checkout/cli/dist/cli.js" })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: ["/checkout/cli/dist/cli.js", "mcp"] });
     await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp", "--verbose"] } } }));
     const custom = capture();
     expect(await runInit(["--root", root], custom.io, { home, skillSource: skill })).toBe(0);

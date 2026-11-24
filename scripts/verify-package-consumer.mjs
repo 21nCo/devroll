@@ -151,7 +151,7 @@ try {
   const cliPackage = join(cliConsumer, "node_modules", "iterbar");
   assert(!existsSync(join(cliConsumer, "node_modules", "@iterbar")), "iterbar must not pull in other Iterbar packages");
   const iterbarManifest = JSON.parse(await readFile(join(cliPackage, "package.json"), "utf8"));
-  assert(!JSON.stringify(iterbarManifest.dependencies ?? {}).includes("workspace:"), "iterbar must not depend on workspace packages");
+  assert(!JSON.stringify(iterbarManifest).includes("workspace:"), "iterbar's packed manifest must not name a workspace package");
   const iterbarCli = join(cliPackage, "dist", "cli.js");
   assert.match(execFileSync(process.execPath, [iterbarCli, "--help"], { encoding: "utf8" }), /init/);
   const cliHome = join(temporaryRoot, "cli-home");

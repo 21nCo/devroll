@@ -248,19 +248,22 @@ async function writeAtomic(path: string, text: string): Promise<void> {
 /** The package name an earlier init registered, before the CLI was published as `iterbar`. */
 const EARLIER_PACKAGE = "@iterbar/cli";
 
-/** Whether `current` is exactly what an earlier init wrote where it now writes `entry`. */
-function isEarlierDefault(current: unknown, entry: object): boolean {
-  const earlier = JSON.parse(JSON.stringify(entry)) as { args?: unknown[] };
-  if (!Array.isArray(earlier.args)) return false;
-  earlier.args = earlier.args.map((arg) => (arg === CLI_PACKAGE ? EARLIER_PACKAGE : arg));
-  return JSON.stringify(current) === JSON.stringify(earlier) && JSON.stringify(current) !== JSON.stringify(entry);
+/**
+ * Whether `current` is exactly what an earlier init wrote: `npx -y @iterbar/cli mcp`, plus `extra` arguments (Cursor's
+ * `--root ${workspaceFolder}`). Whatever this init now registers (npx, or a checkout's CLI with node), an untouched
+ * earlier default is moved to it; anything else is the user's own.
+ */
+function isEarlierDefault(current: unknown, extra: readonly string[]): boolean {
+  return JSON.stringify(current) === JSON.stringify({ command: "npx", args: ["-y", EARLIER_PACKAGE, "mcp", ...extra] });
 }
 
 /**
  * Adds the iterbar server to a JSON config's `mcpServers`, keeping every other entry. A config that is a link, or sits
  * in a linked folder, is never written (it may be shared, such as a dotfiles checkout): the entry is printed instead.
  */
-async function registerJson(base: string, path: string, entry: object, options: InitOptions, say: (line: string) => void): Promise<void> {
+async function registerJson(
+  base: string, path: string, entry: object, extra: readonly string[], options: InitOptions, say: (line: string) => void,
+): Promise<void> {
   const manual = `{ "mcpServers": { "iterbar": ${JSON.stringify(entry)} } }`;
   const link = (await linkTarget(path)) !== null ? path : await linkedParent(base, path);
   if (link !== null) {
@@ -288,7 +291,7 @@ async function registerJson(base: string, path: string, entry: object, options: 
   }
   // An entry an earlier init wrote under the package's earlier name (@iterbar/cli) is that init's own default, not a
   // customized entry: it is moved to the current one.
-  if (current !== undefined && isEarlierDefault(current, entry)) {
+  if (current !== undefined && isEarlierDefault(current, extra)) {
     say(`  MCP server: ${options.dryRun ? "would update" : "updated"} iterbar in ${path} to the package's new name`);
     if (options.dryRun) return;
     await writeAtomic(path, `${JSON.stringify({ ...config, mcpServers: { ...servers, iterbar: entry } }, null, 2)}\n`);
@@ -367,9 +370,10 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
         }
       }
       if (agent === "claude") {
-        await registerJson(root, join(root, ".mcp.json"), launch, parsed, say);
+        await registerJson(root, join(root, ".mcp.json"), launch, [], parsed, say);
       } else if (agent === "cursor") {
-        await registerJson(root, join(root, ".cursor", "mcp.json"), { ...launch, args: [...launch.args, "--root", "${workspaceFolder}"] }, parsed, say);
+        const cursorRoot = ["--root", "${workspaceFolder}"];
+        await registerJson(root, join(root, ".cursor", "mcp.json"), { ...launch, args: [...launch.args, ...cursorRoot] }, cursorRoot, parsed, say);
       } else {
         say(`  MCP server: add to ${join(env.codexHome ?? join(env.home, ".codex"), "config.toml")}:`);
         // Codex's config is the user's, so Codex starts the server from any folder, where npx would not find the
