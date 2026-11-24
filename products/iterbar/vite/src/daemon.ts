@@ -169,7 +169,11 @@ async function acquireOwned(projectRoot: string, create: boolean): Promise<Lease
       if (current.users > 0) return;
       if (owned.running.get(projectRoot) === current) owned.running.delete(projectRoot);
       unwatchExitSignals();
-      const closing = daemon.close().finally(() => {
+      // A shutdown that could not clean up after itself (releasing the store lock) is reported, not passed on: the
+      // next start then meets the store as it is, and takes the lock or waits for it.
+      const closing = daemon.close().catch((error: unknown) => {
+        console.warn(`[iterbar] The Iterbar daemon did not shut down cleanly: ${error instanceof Error ? error.message : String(error)}`);
+      }).finally(() => {
         if (owned.closing.get(projectRoot) === closing) owned.closing.delete(projectRoot);
       });
       owned.closing.set(projectRoot, closing);

@@ -249,3 +249,12 @@ test("the Variants popover and the toolbar have one width, variants show their d
   await expect(inBar(page, ".dock")).not.toHaveAttribute("data-matched", "");
   expect(await inBar(page, ".dock").evaluate((element) => (element as HTMLElement).style.minWidth)).toBe("");
 });
+
+test("a variant named like an Object member shows no description of its own", async ({ page, openFixture }) => {
+  await openFixture();
+  await registerSlots(page, [{ slot: "odd", variants: ["constructor", "alt"], defaultVariant: "alt", descriptions: { alt: "The other one" } }]);
+  await mountBar(page);
+  await openPanel(page, "variants");
+  await expect(inBar(page, "[data-variant=alt] [data-role=variant-description]")).toHaveText("The other one");
+  await expect(inBar(page, "[data-variant=constructor] [data-role=variant-description]")).toHaveCount(0);
+});

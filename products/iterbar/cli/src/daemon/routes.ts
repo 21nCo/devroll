@@ -114,6 +114,12 @@ export interface RouteContext {
 
 type RouteHandler = (context: RouteContext) => Promise<void>;
 
+/** A slot state without its variant descriptions. */
+function withoutDescriptions(slot: SlotReport["slots"][number]): SlotReport["slots"][number] {
+  const { slot: name, variants, defaultVariant, activeVariant, mounts } = slot;
+  return { slot: name, variants, defaultVariant, activeVariant, mounts };
+}
+
 interface CompiledRoute {
   readonly name: DaemonEndpointName;
   readonly method: string;
@@ -307,7 +313,10 @@ const handlers: Readonly<Record<DaemonEndpointName, RouteHandler>> = {
   },
 
   async reportSlots(context) {
-    const report = await readJson(context.request, slotReportSchema, "slot report");
+    // Descriptions are for the page's own Variants popover; the daemon keeps each page's slots and variants without them,
+    // so every kept report (and its event) stays small.
+    const sent = await readJson(context.request, slotReportSchema, "slot report");
+    const report: SlotReport = { ...sent, slots: sent.slots.map(withoutDescriptions) };
     // A report superseded by a later one is acknowledged but neither kept nor pushed as the page's state.
     if (context.slots.report(report)) {
       context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "slots.reported", report });

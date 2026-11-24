@@ -353,6 +353,12 @@ describe("slots", () => {
       ["http://localhost:5173/", "v1"],
       ["http://localhost:5173/pricing", "v2"],
     ]);
+    // Variant descriptions stay on the page: a kept report has none.
+    const described = { ...report("http://localhost:5173/described", "v1", "2026-11-03T10:00:03.000Z") };
+    described.slots = [{ ...slot, descriptions: { v1: "Current", v2: "Denser" } } as typeof slot];
+    expect((await postJson(daemon, "/slots", described)).status).toBe(204);
+    const after = (await (await call(daemon, "/slots")).json()) as { pages: Array<{ pageUrl: string; slots: object[] }> };
+    expect(after.pages.find((page) => page.pageUrl.endsWith("/described"))?.slots[0]).toEqual(slot);
   });
 
   it("keeps a page's newest report when an older one arrives later, and pushes only kept reports", async () => {

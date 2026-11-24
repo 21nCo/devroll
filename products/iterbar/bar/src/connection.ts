@@ -473,7 +473,8 @@ export class DaemonConnection {
       schemaVersion: SCHEMA_VERSION,
       pageUrl: pending.pageUrl,
       reportedAt: nextReportedAt(),
-      slots: pending.slots,
+      // Descriptions stay on the page (its own Variants popover shows them); the daemon keeps reports without them.
+      slots: pending.slots.map(({ slot, variants, defaultVariant, activeVariant, mounts }) => ({ slot, variants, defaultVariant, activeVariant, mounts })),
     });
     if (!report.success) return;
     this.#request("reportSlots", JSON.stringify(report.data)).then(() => {

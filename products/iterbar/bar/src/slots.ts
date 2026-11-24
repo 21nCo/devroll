@@ -309,7 +309,8 @@ export class SlotsPanel {
     if (key !== this.#versionsKey) {
       this.#versionsKey = key;
       this.#variants.replaceChildren(...slot.variants.map((variant) => {
-        const description = slot.descriptions?.[variant];
+        // Own entries only: a variant named like an Object.prototype member ("constructor") has none of its own.
+        const description = slot.descriptions && Object.hasOwn(slot.descriptions, variant) ? slot.descriptions[variant] : undefined;
         const button = h("button", { type: "button", class: "variant", "data-variant": variant },
           h("span", { class: "variant-text" },
             h("span", { class: "variant-head" },
