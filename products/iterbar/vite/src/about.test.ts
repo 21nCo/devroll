@@ -5,7 +5,7 @@ import { checkUpdates, readAbout } from "./about.js";
 describe("about", () => {
   it("reads the plugin's and the CLI's versions, and the CLI's entry file", () => {
     const about = readAbout(fileURLToPath(new URL("./index.ts", import.meta.url)));
-    expect(about.packages.map((pkg) => pkg.name)).toEqual(["@iterbar/vite", "@iterbar/cli"]);
+    expect(about.packages.map((pkg) => pkg.name)).toEqual(["@iterbar/vite", "iterbar"]);
     expect(about.cli?.path).toMatch(/cli[\\/]dist[\\/]cli\.js$/u);
   });
 

@@ -183,7 +183,7 @@ describe("iterbar() in vite dev", () => {
     const config = JSON.parse(own.body) as { daemonUrl: string; token: string; about: { packages: { name: string }[]; cli: { path: string } | null } };
     expect(config).toMatchObject({ daemonUrl: `http://127.0.0.1:${info?.port}`, token: info?.token });
     // What the bar's settings and setup steps use: the installed packages and the CLI the daemon runs from.
-    expect(config.about.packages.map((pkg) => pkg.name)).toEqual(["@iterbar/vite", "@iterbar/cli"]);
+    expect(config.about.packages.map((pkg) => pkg.name)).toEqual(["@iterbar/vite", "iterbar"]);
     expect(config.about.cli?.path).toMatch(/cli[\\/]dist[\\/]cli\.js$/u);
 
     const refused = [

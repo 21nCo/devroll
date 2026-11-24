@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 /** The package that carries the `iterbar` command (the daemon, the MCP server and `iterbar init`). */
-export const CLI_PACKAGE = "@iterbar/cli";
+export const CLI_PACKAGE = "iterbar";
 const PLUGIN_PACKAGE = "@iterbar/vite";
 
 /** An installed Iterbar package and its version. */

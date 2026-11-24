@@ -95,12 +95,12 @@ test("shows the installed versions and checks for updates only when asked", asyn
     const bar = window.fixture.mountIterbarBar({
       daemonUrl: url, token,
       devServer: {
-        about: { packages: [{ name: "@iterbar/vite", version: "0.1.0" }, { name: "@iterbar/cli", version: "0.1.0" }], cli: { path: "/repo/cli/dist/cli.js", version: "0.1.0" } },
+        about: { packages: [{ name: "@iterbar/vite", version: "0.1.0" }, { name: "iterbar", version: "0.1.0" }], cli: { path: "/repo/cli/dist/cli.js", version: "0.1.0" } },
         reconnect: async () => ({ daemonUrl: url, token }),
         checkUpdates: async () => {
           checks += 1;
           (window as unknown as { checks: number }).checks = checks;
-          return { packages: [{ name: "@iterbar/vite", installed: "0.1.0", latest: "0.2.0" }, { name: "@iterbar/cli", installed: "0.1.0", latest: null }] };
+          return { packages: [{ name: "@iterbar/vite", installed: "0.1.0", latest: "0.2.0" }, { name: "iterbar", installed: "0.1.0", latest: null }] };
         },
       },
     });

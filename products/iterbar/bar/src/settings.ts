@@ -1,4 +1,4 @@
-import type { DaemonStatus } from "iterbar";
+import type { DaemonStatus } from "@iterbar/core";
 import { h } from "./dom.js";
 import type { BarTheme } from "./position.js";
 
