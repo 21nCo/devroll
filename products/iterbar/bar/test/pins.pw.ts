@@ -125,3 +125,24 @@ test("a fixed element is clipped only by the box it is fixed to", async ({ page,
   await expect(inBar(page, `[data-role=pin][data-feedback-ids="${free.id}"]:not([hidden])`)).toHaveCount(1);
   await expect(inBar(page, `[data-role=pin][data-feedback-ids="${held.id}"]:not([hidden])`)).toHaveCount(0);
 });
+
+test("an absolute element escapes a static clipping box, and a body that only scrolls the page clips nothing", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  const popover = comment("Popover", { pageUrl: here, target: target("#popover") });
+  const far = comment("Far down", { pageUrl: here, target: target("#far") });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [popover, far]);
+  await openFixture();
+  await page.evaluate(() => {
+    document.documentElement.style.height = "100%";
+    Object.assign(document.body.style, { height: "100%", overflowX: "hidden" });
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+      <div style="position: relative">
+        <div style="height: 20px; overflow: hidden"><p id="popover" style="position: absolute; top: 60px; left: 20px; width: 120px; margin: 0">Popover</p></div>
+      </div>
+      <div style="height: 1500px"></div><p id="far" style="width: 200px">Far down</p>`);
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  await expect(inBar(page, `[data-role=pin][data-feedback-ids="${popover.id}"]:not([hidden])`)).toHaveCount(1);
+  await page.evaluate(() => document.getElementById("far")!.scrollIntoView({ block: "center" }));
+  await expect(inBar(page, `[data-role=pin][data-feedback-ids="${far.id}"]:not([hidden])`)).toHaveCount(1);
+});

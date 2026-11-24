@@ -1264,7 +1264,11 @@ export class IterbarBarElement extends ElementBase {
     this.#connection?.stop();
     this.#connection = null;
     // Threads belong to the daemon that listed them; another daemon (or none) must not show them.
-    if (key !== this.#connectionKey) this.#threads.clear();
+    if (key !== this.#connectionKey) {
+      this.#threads.clear();
+      // The page list came from the old daemon (or none): drop it, and any answer still on its way.
+      this.#slots.resetPages();
+    }
     this.#connectionKey = key;
     if (parsed.ok) {
       // A batch lives in one daemon's store: drafts waiting to be retried start a new batch with another daemon. The

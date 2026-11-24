@@ -225,6 +225,14 @@ export class SlotsPanel {
    * Lists the pages the daemon has slot reports for, with each page's variant count, when this page has none. The
    * bar calls it when the panel opens and when a page reports its slots.
    */
+  /** Forgets the page list (the bar switched daemons) and asks the new daemon for it. */
+  resetPages(): void {
+    this.#pagesRequest += 1;
+    this.#pagesList.replaceChildren();
+    this.#pagesNote.textContent = "";
+    void this.refreshPages();
+  }
+
   async refreshPages(): Promise<void> {
     if (!this.#empty || !this.#options.listPages) return;
     const request = ++this.#pagesRequest;

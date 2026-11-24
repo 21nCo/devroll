@@ -431,7 +431,7 @@ export class ThreadsPanel {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.#pendingDelete = null;
-    this.#undo.hidden = true;
+    this.#hideUndo();
     void this.#sendDelete([...pending.ids]);
   }
 
@@ -477,16 +477,34 @@ export class ThreadsPanel {
     for (const id of ids) this.#selected.delete(id);
     const timer = setTimeout(() => this.flushDeletes(), DELETE_UNDO_MS);
     this.#pendingDelete = { ids: set, timer };
+    // Focus on what the delete hides (the deleted row, or a bulk action) moves to Undo, so the keyboard can take it back.
+    const root = this.element.getRootNode();
+    const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+    const focusLost = active !== null && (this.#bulkActions.contains(active) || ids.some((id) => this.#rows.get(id)?.element.contains(active)));
     const undo = h("button", { type: "button", class: "link", "data-role": "undo-delete" }, "Undo");
     undo.addEventListener("click", () => {
-      this.#dropPendingDelete();
+      const pending = this.#pendingDelete;
+      if (pending) clearTimeout(pending.timer);
+      this.#pendingDelete = null;
       this.#options.announce?.("Delete undone.");
       this.#render();
+      // Focus goes back to the first restored row.
+      this.#hideUndo(this.#rows.get(ids[0]!)?.element.querySelector<HTMLElement>("summary") ?? null);
     });
     this.#undo.replaceChildren(h("span", {}, `Deleted ${plural(ids.length, "thread")}.`), undo);
     this.#undo.hidden = false;
     this.#options.announce?.(`Deleted ${plural(ids.length, "thread")}. Undo is in the inbox for a few seconds.`);
     this.#render();
+    if (focusLost) undo.focus();
+  }
+
+  /** Hides Undo; focus on it moves to `next`, or to the select-all box, so it stays in the inbox. */
+  #hideUndo(next: HTMLElement | null = null): void {
+    const root = this.element.getRootNode();
+    const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+    const hadFocus = active !== null && this.#undo.contains(active);
+    this.#undo.hidden = true;
+    if (hadFocus) (next ?? this.#selectAll).focus();
   }
 
   #dropPendingDelete(): void {
@@ -494,7 +512,7 @@ export class ThreadsPanel {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.#pendingDelete = null;
-    this.#undo.hidden = true;
+    this.#hideUndo();
   }
 
   /** Sends a delete; its threads stay hidden until the daemon answers, and come back only if it failed. */

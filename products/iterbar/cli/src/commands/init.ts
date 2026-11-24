@@ -192,6 +192,9 @@ async function writeAtomic(path: string, text: string): Promise<void> {
   try {
     await writeFile(temporary, text, { flag: "wx", mode });
     await chmod(temporary, mode);
+    // Checked again right before the rename, which replaces a link rather than following it: a folder on the way
+    // replaced by a link since the first check (a dotfiles tool, say) stops the write.
+    if ((await linkTarget(dirname(path))) !== null) throw new Error(`${dirname(path)} became a link; nothing was written.`);
     await rename(temporary, path);
   } finally {
     await rm(temporary, { force: true });

@@ -61,33 +61,35 @@ function visibleRect(element: Element): DOMRect | null {
   let top = rect.top;
   let right = rect.right;
   let bottom = rect.bottom;
-  // A fixed element is laid out against its containing block: the viewport, or the nearest ancestor with a transform,
-  // filter, perspective or paint containment. Boxes between it and that block do not clip it; that block and the boxes
-  // around it do.
-  let skipping = getComputedStyle(element).position === "fixed";
+  // A box clips only the elements whose containing block is that box or inside it. A fixed element's containing block
+  // is the viewport or the nearest ancestor that holds fixed elements (a transform, filter, perspective, containment);
+  // an absolute one's is the nearest positioned ancestor (or one that holds fixed elements). Boxes between an element
+  // and its containing block do not clip it, so they are skipped; the same rule applies again past each fixed or
+  // absolute ancestor.
+  let escaping = getComputedStyle(element).position;
+  // The body's overflow moves to the viewport when the root's is visible: then the body itself clips nothing.
+  const rootStyle = getComputedStyle(document.documentElement);
+  const bodyPropagates = rootStyle.overflowX === "visible" && rootStyle.overflowY === "visible";
   for (let ancestor = element.parentElement; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
     const style = getComputedStyle(ancestor);
-    if (skipping) {
-      if (!holdsFixed(style)) continue;
-      skipping = false;
-    }
+    if (escaping === "fixed" && !holdsFixed(style)) continue;
+    if (escaping === "absolute" && style.position === "static" && !holdsFixed(style)) continue;
+    escaping = style.position === "fixed" || style.position === "absolute" ? style.position : "static";
+    if (ancestor === document.body && bodyPropagates) continue;
     const clipsX = style.overflowX !== "visible";
     const clipsY = style.overflowY !== "visible";
-    if (clipsX || clipsY) {
-      // Each axis is clipped only where the ancestor clips it.
-      const box = ancestor.getBoundingClientRect();
-      if (clipsX) {
-        left = Math.max(left, box.left);
-        right = Math.min(right, box.right);
-      }
-      if (clipsY) {
-        top = Math.max(top, box.top);
-        bottom = Math.min(bottom, box.bottom);
-      }
-      if (right <= left || bottom <= top) return null;
+    if (!clipsX && !clipsY) continue;
+    // Each axis is clipped only where the ancestor clips it.
+    const box = ancestor.getBoundingClientRect();
+    if (clipsX) {
+      left = Math.max(left, box.left);
+      right = Math.min(right, box.right);
     }
-    // Inside a fixed ancestor, the same rule holds for the boxes past it.
-    if (style.position === "fixed") skipping = true;
+    if (clipsY) {
+      top = Math.max(top, box.top);
+      bottom = Math.min(bottom, box.bottom);
+    }
+    if (right <= left || bottom <= top) return null;
   }
   if (right <= left || bottom <= top) return null;
   return new DOMRect(left, top, right - left, bottom - top);
@@ -138,6 +140,9 @@ export class PinLayer {
     }
     window.addEventListener("scroll", this.#queuePlace, { capture: true, passive: true });
     window.addEventListener("resize", this.#queuePlace, { passive: true });
+    // An image or font that finishes loading can move an element without changing it or its size.
+    window.addEventListener("load", this.#queuePlace, { capture: true, passive: true });
+    void document.fonts?.ready.then(() => this.#queuePlace());
     if (typeof MutationObserver === "function") {
       this.#mutations = new MutationObserver((records) => {
         if (records.every((record) => this.#options.host.contains(record.target))) return;
@@ -158,6 +163,7 @@ export class PinLayer {
     this.#pins.clear();
     window.removeEventListener("scroll", this.#queuePlace, true);
     window.removeEventListener("resize", this.#queuePlace);
+    window.removeEventListener("load", this.#queuePlace, true);
     this.#mutations?.disconnect();
     this.#mutations = null;
     this.#resizes?.disconnect();

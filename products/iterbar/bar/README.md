@@ -43,6 +43,11 @@ root or a frame) gets no pin; its thread is still in the inbox.
 
 Keys typed into the bar's own fields (the composer, a draft being edited, the
 slot list) stop at the bar, so the page's keyboard shortcuts never see them.
+This covers shortcuts that listen in the bubbling phase, as most do. A page
+shortcut that listens on `window` or `document` in the capture phase sees the
+key before the bar can stop it; such a handler should skip text entry by
+checking `event.composedPath()[0]` (the field inside the bar's shadow root)
+rather than `event.target` (the bar itself).
 
 - **Variants**: the slots on the current page, read through the `window.__ITERBAR__` page
   API that `@iterbar/variants` installs. When the bar loads before the

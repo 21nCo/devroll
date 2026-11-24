@@ -214,3 +214,14 @@ test("a reply that leaves a thread's actions as they were keeps focus on the sam
   await expect(inBar(page, ".thread .reply")).toHaveCount(1);
   await expect(inBar(page, ".thread [data-action=archive]")).toBeFocused();
 });
+
+test("deleting from the keyboard moves focus to Undo, and Undo returns it to the restored thread", async ({ page, openFixture, fixtureServer }) => {
+  const item = comment("Delete me");
+  await openInbox(page, openFixture, [comment("Keep"), item], fixtureServer.origin);
+  await inBar(page, `[data-feedback-id="${item.id}"] summary`).click();
+  await inBar(page, `[data-feedback-id="${item.id}"] [data-action=delete]`).focus();
+  await page.keyboard.press("Enter");
+  await expect(inBar(page, "[data-role=undo-delete]")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(inBar(page, `[data-feedback-id="${item.id}"] summary`)).toBeFocused();
+});
