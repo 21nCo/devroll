@@ -1,0 +1,21 @@
+products/iterbar/bar/src/element.ts
+  s_4ded9ba77a0730::t_162457cf801f49 89-97,428,430-432,1245,1247-1250,1253-1256,1259,1261-1268,1421
+products/iterbar/bar/test/settings.pw.ts
+  s_4ded9ba77a0730::t_c0b782036417d3 216-245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f714b37ce258e83c35c5b5897645b2a764cc0273",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
