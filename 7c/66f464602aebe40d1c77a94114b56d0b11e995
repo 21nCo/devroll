@@ -1,0 +1,23 @@
+products/iterbar/bar/src/agent-help.ts
+  s_4ded9ba77a0730::t_5de963135b648e 68-69
+products/iterbar/bar/src/settings.ts
+  s_4ded9ba77a0730::t_e0c3c5160a21a4 427-431
+products/iterbar/bar/test/settings.pw.ts
+  s_4ded9ba77a0730::t_93070f7f625733 301-319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7c66f464602aebe40d1c77a94114b56d0b11e995",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
