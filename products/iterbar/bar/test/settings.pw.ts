@@ -280,3 +280,21 @@ test("a Start voided by a switch away and back again still changes nothing when 
   await page.waitForTimeout(300);
   expect(await page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe("http://127.0.0.1:9");
 });
+
+test("offers no npm command for a package linked from a workspace or checkout, and says how to update it", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => {
+    const bar = window.fixture.mountIterbarBar({
+      devServer: {
+        about: { packages: [{ name: "@iterbar/vite", version: "0.1.0" }, { name: "iterbar", version: "0.1.0", linked: true }], cli: null },
+        reconnect: async () => ({ daemonUrl: null, token: null }),
+        checkUpdates: async () => ({ packages: [{ name: "@iterbar/vite", installed: "0.1.0", latest: "0.2.0" }, { name: "iterbar", installed: "0.1.0", latest: "0.2.0" }] }),
+      },
+    });
+    bar.expanded = true;
+  });
+  await openPanel(page, "settings");
+  await expect(inBar(page, "[data-role=updates-linked]")).toContainText("iterbar");
+  await inBar(page, "[data-role=updates-check]").click();
+  await expect(inBar(page, "[data-role=updates-npm] .snippet-text")).toHaveText("npm install -D @iterbar/vite@0.2.0");
+});

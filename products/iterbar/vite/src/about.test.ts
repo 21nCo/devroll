@@ -6,6 +6,8 @@ describe("about", () => {
   it("reads the plugin's and the CLI's versions, and the CLI's entry file", () => {
     const about = readAbout(fileURLToPath(new URL("./index.ts", import.meta.url)));
     expect(about.packages.map((pkg) => pkg.name)).toEqual(["@iterbar/vite", "iterbar"]);
+    // In this workspace both are links to their package folders, outside any node_modules.
+    expect(about.packages.every((pkg) => pkg.linked === true)).toBe(true);
     expect(about.cli?.path).toMatch(/cli[\\/]dist[\\/]cli\.js$/u);
   });
 

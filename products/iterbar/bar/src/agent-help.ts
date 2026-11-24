@@ -58,7 +58,8 @@ function launcher(cli: AgentCli | null): { run: string; command: string; args: r
  * it; otherwise the snippets keep the references' placeholders.
  */
 export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli | null = null): AgentSteps {
-  const where = root ? `cd ${shellWord(root)}\n` : "";
+  // Joined with &&, so a folder that does not exist where the command runs stops it before it touches another project.
+  const where = root ? `cd ${shellWord(root)} && ` : "";
   const launch = launcher(cli);
   const init = (name: string): readonly Snippet[] => [{
     caption: "Run in the project's folder. It installs the iterbar skill and registers the MCP server:",

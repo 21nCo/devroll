@@ -4,7 +4,8 @@ import type { BarTheme } from "./position.js";
 
 /** What the dev server tells the bar about the Iterbar it runs (see `@iterbar/vite`'s client module). */
 export interface DevServerAbout {
-  readonly packages: readonly { readonly name: string; readonly version: string }[];
+  /** `linked`: from a workspace or checkout, updated there rather than with npm. */
+  readonly packages: readonly { readonly name: string; readonly version: string; readonly linked?: boolean }[];
   /** The CLI the daemon runs from; `node <path>` runs its commands. */
   readonly cli: { readonly path: string; readonly version: string } | null;
 }
@@ -409,11 +410,16 @@ export class SettingsPanel {
     if (this.#updatesError) children.push(h("p", { class: "composer-error" }, this.#updatesError));
     // Commands only for what the registry has a newer version of, so a copied command never names a missing package.
     // Against the versions installed now, as the rows show them.
+    // A package linked from a workspace or checkout is updated there: an install in the app would not change it.
     const newer = about.packages.flatMap((pkg) => {
       const result = results.get(pkg.name);
-      return result && !result.error && result.latest !== null && compareVersions(result.latest, pkg.version) > 0
+      return !pkg.linked && result && !result.error && result.latest !== null && compareVersions(result.latest, pkg.version) > 0
         ? [{ name: pkg.name, latest: result.latest }] : [];
     });
+    if (about.packages.some((pkg) => pkg.linked)) {
+      children.push(h("p", { class: "muted settings-line", "data-role": "updates-linked" },
+        `Linked from a workspace or checkout, so updated there (pull and build it, then restart the dev server): ${about.packages.filter((pkg) => pkg.linked).map((pkg) => pkg.name).join(", ")}.`));
+    }
     if (newer.length > 0) {
       const specs = newer.map((each) => `${each.name}@${each.latest}`).join(" ");
       children.push(h("p", { class: "muted settings-line" }, "To update, run in the project's folder (then restart the dev server):"),
