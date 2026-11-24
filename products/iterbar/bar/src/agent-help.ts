@@ -25,6 +25,16 @@ interface AgentSteps {
   readonly skill: readonly Snippet[];
 }
 
+/** Whether `path` is a Windows path (a drive letter, or a UNC path). */
+function isWindowsPath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/u.test(path) || path.startsWith("\\\\");
+}
+
+/** A path as a PowerShell word: single-quoted, with any single quote doubled. */
+function powerShellWord(path: string): string {
+  return `'${path.replaceAll("'", "''")}'`;
+}
+
 /** A path as a shell word, quoted when it needs to be. */
 function shellWord(path: string): string {
   return /^[\w@%+=:,./-]+$/u.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
@@ -58,19 +68,25 @@ function launcher(cli: AgentCli | null): { run: string; command: string; args: r
  * it; otherwise the snippets keep the references' placeholders.
  */
 export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli | null = null): AgentSteps {
-  // Joined with &&, so a folder that does not exist where the command runs stops it before it touches another project.
-  const where = root ? `cd ${shellWord(root)} && ` : "";
+  // Each step runs only if the one before it worked, so a folder that does not exist where the command runs stops it
+  // before it touches another project. A Windows project gets PowerShell's form (Windows PowerShell 5.1 has no &&).
+  const windows = root !== null && isWindowsPath(root);
+  const quote = windows ? powerShellWord : shellWord;
+  const chain = (...steps: string[]) => (windows
+    ? `${steps.slice(1).reduce((joined, step) => `${joined}; if ($?) { ${step}`, steps[0]!)}${" }".repeat(steps.length - 1)}`
+    : steps.join(" && "));
+  const inRoot = (...steps: string[]) => chain(...(root ? [`cd ${quote(root)}`] : []), ...steps);
   const launch = launcher(cli);
   const init = (name: string): readonly Snippet[] => [{
     caption: "Run in the project's folder. It installs the iterbar skill and registers the MCP server:",
-    text: `${where}npx iterbar init --agent ${name}`,
+    text: inRoot(`npx iterbar init --agent ${name}`),
   }, {
     caption: "In a pnpm project, add the CLI to the project first (pnpm gives a package's command only to direct dependencies; "
       + "at the root of a pnpm workspace, use pnpm add -Dw iterbar):",
-    text: `${where}pnpm add -D iterbar && pnpm exec iterbar init --agent ${name}`,
+    text: inRoot("pnpm add -D iterbar", `pnpm exec iterbar init --agent ${name}`),
   }, ...(cli ? [{
     caption: "Or run the CLI this dev server runs (the same version as its daemon, published or not):",
-    text: `${where}${launch.run} init --agent ${name}`,
+    text: inRoot(`${cli ? `node ${quote(cli.path)}` : launch.run} init --agent ${name}`),
   }] : [])];
   const copySkill = (folder: string): Snippet => ({
     caption: "Copy the skill out of the CLI's package, in the project's folder:",
