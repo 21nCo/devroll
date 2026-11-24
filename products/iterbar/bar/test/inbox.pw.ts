@@ -156,3 +156,26 @@ test("a delete still undoable is sent when the bar is removed, and survives the 
   await page.evaluate(() => document.querySelector("iterbar-bar")!.remove());
   await expect.poll(() => daemon.items.map((item) => item.text)).toEqual(["Keep"]);
 });
+
+test("a bulk delete removes the threads that went even when one fails, and Escape keeps focus in the inbox", async ({ page, openFixture, fixtureServer }) => {
+  await page.clock.install();
+  const items = [comment("Goes"), comment("Fails")];
+  const daemon = await openInbox(page, openFixture, items, fixtureServer.origin);
+  await page.route(`${daemon.url}/feedback/${items[1]!.id}`, async (route) => {
+    if (route.request().method() !== "DELETE") return route.fallback();
+    await route.fulfill({ status: 500, headers: { "access-control-allow-origin": fixtureServer.origin }, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error: { code: "internal", message: "disk full" } }) });
+  });
+  await inBar(page, "[data-role=select-all]").check();
+  await inBar(page, "[data-bulk=delete]").click();
+  await page.clock.runFor(7000);
+  await expect(inBar(page, "[data-role=inbox-error]")).toContainText("1 of 2 could not be deleted");
+  await expect(texts(page)).toHaveText(["Fails"]);
+
+  await inBar(page, "[data-role=select-all]").check();
+  await inBar(page, "[data-bulk=archive]").focus();
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-role=inbox-count]")).toHaveText("1 of 1");
+  await expect(inBar(page, "[data-role=select-all]")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-role=panel]")).toBeHidden();
+});

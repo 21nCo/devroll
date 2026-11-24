@@ -74,3 +74,15 @@ test("pins never sit on the toolbar or an open sheet, and closing a sheet opened
   await expect(inBar(page, "[data-role=logo]")).toBeFocused();
   await expect(pins(page)).toHaveCount(1);
 });
+
+test("threads whose different selectors find the same element share one pin", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  const byId = comment("By id", { pageUrl: here, target: target("#page-text") });
+  const byPath = comment("By path", { pageUrl: here, target: target("main > p") });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [byId, byPath]);
+  await openFixture();
+  await page.evaluate(() => { document.getElementById("page-text")!.style.width = "300px"; });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  await expect(pins(page)).toHaveCount(1);
+  await expect(pins(page).locator(".pin-count")).toHaveText("2");
+});

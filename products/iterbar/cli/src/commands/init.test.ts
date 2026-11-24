@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -111,6 +111,24 @@ describe("iterbar init", () => {
     const refused = capture();
     expect(await runInit(["--root", root], refused.io, { home: join(base, "other-home"), skillSource: skill })).toBe(1);
     expect(refused.err()).toContain("is not an object");
+  });
+
+  it("keeps a config's permissions, refuses an option where a value belongs, and leaves a linked Codex home alone", async () => {
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { other: { command: "x", env: { TOKEN: "test-api-token" } } } }), { mode: 0o600 });
+    const run = capture();
+    expect(await runInit(["--root", root], run.io, { home, skillSource: skill })).toBe(0);
+    expect((await stat(join(root, ".mcp.json"))).mode & 0o777).toBe(0o600);
+
+    expect(() => parseInitArgs(["--root", "--dry-run"])).toThrow(/needs a value/);
+    expect(parseInitArgs(["--root=-odd"])).toMatchObject({ root: "-odd" });
+
+    const realCodex = join(base, "real-codex");
+    await mkdir(realCodex, { recursive: true });
+    await symlink(realCodex, join(base, "codex-link"));
+    const codex = capture();
+    expect(await runInit(["--root", root, "--agent", "codex"], codex.io, { home, codexHome: join(base, "codex-link"), skillSource: skill })).toBe(0);
+    expect(codex.out()).toContain("is a link");
+    await expect(readFile(join(realCodex, "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
   });
 
   it("writes nothing on a dry run, and prints Codex's config instead of editing it", async () => {

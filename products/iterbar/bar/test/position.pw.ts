@@ -406,3 +406,24 @@ test("an open composer moves clear of a panel opened under it", async ({ page, o
     return overlaps;
   }).toBe(false);
 });
+
+test("expanding never moves the logo: the toolbar grows toward the side with room, and wraps when neither side has it", async ({ page, openFixture }) => {
+  for (const [width, x] of [[1000, 0.6], [1000, 0.5], [360, 0.5], [280, 0.5], [360, 0.9]] as const) {
+    await page.setViewportSize({ width, height: 700 });
+    await openFixture();
+    await page.evaluate((position) => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ x: position })), x);
+    await mountBar(page, { expanded: false });
+    const logo = inBar(page, "[data-role=logo]");
+    const before = (await logo.boundingBox())!;
+    await logo.click();
+    await expect(inBar(page, "[data-role=variants-toggle]")).toBeVisible();
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect((await logo.boundingBox())!.x, `${width} px at ${x}`).toBeCloseTo(before.x, 0);
+    for (const control of await inBar(page, ".toolbar > :not([hidden])").all()) {
+      const box = await control.boundingBox();
+      if (!box) continue;
+      expect(box.x, `${width} px at ${x}`).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, `${width} px at ${x}`).toBeLessThanOrEqual(width + 0.5);
+    }
+  }
+});

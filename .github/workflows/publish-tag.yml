@@ -121,7 +121,12 @@ jobs:
           if [[ "${{ steps.resolve.outputs.pkg_name }}" == "@diffpanel/storage" ]]; then
             npm rebuild better-sqlite3
           fi
-          node --input-type=module --eval 'await import(process.argv[1])' "${{ steps.resolve.outputs.pkg_name }}"
+          if [[ "${{ steps.resolve.outputs.pkg_name }}" == "iterbar" ]]; then
+            # The Iterbar CLI has no root export: run its command instead.
+            node node_modules/iterbar/dist/cli.js --help
+          else
+            node --input-type=module --eval 'await import(process.argv[1])' "${{ steps.resolve.outputs.pkg_name }}"
+          fi
 
       - name: Hand the package to the publish job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

@@ -732,6 +732,13 @@ describe("protocol version 1 input", () => {
     }
   });
 
+  it("renames only protocol fields, never an extension field with the same name", () => {
+    const stored = { schemaVersion: 1, metadata: { version: "design-3", versions: ["a"] }, choice: { slot: "pricing", version: "v2" } };
+    expect(api.upgradeMessage(stored)).toEqual({
+      schemaVersion: 2, metadata: { version: "design-3", versions: ["a"] }, choice: { slot: "pricing", variant: "v2" },
+    });
+  });
+
   it("leaves version 2 input as it is and still refuses a later major version", () => {
     const input = { schemaVersion: 2, slot: "pricing", variant: "v2" };
     expect(api.upgradeMessage(input)).toBe(input);

@@ -523,6 +523,14 @@ describe("page API", () => {
     }
   });
 
+  it("takes a protocol version 1 copy of this package's definitions, which shares a version 2 registry", () => {
+    const registry = createVariantsRegistry();
+    const legacy = { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1" } as never;
+    registry.register(legacy);
+    expect(registry.activeVersion(legacy)).toBe("v1");
+    expect(registry.getSnapshot().slots).toEqual([{ slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v1", mounts: 1 }]);
+  });
+
   it("registers into a page registry from protocol version 1, in its terms, so the bar sees the slots", () => {
     const holder = globalThis as Record<PropertyKey, unknown>;
     const key = Symbol.for("iterbar.variants.registry.v1");

@@ -25,10 +25,8 @@ export interface PinLayerOptions {
 }
 
 interface Pin {
-  readonly key: string;
+  readonly element: Element;
   readonly ids: string[];
-  readonly selector: string;
-  element: Element | null;
   readonly button: HTMLButtonElement;
   readonly count: HTMLSpanElement;
 }
@@ -46,7 +44,8 @@ interface Pin {
 export class PinLayer {
   readonly #options: PinLayerOptions;
   readonly #layer = h("div", { class: "pin-layer", popover: "manual", "data-role": "pin-layer" });
-  readonly #pins = new Map<string, Pin>();
+  /** One pin per element: threads whose recorded selectors find the same element share it. */
+  readonly #pins = new Map<Element, Pin>();
   #threads: readonly Feedback[] = [];
   #enabled = true;
   #attached = false;
@@ -125,36 +124,45 @@ export class PinLayer {
     this.#rebuild();
   }
 
-  /** Builds the pins from the threads: one per element, newest thread first. */
+  /**
+   * Builds the pins from the threads: finds each unfinished thread's element (again, as the page may have replaced or
+   * removed it) and gives every element found one pin with its threads, newest first. Then places them.
+   */
   #rebuild(): void {
     const page = this.#options.pageUrl();
-    const groups = new Map<string, string[]>();
+    const groups = new Map<Element, string[]>();
     if (this.#enabled && this.#attached && page !== null) {
+      const found = new Map<string, Element | null>();
       for (const thread of this.#threads) {
         if (!PINNED_STATUSES.has(thread.status) || thread.pageUrl !== page || !thread.target) continue;
-        const ids = groups.get(thread.target.selector);
+        const { selector } = thread.target;
+        if (!found.has(selector)) found.set(selector, this.#find(selector));
+        const element = found.get(selector);
+        if (!element) continue;
+        const ids = groups.get(element);
         if (ids) ids.push(thread.id);
-        else groups.set(thread.target.selector, [thread.id]);
+        else groups.set(element, [thread.id]);
       }
     }
-    for (const [key, pin] of this.#pins) {
-      if (groups.has(key)) continue;
+    for (const [element, pin] of this.#pins) {
+      if (groups.has(element)) continue;
       pin.button.remove();
-      if (pin.element) this.#resizes?.unobserve(pin.element);
-      this.#pins.delete(key);
+      this.#resizes?.unobserve(element);
+      this.#pins.delete(element);
     }
-    for (const [selector, ids] of groups) {
-      let pin = this.#pins.get(selector);
+    for (const [element, ids] of groups) {
+      let pin = this.#pins.get(element);
       if (!pin) {
         const count = h("span", { class: "pin-count", hidden: true });
-        const button = h("button", { type: "button", class: "pin", "data-role": "pin", "data-selector": selector }, icon("comment"), count);
-        const created: Pin = { key: selector, ids: [], selector, element: null, button, count };
+        const button = h("button", { type: "button", class: "pin", "data-role": "pin" }, icon("comment"), count);
+        const created: Pin = { element, ids: [], button, count };
         button.addEventListener("click", (event) => {
           event.stopPropagation();
           this.#options.onOpen([...created.ids]);
         });
         this.#layer.append(button);
-        this.#pins.set(selector, created);
+        this.#pins.set(element, created);
+        this.#resizes?.observe(element);
         pin = created;
       }
       pin.ids.splice(0, pin.ids.length, ...ids);
@@ -165,34 +173,25 @@ export class PinLayer {
       pin.button.title = ids.length === 1 ? "Open comment" : `${ids.length} comments`;
       pin.button.dataset.feedbackIds = ids.join(" ");
     }
-    this.#resolve();
+    this.#place();
   }
 
-  /** Finds each pin's element again (the page may have replaced or removed it), then places the pins. */
-  #resolve(): void {
-    for (const pin of this.#pins.values()) {
-      let element: Element | null;
-      try {
-        element = document.querySelector(pin.selector);
-      } catch {
-        element = null;
-      }
-      // An element inside the bar is never a pin's target.
-      if (element && this.#options.host.contains(element)) element = null;
-      if (element !== pin.element) {
-        if (pin.element) this.#resizes?.unobserve(pin.element);
-        if (element) this.#resizes?.observe(element);
-        pin.element = element;
-      }
+  /** The element a recorded selector finds now; never one inside the bar, and none for a selector that throws. */
+  #find(selector: string): Element | null {
+    let element: Element | null;
+    try {
+      element = document.querySelector(selector);
+    } catch {
+      element = null;
     }
-    this.#place();
+    return element && !this.#options.host.contains(element) ? element : null;
   }
 
   readonly #queueResolve = (): void => {
     if (this.#resolveTimer) return;
     this.#resolveTimer = setTimeout(() => {
       this.#resolveTimer = null;
-      this.#resolve();
+      this.#rebuild();
     }, RESOLVE_DELAY_MS);
   };
 
@@ -216,10 +215,15 @@ export class PinLayer {
   #place(): void {
     const width = document.documentElement.clientWidth || window.innerWidth;
     const height = document.documentElement.clientHeight || window.innerHeight;
-    const avoid = this.#options.avoid?.() ?? [];
+    let avoid: readonly DOMRect[] = [];
+    try {
+      avoid = this.#options.avoid?.() ?? [];
+    } catch {
+      // Pins still show; only the areas to keep clear are unknown.
+    }
     for (const pin of this.#pins.values()) {
       const element = pin.element;
-      const rect = element?.isConnected ? element.getBoundingClientRect() : null;
+      const rect = element.isConnected ? element.getBoundingClientRect() : null;
       const shown = rect !== null && rect.width > 0 && rect.height > 0
         && rect.bottom > 0 && rect.right > 0 && rect.top < height && rect.left < width
         && (element as HTMLElement).checkVisibility?.({ visibilityProperty: true, opacityProperty: false }) !== false;

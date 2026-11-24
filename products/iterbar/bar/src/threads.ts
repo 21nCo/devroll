@@ -183,7 +183,7 @@ export interface ThreadsPanelOptions {
   /** Sets `status` on every thread in `ids`; rejects with a message for the user when any failed. */
   readonly onStatus?: (ids: readonly string[], status: FeedbackStatus) => Promise<void>;
   /** Deletes the threads in `ids` for good, once their undo has run out; rejects with a message when any failed. */
-  readonly onDelete?: (ids: readonly string[]) => Promise<void>;
+  readonly onDelete?: (ids: readonly string[]) => Promise<{ readonly failed: readonly string[]; readonly message: string | null }>;
   /** Says `text` to screen readers. */
   readonly announce?: (text: string) => void;
 }
@@ -346,9 +346,14 @@ export class ThreadsPanel {
 
   clearSelection(): void {
     if (this.#selected.size === 0) return;
+    // Focus on a bulk action (which clearing hides) moves to the select-all box, so it stays in the inbox.
+    const root = this.element.getRootNode();
+    const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+    const refocus = active !== null && this.#bulkActions.contains(active);
     this.#selected.clear();
     this.#anchor = null;
     this.#render();
+    if (refocus) this.#selectAll.focus();
   }
 
   /**
@@ -466,8 +471,10 @@ export class ThreadsPanel {
     for (const id of ids) this.#deleting.add(id);
     this.#render();
     try {
-      await onDelete(ids);
-      for (const id of ids) this.#state.remove(id);
+      // The ones that went are gone, even when others failed: those come back with the reason.
+      const { failed, message } = await onDelete(ids);
+      for (const id of ids) if (!failed.includes(id)) this.#state.remove(id);
+      if (message) this.#showError(message);
     } catch (error) {
       this.#showError((error as Error).message);
     } finally {

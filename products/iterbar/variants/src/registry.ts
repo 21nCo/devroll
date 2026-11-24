@@ -80,11 +80,14 @@ export interface VariantsRegistryOptions {
  * include the default. Returns a copy that later changes to the caller's arrays cannot affect.
  */
 export function validateSlotDefinition(definition: SlotDefinition): SlotDefinition {
+  // A copy of this package from protocol version 1 sharing the page's registry declares `versions` and
+  // `defaultVersion`; they are read as the variants and the default.
+  const legacy = definition as Partial<SlotDefinition> & { versions?: unknown; defaultVersion?: unknown };
   const state = parseMessage(slotStateSchema, {
     slot: definition?.slot,
-    variants: definition?.variants,
-    defaultVariant: definition?.defaultVariant,
-    activeVariant: definition?.defaultVariant,
+    variants: legacy?.variants ?? legacy?.versions,
+    defaultVariant: legacy?.defaultVariant ?? legacy?.defaultVersion,
+    activeVariant: legacy?.defaultVariant ?? legacy?.defaultVersion,
     mounts: 1,
   }, "slot definition");
   return Object.freeze({
@@ -214,9 +217,20 @@ export class VariantsRegistry {
    * not, and otherwise what registering would choose.
    */
   activeVariant(definition: SlotDefinition): string {
+    // Called on every render, so only a version 1 definition (no `variants`) is read again, under the new names.
+    if (!Array.isArray((definition as Partial<SlotDefinition>).variants)) definition = validateSlotDefinition(definition);
     const record = this.#slots.get(definition.slot);
     if (!record) return this.#resolve(definition).variant;
     return definition.variants.includes(record.activeVariant) ? record.activeVariant : definition.defaultVariant;
+  }
+
+  /**
+   * {@link activeVariant} under its protocol version 1 name, for a copy of this package from that version that shares
+   * the page's registry (it declares `versions` and `defaultVersion`).
+   * @deprecated Use {@link activeVariant}.
+   */
+  activeVersion(definition: SlotDefinition): string {
+    return this.activeVariant(definition);
   }
 
   /**

@@ -1,7 +1,7 @@
 import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackStatus, type FeedbackTarget, type SlotState } from "@iterbar/core";
 import { Composer } from "./composer.js";
 import { DaemonConnection, DaemonRequestError, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
-import { h } from "./dom.js";
+import { h, isRendered } from "./dom.js";
 import { AgentHelp } from "./agent-help.js";
 import { DraftTray, type DraftView } from "./drafts.js";
 import { registerBarFonts } from "./fonts.js";
@@ -410,7 +410,7 @@ export class IterbarBarElement extends ElementBase {
       pageUrl: () => (/^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null),
       // Pins never sit on the toolbar or an open panel, so they never take a click meant for the bar.
       avoid: () => [this.#logo.parentElement!, this.#panel]
-        .filter((element) => !element.hidden && element.checkVisibility())
+        .filter((element) => !element.hidden && isRendered(element))
         .map((element) => element.getBoundingClientRect()),
       onOpen: (ids) => {
         this.#openPanel("inbox", false);
@@ -694,7 +694,7 @@ export class IterbarBarElement extends ElementBase {
       // Expanding moves focus into the toolbar so keyboard users can carry on; collapsing moves focus that was inside to
       // the logo, the one control left (unless a panel or comment mode keeps the toolbar showing).
       if (this.#state.expanded) this.#comment.focus();
-      else if (focusInside && !this.#root.activeElement?.checkVisibility?.()) this.#logo.focus();
+      else if (focusInside && (!this.#root.activeElement || !isRendered(this.#root.activeElement))) this.#logo.focus();
       return;
     }
     if (event.key !== "c" && event.key !== "C") return;
@@ -1066,15 +1066,15 @@ export class IterbarBarElement extends ElementBase {
   }
 
   /** Deletes each thread through the daemon; rejects saying how many failed. */
-  async #deleteThreads(ids: readonly string[]): Promise<void> {
+  /** Deletes each thread through the daemon; resolves with the ones that failed and why, so the rest go at once. */
+  async #deleteThreads(ids: readonly string[]): Promise<{ failed: readonly string[]; message: string | null }> {
     const connection = this.#connection;
-    if (!connection) throw new Error("The bar is not connected to the Iterbar daemon, so nothing was deleted.");
+    if (!connection) return { failed: ids, message: "The bar is not connected to the Iterbar daemon, so nothing was deleted." };
     const results = await Promise.allSettled(ids.map((id) => connection.deleteFeedback(id)));
-    const failed = results.filter((result) => result.status === "rejected");
-    if (failed.length > 0) {
-      const reason = ((failed[0] as PromiseRejectedResult).reason as Error).message;
-      throw new Error(`${failed.length} of ${ids.length} could not be deleted. ${reason}`);
-    }
+    const failed = ids.filter((_id, index) => results[index]!.status === "rejected");
+    if (failed.length === 0) return { failed, message: null };
+    const reason = ((results.find((result) => result.status === "rejected") as PromiseRejectedResult).reason as Error).message;
+    return { failed, message: `${failed.length} of ${ids.length} could not be deleted. ${reason}` };
   }
 
   #renderDrafts(): void {
@@ -1150,7 +1150,7 @@ export class IterbarBarElement extends ElementBase {
     if (!refocus) return;
     // The toolbar may have collapsed with the panel (it was opened from a comment pin): then the logo takes focus.
     const button = this.#panelButton(panel);
-    (button.checkVisibility() ? button : this.#logo).focus();
+    (isRendered(button) ? button : this.#logo).focus();
   }
 
   #panelButton(panel: PanelName): HTMLButtonElement {
@@ -1394,10 +1394,27 @@ export class IterbarBarElement extends ElementBase {
   #layout(): void {
     if (!this.isConnected) return;
     const viewport = this.#viewport();
-    const end = this.#dock.dataset.align === "end";
     const { anchor } = this.#anchor();
-    const width = this.#dock.getBoundingClientRect().width;
     const x = this.#drag?.moved ? positionForLeft(this.#dragLogoLeft - viewport.left, anchor, viewport.width) : this.#state.x;
+    // Expanded, the toolbar grows from its logo toward the side it runs to (right, or left past two thirds). When it
+    // does not fit there and fits on the other side, it runs the other way; when it fits on neither, it wraps within
+    // the larger room. Either way the logo stays where it is.
+    const logoLeft = leftForPosition(x, anchor, viewport.width);
+    const rightRoom = viewport.width - BAR_MARGIN_PX - logoLeft;
+    const leftRoom = logoLeft + anchor - BAR_MARGIN_PX;
+    let end = x > 2 / 3;
+    if (this.#dock.hasAttribute("data-awake")) {
+      this.#dock.style.maxWidth = "";
+      const natural = this.#dock.getBoundingClientRect().width;
+      if (natural > (end ? leftRoom : rightRoom) && natural <= (end ? rightRoom : leftRoom)) end = !end;
+      if (natural > Math.max(leftRoom, rightRoom)) end = leftRoom > rightRoom;
+      const room = end ? leftRoom : rightRoom;
+      if (natural > room) this.#dock.style.maxWidth = `${Math.max(anchor, Math.floor(room))}px`;
+    } else {
+      this.#dock.style.maxWidth = "";
+    }
+    this.#dock.dataset.align = end ? "end" : "start";
+    const width = this.#dock.getBoundingClientRect().width;
     const left = this.#dock.hasAttribute("data-awake")
       ? toolbarLeft(x, anchor, width, viewport.width, end)
       : leftForPosition(x, anchor, viewport.width);

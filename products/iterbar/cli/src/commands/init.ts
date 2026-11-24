@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,6 +84,8 @@ export function parseInitArgs(args: readonly string[]): Parsed {
     if (!["--agent", "--scope", "--root"].includes(name)) throw new Error(`Unknown argument ${JSON.stringify(arg)}`);
     const value = inline ?? args[++index];
     if (!value) throw new Error(`${name} needs a value`);
+    // A separate value that looks like an option is a missing value, not a folder or agent named like one.
+    if (inline === undefined && value.startsWith("-")) throw new Error(`${name} needs a value (use ${name}=<value> for one that starts with "-")`);
     if (name === "--agent") {
       if (value === "all") agents = [...AGENTS];
       else if ((AGENTS as readonly string[]).includes(value)) agents = [...new Set([...(agents ?? []), value as InitAgent])];
@@ -180,8 +182,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /** Writes `text` to `path` through a temporary file in the same folder and a rename, so a crash never truncates it. */
 async function writeAtomic(path: string, text: string): Promise<void> {
   const temporary = `${path}.iterbar-${process.pid}-${Date.now()}.tmp`;
+  // The new file keeps the old one's permissions (a config can hold credentials); a new one is private to the user.
+  let mode = 0o600;
   try {
-    await writeFile(temporary, text, { flag: "wx" });
+    mode = (await lstat(path)).mode & 0o777;
+  } catch {
+    // A new config.
+  }
+  try {
+    await writeFile(temporary, text, { flag: "wx", mode });
+    await chmod(temporary, mode);
     await rename(temporary, path);
   } finally {
     await rm(temporary, { force: true });
@@ -252,8 +262,10 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
     for (const agent of parsed.agents) {
       say(`\n${{ claude: "Claude Code", codex: "Codex", cursor: "Cursor" }[agent]}`);
       const target = skillDirectory(agent, parsed, root, env);
-      const skillBase = agent === "codex" ? (env.codexHome ?? join(env.home, ".codex")) : parsed.scope === "project" ? root : env.home;
-      const linkedFolder = await linkedParent(skillBase, target);
+      // Codex's home (CODEX_HOME or ~/.codex) is checked too: a link there would redirect the skill as well.
+      const skillBase = agent === "codex" ? (env.codexHome ?? env.home) : parsed.scope === "project" ? root : env.home;
+      const codexHomeLink = agent === "codex" && env.codexHome && (await linkTarget(env.codexHome)) !== null ? env.codexHome : null;
+      const linkedFolder = codexHomeLink ?? await linkedParent(skillBase, target);
       const link = await linkTarget(target);
       if (linkedFolder !== null) {
         // A linked folder on the way would put the skill wherever it points: never written, even on --force.

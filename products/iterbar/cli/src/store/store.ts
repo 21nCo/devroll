@@ -341,7 +341,11 @@ class FileFeedbackStore implements FeedbackStore {
     try {
       data = await readFile(path);
     } catch (error) {
-      if (errnoCode(error) === "ENOENT") throw new IterbarStoreError("corrupt_store", `${path} is missing`, { cause: error });
+      if (errnoCode(error) === "ENOENT") {
+        // Deleted meanwhile (the read does not wait for writes): the item is gone, not the store broken.
+        if (!(await this.#read(feedbackId))) throw new IterbarStoreError("not_found", `Feedback ${feedbackId} does not exist`, { cause: error });
+        throw new IterbarStoreError("corrupt_store", `${path} is missing`, { cause: error });
+      }
       throw error;
     }
     if (data.byteLength !== attachment.byteLength || sha256(data) !== attachment.sha256) {
@@ -452,10 +456,10 @@ class FileFeedbackStore implements FeedbackStore {
       // The record goes first: a crash after it leaves a directory without feedback.json, which the next open sweeps,
       // so the item never comes back half deleted.
       await rm(feedbackRecordPath(this.#root, feedbackId), { force: true });
-      await syncDirectory(feedbackDirectoryPath(this.#root, feedbackId));
-      // The record is gone, so the item is deleted. Its attachments go next; if that fails, the next open sweeps the
-      // directory, which no longer has a record.
+      // The record is gone, so the item is deleted: everything after this is cleanup that cannot undo it. If any of it
+      // fails, the next open sweeps the directory, which no longer has a record.
       try {
+        await syncDirectory(feedbackDirectoryPath(this.#root, feedbackId));
         await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
         await syncDirectory(this.paths.feedbackDirectory);
       } catch {

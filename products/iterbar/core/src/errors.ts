@@ -105,6 +105,11 @@ const LEGACY_NAMES: Readonly<Record<string, string>> = Object.freeze(
 /** Most levels of nesting {@link upgradeMessage} walks; protocol messages are far shallower. */
 const MAX_UPGRADE_DEPTH = 32;
 
+/**
+ * Renames version 1 fields only where the protocol has them: on objects that name a `slot` (slot states, selections,
+ * choices and active variants) and the `code` of a registry warning. Anything else, extension fields an older writer
+ * added included, is copied as it is, so `{ metadata: { version: "3" } }` keeps its `version`.
+ */
 function upgradeV1(value: unknown, depth: number): unknown {
   if (depth > MAX_UPGRADE_DEPTH) return value;
   if (Array.isArray(value)) return value.map((item) => upgradeV1(item, depth + 1));
@@ -113,25 +118,32 @@ function upgradeV1(value: unknown, depth: number): unknown {
   if (prototype !== Object.prototype && prototype !== null) return value;
   const upgraded: Record<string, unknown> = {};
   const record = value as Record<string, unknown>;
+  const slotObject = typeof record.slot === "string";
+  const warning = typeof record.source === "string" && typeof record.message === "string";
   for (const [key, item] of Object.entries(value)) {
+    const renamed = slotObject && Object.hasOwn(V1_RENAMES, key) ? V1_RENAMES[key]! : null;
     // A version 2 name next to its version 1 field was an unknown, ignored field in version 1: the version 1 field
     // decides, whichever order the keys come in.
-    const legacy = LEGACY_NAMES[key];
+    const legacy = slotObject ? LEGACY_NAMES[key] : undefined;
     if (legacy !== undefined && Object.hasOwn(record, legacy)) continue;
     if (key === "schemaVersion" && item === LEGACY_SCHEMA_VERSION) {
       upgraded[key] = SCHEMA_VERSION;
-    } else if (key === "code" && item === "unknown_version") {
+    } else if (warning && key === "code" && item === "unknown_version") {
       upgraded[key] = "unknown_variant";
+    } else if (renamed !== null) {
+      // Slot fields hold names (strings and arrays of them), never nested messages.
+      upgraded[renamed] = item;
     } else {
-      upgraded[Object.hasOwn(V1_RENAMES, key) ? V1_RENAMES[key]! : key] = upgradeV1(item, depth + 1);
+      upgraded[key] = upgradeV1(item, depth + 1);
     }
   }
   return upgraded;
 }
 
 /**
- * A version 1 message rewritten as version 2: every `versions`, `defaultVersion`, `activeVersion` and `version`
- * field takes its version 2 name, nested messages included, and `schemaVersion` becomes 2. Any other input is
+ * A version 1 message rewritten as version 2: the `versions`, `defaultVersion`, `activeVersion` and `version` fields
+ * of its slot states, selections, choices and active variants take their version 2 names, nested messages included,
+ * and `schemaVersion` becomes 2. Any other input is
  * returned as it is. {@link parseMessage} applies it before checking the shape, so stored items and older bars and
  * pages keep working for one version.
  */
