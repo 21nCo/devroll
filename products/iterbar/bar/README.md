@@ -311,10 +311,15 @@ Removing the element closes the stream and cancels every timer.
   comments are saved for a coding agent, which reaches the same daemon on its
   own through `iterbar mcp`; offline, comments stay as drafts, and the Help
   button carries a red dot. Below it, for Claude Code, Codex, Cursor or another
-  MCP client: the one-time `npx iterbar init` command (with the project's path
-  filled in when the bar knows it; in a pnpm project, `pnpm add -D iterbar &&
-  pnpm exec iterbar init`, since pnpm gives a command only to direct dependencies), a prompt to paste, and the same setup by
-  hand, each with a copy button. The draft tray links to it too.
+  MCP client: the one-time `npx iterbar init` command, to run in the project's
+  folder (named when the bar knows it). In a pnpm project, which gives a
+  package's command only to direct dependencies, it is two steps: `pnpm add -D
+  iterbar` (`pnpm add -Dw iterbar` at a workspace root), then, once that has
+  succeeded, `pnpm exec iterbar init`. When the dev server reports the CLI it
+  runs, a third form runs that one (`node <its path> init`). The commands carry
+  no `cd` or `&&`, so they run unchanged in POSIX shells and Windows PowerShell.
+  Then a prompt to paste, and the same setup by hand, each with a copy button.
+  The draft tray links to it too.
 - On a page without variants, Variants lists the pages that have some, with
   each page's variant and slot counts (from the daemon's `GET /slots`: pages
   opened with the bar since the daemon started), each a link to that page.
