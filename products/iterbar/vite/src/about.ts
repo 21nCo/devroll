@@ -78,7 +78,8 @@ const REGISTRY_TIMEOUT_MS = 5000;
 export async function checkUpdates(about: IterbarAbout, fetchImpl: typeof fetch = fetch): Promise<UpdatesResponse> {
   const packages = await Promise.all(about.packages.map(async ({ name, version }): Promise<PackageUpdate> => {
     try {
-      const response = await fetchImpl(`https://registry.npmjs.org/${name.replace("/", "%2F")}/latest`, {
+      // The whole name encoded, the scope's @ kept as the registry writes it.
+      const response = await fetchImpl(`https://registry.npmjs.org/${encodeURIComponent(name).replace(/^%40/u, "@")}/latest`, {
         headers: { accept: "application/json" },
         signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
       });

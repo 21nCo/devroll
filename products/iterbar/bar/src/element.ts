@@ -1147,6 +1147,8 @@ export class IterbarBarElement extends ElementBase {
     })), this.#sendingBatch, this.#batchError);
     this.#pins.updateDrafts(this.#drafts.map((draft) => ({ id: draft.id, element: draft.pick.element })));
     this.#renderCounts();
+    // The settings' Clear drafts follows the drafts and whether a batch is being sent.
+    if (this.#state.panel === "settings") this.#renderSettings(false);
   }
 
   /** Updates the toolbar's open-feedback count from the inbox. */
@@ -1223,7 +1225,10 @@ export class IterbarBarElement extends ElementBase {
   async #startDaemon(): Promise<void> {
     const dev = this.#devServer;
     if (!dev) throw new Error("This page has no Iterbar dev-server plugin to start the daemon.");
+    const project = this.#project;
     const config = await dev.reconnect();
+    // Mounted again meanwhile (another dev server or project): this answer is for the bar as it was.
+    if (this.#devServer !== dev || this.#project !== project) throw new Error("The bar was set up again meanwhile; nothing was changed.");
     if (!config.daemonUrl || !config.token) throw new Error("The dev server could not start the daemon. Its terminal says why.");
     if (config.about) this.devServer = { ...dev, about: config.about };
     this.daemonUrl = config.daemonUrl;

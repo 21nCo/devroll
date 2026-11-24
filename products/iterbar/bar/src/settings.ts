@@ -65,6 +65,14 @@ export interface SettingsContext {
   readonly devServer: DevServerLink | null;
 }
 
+/** Where focus goes once an action ends: the first of these controls the sheet shows then. */
+const RUN_FOCUS: Readonly<Record<string, readonly string[]>> = {
+  stop: ["daemon-start", "daemon-stop", "settings-setup"],
+  start: ["daemon-restart", "daemon-stop", "daemon-start"],
+  restart: ["daemon-restart", "daemon-start", "daemon-stop"],
+  data: ["data-delete"],
+};
+
 const POSITIONS: readonly { readonly label: string; readonly x: number }[] = [
   { label: "Left", x: 0 }, { label: "Centre", x: 0.5 }, { label: "Right", x: 1 },
 ];
@@ -75,6 +83,34 @@ const THEMES: readonly { readonly label: string; readonly value: BarTheme }[] = 
 
 function section(title: string, ...children: Node[]): HTMLElement {
   return h("section", { class: "settings-section" }, h("h3", { class: "section-title" }, title), ...children);
+}
+
+/**
+ * Semver precedence of `left` against `right`: negative, zero or positive. A pre-release sorts before its release;
+ * pre-release identifiers compare numerically when both are numbers, otherwise as text. Build metadata is ignored.
+ */
+export function compareVersions(left: string, right: string): number {
+  const parse = (version: string) => {
+    const [core = "", pre] = version.split("+")[0]!.split(/-(.*)/su);
+    return { core: core.split(".").map((part) => Number.parseInt(part, 10) || 0), pre: pre ? pre.split(".") : [] };
+  };
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (a.core[index] ?? 0) - (b.core[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  if (a.pre.length === 0 || b.pre.length === 0) return b.pre.length - a.pre.length;
+  for (let index = 0; index < Math.max(a.pre.length, b.pre.length); index += 1) {
+    const x = a.pre[index];
+    const y = b.pre[index];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const numeric = /^\d+$/u.test(x) && /^\d+$/u.test(y);
+    const difference = numeric ? Number(x) - Number(y) : x < y ? -1 : x > y ? 1 : 0;
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function plural(count: number, noun: string): string {
@@ -169,9 +205,11 @@ export class SettingsPanel {
     const find = (role: string, value: string | null) => this.element.querySelector<HTMLElement>(
       value === null ? `[data-role="${CSS.escape(role)}"]` : `[data-role="${CSS.escape(role)}"] [data-value="${CSS.escape(value)}"]`);
     const active = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
-    if (active && this.element.contains(active)) return;
-    const target = (key ? find(key.role, key.value) : null) ?? (this.#returnFocus ? find(this.#returnFocus, null) : null);
-    if (key || this.#returnFocus) target?.focus();
+    if (!key || (active && this.element.contains(active))) return;
+    const back = this.#confirming === null ? this.#returnFocus : null;
+    const target = find(key.role, key.value) ?? (back ? find(back, null) : null);
+    if (back && target && target.dataset.role === back) this.#returnFocus = null;
+    target?.focus();
   }
 
   async #loadInfo(): Promise<void> {
@@ -196,6 +234,7 @@ export class SettingsPanel {
 
   /** Runs one of the sheet's actions, showing that it runs and then how it went. */
   async #run(name: string, action: () => Promise<string>): Promise<void> {
+    const focusAfter = RUN_FOCUS[name] ?? [];
     this.#busy = name;
     this.#message = null;
     this.#confirming = null;
@@ -206,7 +245,19 @@ export class SettingsPanel {
       this.#message = { text: (error as Error).message, error: true };
     } finally {
       this.#busy = null;
+      const active = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
+      const hadFocus = !active || active === document.body || this.element.contains(active);
       this.#renderAll();
+      // Focus moves on to the control that now stands for the action (Stop becomes Start), unless the user went elsewhere.
+      if (hadFocus) {
+        for (const role of focusAfter) {
+          const target = this.element.querySelector<HTMLElement>(`[data-role="${role}"]`);
+          if (target) {
+            target.focus();
+            break;
+          }
+        }
+      }
       void this.#loadInfo();
     }
   }
@@ -216,11 +267,14 @@ export class SettingsPanel {
   }
 
   #button(label: string, role: string, onClick: () => void, extra: { danger?: boolean; primary?: boolean } = {}): HTMLButtonElement {
+    // While an action runs the buttons stay focusable (aria-disabled), so focus never drops out of the sheet.
     const button = h("button", {
       type: "button", "data-role": role, class: extra.danger ? "danger" : extra.primary ? "primary" : "",
-      disabled: this.#busy !== null,
+      "aria-disabled": this.#busy !== null ? "true" : null,
     }, label);
-    button.addEventListener("click", onClick);
+    button.addEventListener("click", () => {
+      if (this.#busy === null) onClick();
+    });
     return button;
   }
 
@@ -297,15 +351,17 @@ export class SettingsPanel {
     const rows = about.packages.map((pkg) => {
       const result = results.get(pkg.name);
       const latest = !result ? "" : result.error ? `couldn't check (${result.error})`
-        : result.latest === null ? "not on npm yet" : result.latest === pkg.version ? "up to date" : `${result.latest} available`;
+        : result.latest === null ? "not on npm yet" : compareVersions(result.latest, pkg.version) > 0 ? `${result.latest} available` : "up to date";
       return h("li", { class: "settings-package" }, h("code", {}, pkg.name), h("span", {}, pkg.version), h("span", { class: "muted" }, latest));
     });
-    const check = this.#button(this.#checking ? "Checking…" : "Check for updates", "updates-check", () => void this.#checkUpdates());
-    check.disabled = this.#checking;
+    const check = this.#button(this.#checking ? "Checking…" : "Check for updates", "updates-check", () => {
+      if (!this.#checking) void this.#checkUpdates();
+    });
+    if (this.#checking) check.setAttribute("aria-disabled", "true");
     const children: Node[] = [h("ul", { class: "settings-packages" }, ...rows), h("div", { class: "settings-actions" }, check)];
     if (this.#updatesError) children.push(h("p", { class: "composer-error" }, this.#updatesError));
     // Commands only for what the registry has a newer version of, so a copied command never names a missing package.
-    const newer = (this.#updatesResult ?? []).filter((each) => !each.error && each.latest !== null && each.latest !== each.installed);
+    const newer = (this.#updatesResult ?? []).filter((each) => !each.error && each.latest !== null && compareVersions(each.latest, each.installed) > 0);
     if (newer.length > 0) {
       const specs = newer.map((each) => `${each.name}@${each.latest}`).join(" ");
       children.push(h("p", { class: "muted settings-line" }, "To update, run in the project's folder (then restart the dev server):"),
@@ -321,14 +377,14 @@ export class SettingsPanel {
     if (!dev) return;
     this.#checking = true;
     this.#updatesError = null;
-    this.#renderUpdates();
+    this.#renderAll();
     try {
       this.#updatesResult = (await dev.checkUpdates()).packages;
     } catch (error) {
       this.#updatesError = `The update check failed: ${(error as Error).message}`;
     } finally {
       this.#checking = false;
-      this.#renderUpdates();
+      this.#renderAll();
     }
   }
 

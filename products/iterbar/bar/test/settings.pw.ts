@@ -148,8 +148,11 @@ test("keeps keyboard focus on the control in use, and Restart stops the daemon a
   await page.keyboard.press("Enter");
   await expect(inBar(page, "[data-role=daemon-stop]")).toBeFocused();
   // Restart: the first daemon is asked to stop, and the bar connects to the one the dev server hands it next.
-  await inBar(page, "[data-role=daemon-restart]").click();
+  await inBar(page, "[data-role=daemon-restart]").focus();
+  await page.keyboard.press("Enter");
   await expect(inBar(page, "[data-role=settings-message]")).toHaveText("The daemon restarted.");
+  // Focus stays in the sheet through the action, back on Restart.
+  await expect(inBar(page, "[data-role=daemon-restart]")).toBeFocused();
   expect(first.shutdowns).toBe(1);
   await expect.poll(() => page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe(second.url);
   await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");

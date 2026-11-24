@@ -180,7 +180,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
       await handleRoute(route.name, {
         request, response, url: url as URL, params: route.params, headers: cors, store, origins, slots, events, statusChanges,
         info: info!,
-        shutdown: () => void daemon?.close(),
+        // A shutdown asked for over HTTP has no caller left to see a cleanup failure: it goes to the error handler.
+        shutdown: () => void daemon?.close().catch(onError),
       });
     } catch (error) {
       const httpError = toHttpError(error);
