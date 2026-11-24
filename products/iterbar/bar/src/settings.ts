@@ -382,7 +382,8 @@ export class SettingsPanel {
       const specs = newer.map((each) => `${each.name}@${each.latest}`).join(" ");
       children.push(h("p", { class: "muted settings-line" }, "To update, run in the project's folder (then restart the dev server):"),
         this.#snippet(`npm install -D ${specs}`, "updates-npm"), this.#snippet(`pnpm add -D ${specs}`, "updates-pnpm"));
-    } else if (this.#updatesResult) {
+    } else if (this.#updatesResult && about.packages.every((pkg) => results.has(pkg.name) && !results.get(pkg.name)!.error)) {
+      // Said only when every installed package got a definite answer.
       children.push(h("p", { class: "muted settings-line", "data-role": "updates-none" }, "Nothing newer is published."));
     }
     this.#updates.replaceChildren(...children);

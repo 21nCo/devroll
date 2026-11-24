@@ -1415,12 +1415,12 @@ export class IterbarBarElement extends ElementBase {
       }
       this.#batchStore = store;
     }
+    // Whatever the settings showed or were about to do concerned the earlier daemon (also when there is none now).
+    this.#settings.resetForConnection();
     if (!parsed.ok) {
       this.#renderStatus(parsed.status);
       return;
     }
-    // Whatever the settings showed or were about to do concerned the earlier daemon.
-    this.#settings.resetForConnection();
     const connection = new DaemonConnection(parsed.config, {
       onStatus: (status) => {
         if (this.#connection !== connection) return;

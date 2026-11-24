@@ -157,3 +157,29 @@ test("keeps keyboard focus on the control in use, and Restart stops the daemon a
   await expect.poll(() => page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe(second.url);
   await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
 });
+
+test("forgets the earlier daemon when the bar loses its configuration, and says nothing of updates it could not check", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(({ url, token }) => {
+    const bar = window.fixture.mountIterbarBar({
+      daemonUrl: url, token,
+      devServer: {
+        about: { packages: [{ name: "@iterbar/vite", version: "0.1.0" }], cli: null },
+        reconnect: async () => ({ daemonUrl: null, token: null }),
+        checkUpdates: async () => ({ packages: [{ name: "@iterbar/vite", installed: "0.1.0", latest: null, error: "timed out" }] }),
+      },
+    });
+    bar.expanded = true;
+  }, { url: daemon.url, token: daemon.token });
+  await openPanel(page, "settings");
+  await expect(inBar(page, "[data-role=settings-daemon]")).toContainText("Process 4242");
+  await inBar(page, "[data-role=updates-check]").click();
+  await expect(inBar(page, "[data-role=settings-updates]")).toContainText("couldn't check");
+  await expect(inBar(page, "[data-role=updates-none]")).toHaveCount(0);
+  await inBar(page, "[data-role=data-delete]").click();
+  await expect(inBar(page, ".settings-confirm")).toBeVisible();
+  await page.evaluate(() => { (document.querySelector("iterbar-bar") as HTMLElement & { token: string | null }).token = null; });
+  await expect(inBar(page, ".settings-confirm")).toHaveCount(0);
+  await expect(inBar(page, "[data-role=settings-daemon]")).not.toContainText("Process 4242");
+});

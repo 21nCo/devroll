@@ -397,6 +397,15 @@ export class ThreadsPanel {
   remove(id: string): void {
     const had = this.#state.remove(id);
     this.#selected.delete(id);
+    // Deleted for good (from another tab, say) while its Undo still shows: Undo no longer covers it.
+    const pending = this.#pendingDelete;
+    if (pending?.ids.delete(id)) {
+      if (pending.ids.size === 0) this.#dropPendingDelete();
+      else {
+        const label = this.#undo.querySelector("span");
+        if (label) label.textContent = `Deleted ${plural(pending.ids.size, "thread")}.`;
+      }
+    }
     if (!had) return;
     this.#render();
     this.#backfill();
@@ -488,8 +497,9 @@ export class ThreadsPanel {
       this.#pendingDelete = null;
       this.#options.announce?.("Delete undone.");
       this.#render();
-      // Focus goes back to the first restored row.
-      this.#hideUndo(this.#rows.get(ids[0]!)?.element.querySelector<HTMLElement>("summary") ?? null);
+      // Focus goes back to the first restored row (one deleted elsewhere meanwhile is not restored).
+      const first = ids.find((id) => pending?.ids.has(id));
+      this.#hideUndo(first === undefined ? null : this.#rows.get(first)?.element.querySelector<HTMLElement>("summary") ?? null);
     });
     this.#undo.replaceChildren(h("span", {}, `Deleted ${plural(ids.length, "thread")}.`), undo);
     this.#undo.hidden = false;

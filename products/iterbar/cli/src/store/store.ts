@@ -552,7 +552,13 @@ async function sweep(paths: IterbarPaths, clock: StoreClock): Promise<void> {
       text = await readFile(feedbackRecordPath(paths.projectRoot, feedbackId), "utf8");
     } catch (error) {
       if (errnoCode(error) !== "ENOENT") throw error;
-      await rm(directory, { recursive: true, force: true });
+      // A folder without a record (a delete that could not clean up): removed now if it can be. One that still
+      // can't be (a permission problem) is reported and left, and the store opens all the same.
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.warn(`[iterbar] Could not remove ${directory}, left by a deleted item: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      }
       continue;
     }
     let feedback: Feedback;

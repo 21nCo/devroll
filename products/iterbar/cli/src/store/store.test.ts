@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { crc32 } from "node:zlib";
 import { feedbackSchema, MAX_ATTACHMENT_BYTES, parseMessageJson, type AttachmentRef, type Feedback } from "iterbar";
 import { attachmentPath, feedbackRecordPath, iterbarPaths } from "iterbar/node";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openFeedbackStore, type FeedbackStore, type OpenFeedbackStoreOptions } from "./store.js";
 import { chooseVariantDraft, commentDraft, EVIDENCE, PNG, temporaryProject } from "./test-support/helpers.js";
 
@@ -279,6 +279,26 @@ describe("records", () => {
     expect(await readdir(iterbarPaths(root).feedbackDirectory)).toEqual([]);
     await expect(store.get(item.id)).rejects.toMatchObject({ code: "not_found" });
     await expect(store.delete(item.id)).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("opens even when a folder left by a delete can't be removed, and says so", async () => {
+    const store = await open();
+    const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
+    await rm(feedbackRecordPath(root, item.id));
+    await store.close();
+    const { feedbackDirectory } = iterbarPaths(root);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    // The feedback folder is read-only, so the leftover folder in it can't be removed.
+    await chmod(feedbackDirectory, 0o555);
+    try {
+      const reopened = await open();
+      expect(await reopened.list()).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("left by a deleted item"));
+      await reopened.close();
+    } finally {
+      await chmod(feedbackDirectory, 0o755);
+      warn.mockRestore();
+    }
   });
 
   it("finishes a delete whose record is gone but whose directory is still there", async () => {

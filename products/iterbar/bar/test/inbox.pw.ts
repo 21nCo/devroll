@@ -284,3 +284,16 @@ test("a bulk action from the keyboard that hides itself leaves focus in the inbo
     return active?.dataset.role ?? active?.dataset.filter ?? null;
   })).toMatch(/^(select-all|all)$/);
 });
+
+test("a thread deleted elsewhere during its Undo window leaves Undo, which then covers only the rest", async ({ page, openFixture, fixtureServer }) => {
+  const first = comment("First");
+  const second = comment("Second");
+  const daemon = await openInbox(page, openFixture, [first, second], fixtureServer.origin);
+  await inBar(page, "[data-role=select-all]").check();
+  await inBar(page, "[data-bulk=delete]").click();
+  await expect(inBar(page, "[data-role=undo]")).toContainText("Deleted 2 threads.");
+  daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: first.id });
+  await expect(inBar(page, "[data-role=undo]")).toContainText("Deleted 1 thread.");
+  daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: second.id });
+  await expect(inBar(page, "[data-role=undo]")).toBeHidden();
+});
