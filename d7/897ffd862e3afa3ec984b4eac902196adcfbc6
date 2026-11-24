@@ -1,0 +1,107 @@
+products/iterbar/bar/src/threads.ts
+  s_4ded9ba77a0730::t_850839d20f8f11 3,8-9,11-20,26-27,38,42,46-83,104-108,111,115-117,119,122-125,127,130,142-144,149,157-174,178-205,212-227,229-238,240-243,247,252-275,279,287-291,295,297-309,332-338,344,346-348,352-583,587-593,595,597-598,602,606,609,616-621,623,625-634,636-644,654-655
+  s_4ded9ba77a0730::t_e70e30df63ce0e 645-653,656
+products/iterbar/bar/test/inbox.pw.ts
+  s_4ded9ba77a0730::t_061ea47f0588cb 1-131
+  s_4ded9ba77a0730::t_bee3e3ae47a1c0 132-135
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_a31782645acd28 1-231
+  s_4ded9ba77a0730::t_b9762334c11eb0 232-246
+products/iterbar/bar/test/position.pw.ts
+  s_4ded9ba77a0730::t_d71818e63794e0 1,5-11,13-22,24,27,30,32-35,37-76,79,83,85,88,90,92,94-105,108-109,111,119,121,144-145,164-165,168-170,172,178,191,197,201,204,207-208,227,234-235,239,243,245-246,252,255,258,260-262,265,267,269-270,277-281,292-294,303,306-307,309,341,343-344,350,353-354,356-357,360-362
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_da91e21dcdd1f2 1-94
+  s_4ded9ba77a0730::t_f4fcb5007f98ba 95-109
+.gitignore
+  s_4ded9ba77a0730::t_dae9a1ed2a2498 15-17
+products/iterbar/bar/README.md
+  s_4ded9ba77a0730::t_25ccfe2e1ad7f6 21-35,38-40,58-71,73-74,81,84-85,247-249,252-253
+products/iterbar/bar/scripts/phosphor-icons.mjs
+  s_4ded9ba77a0730::t_8375675fb50896 18-22
+products/iterbar/bar/src/agent-help.ts
+  s_4ded9ba77a0730::t_3ef575aa07fcea 21-23,33-35,37-40,43-51,55,57-58,60,64,67,70,74,79,81,85-89,91-92,110-111,137,183,185-192
+products/iterbar/bar/src/connection.ts
+  s_4ded9ba77a0730::t_5955f96cc413e5 5,17,20,96-97,262-295,328-329,458,462-466,483-484,496
+products/iterbar/bar/src/element.ts
+  s_4ded9ba77a0730::t_1e8e028b360201 1,8,15-16,20,82,139-150,240-241,261-268,272-275,293-296,357-363,377,384-388,392,409-416,418-431,442,448-452,524,587-590,594,597,599,610,613,620-621,623-624,627-628,641-643,646-653,664-667,1018-1042,1065-1077,1083-1084,1120,1248-1250,1272,1308,1314,1320,1327-1328,1333-1356,1359-1371,1383-1385,1387,1389,1396-1401,1404-1410,1413,1418,1420-1425,1427,1497,1501,1504,1510-1512
+products/iterbar/bar/src/icons.ts
+  s_4ded9ba77a0730::t_3a24319931beb2 25-55
+products/iterbar/bar/src/phosphor.ts
+  s_4ded9ba77a0730::t_b86447672e743f 15-24
+products/iterbar/bar/src/position.test.ts
+  s_4ded9ba77a0730::t_896dcc9eee5741 4,107-129
+products/iterbar/bar/src/position.ts
+  s_4ded9ba77a0730::t_b66c1648932282 15,17,19-20,22-25,29-30,34-35,51,81-82,101-122,133,137,150
+products/iterbar/bar/src/slots.ts
+  s_4ded9ba77a0730::t_d22370f4c1bcb4 15,87-89,96-98,110-111,204,216,221-224
+products/iterbar/bar/src/theme.ts
+  s_4ded9ba77a0730::t_d485c50e0ca8f0 116-117,133-134,154-166,169-174,176-193,302-303,306,309,317-319,365-400,404-457,483-484,503,567-568
+products/iterbar/bar/src/threads-state.test.ts
+  s_4ded9ba77a0730::t_385e657f3f8648 331-346
+products/iterbar/bar/src/threads-state.ts
+  s_4ded9ba77a0730::t_44e1f8067dfaab 51-52,88,129,158-174,183
+products/iterbar/bar/test/drafts.pw.ts
+  s_4ded9ba77a0730::t_e8d1b07bf436a4 246,252-254,256-262,364,393
+products/iterbar/bar/test/keyboard.pw.ts
+  s_4ded9ba77a0730::t_5effb847fa65f7 35,37-39,42,44,48-49,52,60,62,65,75,81-82,90-92,107-110,112,114,116,125-127,129-161,167-168
+products/iterbar/bar/test/real-daemon.pw.ts
+  s_4ded9ba77a0730::t_645238b3b0bf72 81
+products/iterbar/bar/test/slots.pw.ts
+  s_4ded9ba77a0730::t_3890db99a91622 8,12,18,28,31,40,45,47,55,79,106,122,134,148,150
+products/iterbar/bar/test/style.pw.ts
+  s_4ded9ba77a0730::t_cc6f79ce1cf622 31,44,77
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_4ded9ba77a0730::t_5982132d368f5c 37-40,84,129-148
+products/iterbar/bar/test/support/fixtures.ts
+  s_4ded9ba77a0730::t_3bc1d429d35321 91-102,105-106,108-109
+products/iterbar/bar/test/threads.pw.ts
+  s_4ded9ba77a0730::t_079e26e4f34b8a 43-45,48-49,54,56-70,76-77,181
+products/iterbar/cli/package.json
+  s_4ded9ba77a0730::t_8317322800b984 5,7-10,30-31
+products/iterbar/cli/scripts/bundle-skill.mjs
+  s_4ded9ba77a0730::t_be5bc68d7f20e2 1-8
+products/iterbar/cli/src/cli.ts
+  s_4ded9ba77a0730::t_aab3283ad5022d 3,9,19-20
+products/iterbar/cli/src/daemon/access.ts
+  s_4ded9ba77a0730::t_53046d3678e7a7 116
+products/iterbar/cli/src/daemon/daemon.test.ts
+  s_4ded9ba77a0730::t_03767f731a851c 156-178,201-223,277
+products/iterbar/cli/src/daemon/routes.ts
+  s_4ded9ba77a0730::t_f51fe6637de570 266-272
+products/iterbar/cli/src/mcp/tools.ts
+  s_4ded9ba77a0730::t_e34300b3cb6bd7 297-298,301
+products/iterbar/cli/src/store/store.ts
+  s_4ded9ba77a0730::t_3761d16e017f4b 97-98,445-458
+products/iterbar/core/src/contract.test.ts
+  s_4ded9ba77a0730::t_9a7e6e802fd449 350-356,454
+products/iterbar/core/src/daemon.ts
+  s_4ded9ba77a0730::t_d104ca82d41272 48-49,153
+products/iterbar/core/src/feedback.ts
+  s_4ded9ba77a0730::t_1f61149c74e541 20-25
+products/iterbar/examples/e2e/test/examples.pw.ts
+  s_4ded9ba77a0730::t_4a94c9315bcfb4 42-46
+products/iterbar/skills/README.md
+  s_4ded9ba77a0730::t_bff772a4f0ea93 8-13
+products/iterbar/skills/iterbar/SKILL.md
+  s_4ded9ba77a0730::t_a9f30768711c6f 84-85
+products/iterbar/skills/iterbar/references/setup.md
+  s_4ded9ba77a0730::t_04794818e96220 6,8-24,37-38,44,46-47
+products/iterbar/skills/iterbar/references/tools.md
+  s_4ded9ba77a0730::t_318a477fdbbe76 28-30,109-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d7897ffd862e3afa3ec984b4eac902196adcfbc6",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
