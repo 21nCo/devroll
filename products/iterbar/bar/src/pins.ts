@@ -72,6 +72,8 @@ function visibleRect(element: Element): DOMRect | null {
   const bodyPropagates = rootStyle.overflowX === "visible" && rootStyle.overflowY === "visible";
   for (let ancestor = element.parentElement; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
     const style = getComputedStyle(ancestor);
+    // An element that generates no box (display: contents) clips nothing and is no containing block.
+    if (style.display === "contents") continue;
     if (escaping === "fixed" && !holdsFixed(style)) continue;
     if (escaping === "absolute" && style.position === "static" && !holdsFixed(style)) continue;
     escaping = style.position === "fixed" || style.position === "absolute" ? style.position : "static";

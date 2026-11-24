@@ -486,19 +486,30 @@ function legacyBridge(legacy: LegacyRegistry): VariantsRegistry {
   const asLegacy = (definition: SlotDefinition) => ({
     slot: definition.slot, versions: definition.variants, defaultVersion: definition.defaultVariant,
   });
+  // A version 2 page API over the version 1 one: selections are translated, snapshots upgraded. The window global stays
+  // the version 1 object, which the bar reads in its own terms.
+  const toLegacySelection = (selection: unknown): unknown => {
+    const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection, variantSelectionSchema));
+    return parsed.success ? { schemaVersion: LEGACY_SCHEMA_VERSION, slot: parsed.data.slot, version: parsed.data.variant } : selection;
+  };
+  const snapshot = (): RegistrySnapshot => upgradeMessage(legacy.pageApi.getSnapshot(), registrySnapshotSchema) as RegistrySnapshot;
+  const pageApi: IterbarPageApi = {
+    schemaVersion: SCHEMA_VERSION,
+    getSnapshot: snapshot,
+    select: (selection) => legacy.pageApi.select(toLegacySelection(selection) as never),
+    subscribe: (listener) => legacy.pageApi.subscribe((value) => listener(upgradeMessage(value, registrySnapshotSchema) as RegistrySnapshot)),
+  };
   const bridge = {
-    pageApi: legacy.pageApi,
+    pageApi,
     register: (definition: SlotDefinition) => legacy.register(asLegacy(definition)),
     activeVariant: (definition: SlotDefinition) => legacy.activeVersion(asLegacy(definition)),
     subscribe: (listener: () => void) => legacy.subscribe(listener),
     // Selections in either version reach it in its own terms.
     select: (selection: unknown) => {
-      const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection, variantSelectionSchema));
-      legacy.select?.(parsed.success
-        ? { schemaVersion: LEGACY_SCHEMA_VERSION, slot: parsed.data.slot, version: parsed.data.variant }
-        : selection);
+      if (legacy.select) legacy.select(toLegacySelection(selection));
+      else pageApi.select(selection as never);
     },
-    getSnapshot: () => upgradeMessage(legacy.getSnapshot?.() ?? legacy.pageApi.getSnapshot(), registrySnapshotSchema),
+    getSnapshot: snapshot,
   } as unknown as VariantsRegistry;
   bridges.set(legacy, bridge);
   return bridge;

@@ -1,6 +1,7 @@
 import { chmod, cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The npm package that carries the `iterbar` command, the MCP server and the agent skill. */
@@ -59,6 +60,39 @@ export interface InitEnvironment {
   /** The skill folder to install; defaults to the one bundled with this package. */
   readonly skillSource?: string;
   readonly cwd?: string;
+  /**
+   * The CLI file this init runs from, when it is not a copy npx fetched or the project's own install (a Devroll
+   * checkout, say); the MCP entries then run it with node. Defaults to the running `cli.js`.
+   */
+  readonly cliPath?: string | null;
+}
+
+/** How an agent starts the MCP server: through npx, or the running CLI file with node when npx could not fetch it. */
+interface McpLaunch {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+/**
+ * The MCP launch to register. npx runs the package when the project has it installed or init itself came from npx;
+ * otherwise (a CLI built in a checkout, the package not on npm) the entries run this very file with node, by its
+ * absolute path, so the agent can start the server.
+ */
+function mcpLaunch(root: string, cliPath: string | null): McpLaunch {
+  const installed = existsSync(join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json"));
+  if (installed || cliPath === null || cliPath.split(sep).includes("_npx")) return MCP_COMMAND;
+  return { command: "node", args: [cliPath, "mcp"] };
+}
+
+/** The running CLI file (`cli.js`, links resolved), or `null` when init runs some other way (a test). */
+function runningCli(): string | null {
+  const script = process.argv[1];
+  if (!script || basename(script) !== "cli.js") return null;
+  try {
+    return realpathSync(script);
+  } catch {
+    return null;
+  }
 }
 
 type Parsed = { readonly help: true } | ({ readonly help: false } & InitOptions);
@@ -267,6 +301,8 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
     const rootLink = await linkTarget(root);
     if (rootLink !== null) throw new Error(`${root} is a link to ${rootLink}; run init with --root set to the folder it points to.`);
     const source = env.skillSource ?? await bundledSkill();
+    const launch = mcpLaunch(root, env.cliPath === undefined ? runningCli() : env.cliPath);
+    if (launch !== MCP_COMMAND) say(`The MCP server runs this CLI with node (${launch.args[0]}): ${CLI_PACKAGE} is not installed in the project.`);
     say(`Setting up Iterbar in ${root}${parsed.dryRun ? " (dry run: nothing is written)" : ""}`);
     for (const agent of parsed.agents) {
       say(`\n${{ claude: "Claude Code", codex: "Codex", cursor: "Cursor" }[agent]}`);
@@ -289,6 +325,10 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
       } else {
         say(`  Skill: ${parsed.dryRun ? "would install" : "installed"} in ${target}`);
         if (!parsed.dryRun) {
+          // Checked again right before the replacement: a folder on the way swapped for a link since the first check (a
+          // dotfiles tool, say) stops it, so nothing is removed or written through the link.
+          const swapped = await linkedParent(skillBase, target);
+          if (swapped !== null) throw new Error(`${swapped} became a link; the skill was not replaced.`);
           // Removing a link removes only the link; a replaced folder goes first, so no stale file stays behind.
           await rm(target, { recursive: true, force: true });
           await mkdir(dirname(target), { recursive: true });
@@ -296,12 +336,13 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
         }
       }
       if (agent === "claude") {
-        await registerJson(root, join(root, ".mcp.json"), MCP_COMMAND, parsed, say);
+        await registerJson(root, join(root, ".mcp.json"), launch, parsed, say);
       } else if (agent === "cursor") {
-        await registerJson(root, join(root, ".cursor", "mcp.json"), { ...MCP_COMMAND, args: [...MCP_COMMAND.args, "--root", "${workspaceFolder}"] }, parsed, say);
+        await registerJson(root, join(root, ".cursor", "mcp.json"), { ...launch, args: [...launch.args, "--root", "${workspaceFolder}"] }, parsed, say);
       } else {
         say(`  MCP server: add to ${join(env.codexHome ?? join(env.home, ".codex"), "config.toml")}:`);
-        say(`    [mcp_servers.iterbar]\n    command = "npx"\n    args = ["-y", "${CLI_PACKAGE}", "mcp", "--root", ${JSON.stringify(root)}]\n    tool_timeout_sec = 1900`);
+        const args = [...launch.args, "--root", root].map((arg) => JSON.stringify(arg)).join(", ");
+        say(`    [mcp_servers.iterbar]\n    command = ${JSON.stringify(launch.command)}\n    args = [${args}]\n    tool_timeout_sec = 1900`);
       }
     }
     say("\nNext: start your dev server with the Iterbar plugin, open the page, and paste this into your agent:");

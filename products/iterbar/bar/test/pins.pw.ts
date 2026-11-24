@@ -146,3 +146,13 @@ test("an absolute element escapes a static clipping box, and a body that only sc
   await page.evaluate(() => document.getElementById("far")!.scrollIntoView({ block: "center" }));
   await expect(inBar(page, `[data-role=pin][data-feedback-ids="${far.id}"]:not([hidden])`)).toHaveCount(1);
 });
+
+test("a wrapper with display: contents clips nothing", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  const item = comment("Inside contents", { pageUrl: here, target: target("#in-contents") });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [item]);
+  await openFixture();
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin", '<div style="display: contents; overflow: hidden"><p id="in-contents" style="width: 200px">Inside</p></div>'));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  await expect(pins(page)).toHaveCount(1);
+});

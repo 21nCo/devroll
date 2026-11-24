@@ -504,7 +504,10 @@ export class ThreadsPanel {
     const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
     const hadFocus = active !== null && this.#undo.contains(active);
     this.#undo.hidden = true;
-    if (hadFocus) (next ?? this.#selectAll).focus();
+    if (!hadFocus) return;
+    // The select-all box is disabled when nothing is listed: then the chosen filter takes focus.
+    const fallback = this.#selectAll.disabled ? this.#filterButtons.get(this.#filter)! : this.#selectAll;
+    (next ?? fallback).focus();
   }
 
   #dropPendingDelete(): void {

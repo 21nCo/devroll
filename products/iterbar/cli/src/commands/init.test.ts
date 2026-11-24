@@ -135,6 +135,20 @@ describe("iterbar init", () => {
     await expect(readFile(join(realCodex, "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
   });
 
+  it("registers the running CLI with node when the package is neither installed in the project nor fetched by npx", async () => {
+    const cli = join(base, "checkout", "products", "iterbar", "cli", "dist", "cli.js");
+    const run = capture();
+    expect(await runInit(["--root", root, "--agent", "all"], run.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
+    expect(run.out()).toContain(`command = "node"`);
+    // Installed in the project, or fetched by npx: npx runs it.
+    await mkdir(join(root, "node_modules", "@iterbar", "cli"), { recursive: true });
+    await writeFile(join(root, "node_modules", "@iterbar", "cli", "package.json"), "{}");
+    const installed = capture();
+    expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
+  });
+
   it("writes nothing on a dry run, and prints Codex's config instead of editing it", async () => {
     const run = capture();
     expect(await runInit(["--root", root, "--agent", "all", "--dry-run"], run.io, { home, skillSource: skill })).toBe(0);

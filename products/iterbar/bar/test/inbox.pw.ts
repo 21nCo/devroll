@@ -225,3 +225,17 @@ test("deleting from the keyboard moves focus to Undo, and Undo returns it to the
   await page.keyboard.press("Enter");
   await expect(inBar(page, `[data-feedback-id="${item.id}"] summary`)).toBeFocused();
 });
+
+test("Undo running out after the only listed thread was deleted leaves focus on the filter", async ({ page, openFixture, fixtureServer }) => {
+  await page.clock.install();
+  const item = comment("Only one");
+  await openInbox(page, openFixture, [item], fixtureServer.origin);
+  await inBar(page, ".thread summary").click();
+  await inBar(page, ".thread [data-action=delete]").focus();
+  await page.keyboard.press("Enter");
+  await expect(inBar(page, "[data-role=undo-delete]")).toBeFocused();
+  await page.clock.runFor(7000);
+  await expect(inBar(page, "[data-filter=all]")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-role=panel]")).toBeHidden();
+});

@@ -127,6 +127,8 @@ export class SlotsPanel {
   /** Whether this page has no slots, so the pages list belongs in the panel. */
   #empty = false;
   #pagesRequest = 0;
+  /** The pages last listed, so a refresh that changes nothing leaves the links (and focus) alone. */
+  #pagesKey = "";
   #api: IterbarPageApi | null = null;
   #unsubscribe: (() => void) | null = null;
   #poll: ReturnType<typeof setInterval> | null = null;
@@ -228,6 +230,7 @@ export class SlotsPanel {
   /** Forgets the page list (the bar switched daemons) and asks the new daemon for it. */
   resetPages(): void {
     this.#pagesRequest += 1;
+    this.#pagesKey = "";
     this.#pagesList.replaceChildren();
     this.#pagesNote.textContent = "";
     void this.refreshPages();
@@ -248,6 +251,15 @@ export class SlotsPanel {
     if (request !== this.#pagesRequest) return;
     const here = reportPageUrl(location.href);
     const withSlots = (pages ?? []).filter((page) => page.slots.length > 0 && page.pageUrl !== here);
+    // Unchanged pages keep their links (and a keyboard user's focus on one); only a changed list is rebuilt.
+    const key = JSON.stringify(withSlots.map((page) => [page.pageUrl, page.slots.map((slot) => [slot.slot, slot.variants.length])]));
+    if (key === this.#pagesKey && pages !== null) {
+      this.#pagesNote.textContent = withSlots.length === 0
+        ? "No other page has reported variants yet. Pages report theirs when they are opened with the bar."
+        : "Pages report their variants when they are opened with the bar.";
+      return;
+    }
+    this.#pagesKey = key;
     this.#pagesList.replaceChildren(...withSlots.map((page) => {
       const variants = page.slots.reduce((sum, slot) => sum + slot.variants.length, 0);
       const link = h("a", { class: "variant-page", href: page.pageUrl, "data-role": "variant-page", "data-page-url": page.pageUrl },

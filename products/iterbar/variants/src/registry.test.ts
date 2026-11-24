@@ -536,7 +536,12 @@ describe("page API", () => {
     const key = Symbol.for("iterbar.variants.registry.v1");
     const calls: unknown[] = [];
     const legacy = {
-      pageApi: { schemaVersion: 1, getSnapshot: () => ({ schemaVersion: 1, slots: [], warnings: [] }), select: () => undefined, subscribe: () => () => undefined },
+      pageApi: {
+        schemaVersion: 1,
+        getSnapshot: () => ({ schemaVersion: 1, slots: [{ slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v1", mounts: 1 }], warnings: [] }),
+        select: (selection: unknown) => calls.push(["pageApi.select", selection]),
+        subscribe: () => () => undefined,
+      },
       register: (definition: unknown) => {
         calls.push(["register", definition]);
         return () => undefined;
@@ -553,9 +558,14 @@ describe("page API", () => {
       registry.register(definition);
       expect(registry.activeVariant(definition)).toBe("v1");
       registry.select({ schemaVersion: 2, slot: "pricing", variant: "v2" });
+      // Its page API speaks version 2 over the version 1 one.
+      expect(registry.pageApi.schemaVersion).toBe(2);
+      expect(registry.pageApi.getSnapshot().slots[0]).toMatchObject({ variants: ["v1", "v2"], activeVariant: "v1" });
+      registry.pageApi.select({ schemaVersion: 2, slot: "pricing", variant: "v2" });
       expect(calls).toEqual([
         ["register", { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1" }],
         ["select", { schemaVersion: 1, slot: "pricing", version: "v2" }],
+        ["pageApi.select", { schemaVersion: 1, slot: "pricing", version: "v2" }],
       ]);
     } finally {
       delete holder[key];

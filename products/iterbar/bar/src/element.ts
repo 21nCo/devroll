@@ -1059,7 +1059,10 @@ export class IterbarBarElement extends ElementBase {
     if (!connection) throw new Error("The bar is not connected to the Iterbar daemon.");
     const results = await Promise.allSettled(ids.map((id) => connection.setStatus(id, status)));
     const failed = results.filter((result) => result.status === "rejected");
-    for (const result of results) if (result.status === "fulfilled" && this.#connection === connection) this.#threads.merge(result.value);
+    // The answers are not merged as they are: a reply the event stream already delivered can share the answer's
+    // updatedAt (the store's timestamps are milliseconds), and the older answer would replace it. The daemon announces
+    // each change on the stream; a listing reconciles anything the stream missed.
+    if (results.some((result) => result.status === "fulfilled") && this.#connection === connection) connection.refresh();
     if (failed.length > 0) {
       const reason = ((failed[0] as PromiseRejectedResult).reason as Error).message;
       throw new Error(`${failed.length} of ${ids.length} could not be changed. ${reason}`);
