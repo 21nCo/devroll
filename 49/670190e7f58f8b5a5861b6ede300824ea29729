@@ -1,0 +1,63 @@
+products/iterbar/bar/src/connection.ts
+  s_4ded9ba77a0730::t_67648e5798c443 292,295
+products/iterbar/bar/src/settings.ts
+  s_4ded9ba77a0730::t_ff8c6fcfbeca34 48,513-518
+products/iterbar/bar/src/threads.ts
+  s_4ded9ba77a0730::t_ef664f03e1caa6 781-786
+products/iterbar/bar/test/inbox.pw.ts
+  s_4ded9ba77a0730::t_a51dba5aa95bbd 274-286
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_4ded9ba77a0730::t_03a0857554e05c 159
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_8be15fd59d688e 158-164
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_d5f1092e7001b4 355-360
+products/iterbar/cli/src/daemon/daemon.test.ts
+  s_4ded9ba77a0730::t_f14b4b500fcb6f 191
+products/iterbar/cli/src/daemon/routes.ts
+  s_4ded9ba77a0730::t_b203b8fa2a5284 289,292-294
+products/iterbar/cli/src/store/store.test.ts
+  s_4ded9ba77a0730::t_e67f8cc2781f72 302-316
+products/iterbar/cli/src/store/store.ts
+  s_4ded9ba77a0730::t_cb99b80e2c3d0b 82-86,109,407-411,414,484,499-511,546-585,587-588,595-599
+products/iterbar/core/src/contract.test.ts
+  s_4ded9ba77a0730::t_765d9620a9cfe7 342
+products/iterbar/core/src/daemon.ts
+  s_4ded9ba77a0730::t_c101916ab798fb 140-141
+products/iterbar/react/src/index.tsx
+  s_3665a9b1cc563a::t_059e757ac46b51 9,163-187
+products/iterbar/react/src/variants.test.tsx
+  s_4ded9ba77a0730::t_2d79ebcd4c4752 840-858
+products/iterbar/svelte/src/DevelopmentVariants.svelte
+  s_3665a9b1cc563a::t_7bbb9320f763be 6,50-54,57-58,62,69,74,78-83
+products/iterbar/variants/src/index.ts
+  s_4ded9ba77a0730::t_6966276302f572 9
+products/iterbar/variants/src/registry.test.ts
+  s_3665a9b1cc563a::t_be3c42139822c3 611-622
+products/iterbar/variants/src/registry.ts
+  s_4ded9ba77a0730::t_c4946f08b82552 61,64-72,189,215,226-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "49670190e7f58f8b5a5861b6ede300824ea29729",
+  "prompts": {},
+  "sessions": {
+    "s_3665a9b1cc563a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a68d9670-ab08-4eb6-bacf-a16a5a4daf2a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    },
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
