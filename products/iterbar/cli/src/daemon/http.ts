@@ -12,10 +12,10 @@ import { isIterbarStoreError } from "../store/index.js";
 
 /**
  * Largest JSON request body (origins, replies, status changes and slot reports), in bytes. A slot report the schema
- * accepts stays under it: 256 slots of 64 variants, with names and 160-character descriptions of up to 4 UTF-8 bytes
- * per character, come to about 13 MiB.
+ * accepts stays under it: 256 slots of 64 variants with 160-character descriptions, each character escaped to six
+ * bytes at worst (`\u0001`), plus names, come to about 18 MiB.
  */
-export const MAX_JSON_BODY_BYTES = 16 * 1024 * 1024;
+export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024;
 
 /** Headers on every daemon response: nothing is cached, and nothing is sniffed as another type. */
 const BASE_HEADERS: OutgoingHttpHeaders = Object.freeze({

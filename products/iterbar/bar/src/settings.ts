@@ -106,8 +106,10 @@ export function compareVersions(left: string, right: string): number {
     const y = b.pre[index];
     if (x === undefined) return -1;
     if (y === undefined) return 1;
-    const numeric = /^\d+$/u.test(x) && /^\d+$/u.test(y);
-    const difference = numeric ? Number(x) - Number(y) : x < y ? -1 : x > y ? 1 : 0;
+    const xNumeric = /^\d+$/u.test(x);
+    const yNumeric = /^\d+$/u.test(y);
+    // Numeric identifiers compare as numbers and sort before alphanumeric ones, which compare as text.
+    const difference = xNumeric && yNumeric ? Number(x) - Number(y) : xNumeric ? -1 : yNumeric ? 1 : x < y ? -1 : x > y ? 1 : 0;
     if (difference !== 0) return difference;
   }
   return 0;
@@ -146,6 +148,8 @@ export class SettingsPanel {
   /** Counts daemon-info requests, so an answer from an earlier daemon is dropped. */
   #infoRequest = 0;
   #updatesResult: readonly PackageUpdate[] | null = null;
+  /** The dev-server link the update result belongs to. */
+  #updatesFor: DevServerLink | null = null;
   #updatesError: string | null = null;
   #checking = false;
 
@@ -245,8 +249,10 @@ export class SettingsPanel {
       this.#message = { text: (error as Error).message, error: true };
     } finally {
       this.#busy = null;
+      // In the sheet, or nowhere (it fell to the page's body); not when the user moved on to the page or another control.
       const active = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
-      const hadFocus = !active || active === document.body || this.element.contains(active);
+      const pageActive = document.activeElement;
+      const hadFocus = active ? this.element.contains(active) : pageActive === null || pageActive === document.body;
       this.#renderAll();
       // Focus moves on to the control that now stands for the action (Stop becomes Start), unless the user went elsewhere.
       if (hadFocus) {
@@ -347,6 +353,11 @@ export class SettingsPanel {
       this.#updates.replaceChildren(h("p", { class: "muted settings-line" }, "The installed versions show when the Iterbar Vite plugin serves the page."));
       return;
     }
+    // A result from another dev server's packages is not shown.
+    if (this.#updatesFor !== dev) {
+      this.#updatesResult = null;
+      this.#updatesError = null;
+    }
     const results = new Map((this.#updatesResult ?? []).map((each) => [each.name, each]));
     const rows = about.packages.map((pkg) => {
       const result = results.get(pkg.name);
@@ -361,7 +372,12 @@ export class SettingsPanel {
     const children: Node[] = [h("ul", { class: "settings-packages" }, ...rows), h("div", { class: "settings-actions" }, check)];
     if (this.#updatesError) children.push(h("p", { class: "composer-error" }, this.#updatesError));
     // Commands only for what the registry has a newer version of, so a copied command never names a missing package.
-    const newer = (this.#updatesResult ?? []).filter((each) => !each.error && each.latest !== null && compareVersions(each.latest, each.installed) > 0);
+    // Against the versions installed now, as the rows show them.
+    const newer = about.packages.flatMap((pkg) => {
+      const result = results.get(pkg.name);
+      return result && !result.error && result.latest !== null && compareVersions(result.latest, pkg.version) > 0
+        ? [{ name: pkg.name, latest: result.latest }] : [];
+    });
     if (newer.length > 0) {
       const specs = newer.map((each) => `${each.name}@${each.latest}`).join(" ");
       children.push(h("p", { class: "muted settings-line" }, "To update, run in the project's folder (then restart the dev server):"),
@@ -377,10 +393,15 @@ export class SettingsPanel {
     if (!dev) return;
     this.#checking = true;
     this.#updatesError = null;
+    this.#updatesFor = dev;
     this.#renderAll();
     try {
-      this.#updatesResult = (await dev.checkUpdates()).packages;
+      const { packages } = await dev.checkUpdates();
+      // Set up again for another dev server meanwhile: this answer is about the earlier one's packages.
+      if (this.#context?.devServer !== dev) return;
+      this.#updatesResult = packages;
     } catch (error) {
+      if (this.#context?.devServer !== dev) return;
       this.#updatesError = `The update check failed: ${(error as Error).message}`;
     } finally {
       this.#checking = false;

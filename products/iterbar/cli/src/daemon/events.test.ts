@@ -75,6 +75,16 @@ describe("event backpressure", () => {
     expect(client.socket.readyState).toBe(WebSocket.OPEN);
   });
 
+  it("disconnects its clients for any other event larger than the limit, so they list again and catch up", async () => {
+    const port = await listen(64 * KIB);
+    const client = await connect(port);
+    // Only the type matters to the hub; a feedback event this large carries a thread with a great many replies.
+    const oversized = { ...event(2, 128 * KIB), type: "feedback.updated" } as unknown as DaemonEvent;
+    hub.publish(oversized);
+    expect(await client.closed).toBe(1006);
+    expect(client.received).toEqual([]);
+  });
+
   it("disconnects a client that stops reading once an event would take it past the limit, while others keep receiving", { timeout: 30_000 }, async () => {
     const port = await listen(256 * KIB);
     const stalled = await connect(port);

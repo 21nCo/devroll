@@ -11,5 +11,8 @@ describe("compareVersions", () => {
     expect(compareVersions("1.0.0-rc.2", "1.0.0-rc.10")).toBeLessThan(0);
     expect(compareVersions("1.0.0-alpha", "1.0.0-beta")).toBeLessThan(0);
     expect(compareVersions("1.0.0+build.5", "1.0.0")).toBe(0);
+    // Numeric identifiers sort before alphanumeric ones.
+    expect(compareVersions("1.0.0-2", "1.0.0-1rc")).toBeLessThan(0);
+    expect(compareVersions("1.0.0-rc", "1.0.0-1")).toBeGreaterThan(0);
   });
 });

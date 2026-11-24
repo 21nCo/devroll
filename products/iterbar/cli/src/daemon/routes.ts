@@ -106,6 +106,8 @@ export interface RouteContext {
   readonly statusChanges: KeyedSerializer;
   /** The daemon's own record (pid, start time, project). */
   readonly info: DaemonInfo;
+  /** Whether the daemon has finished starting (a stop can be carried out). */
+  readonly ready: () => boolean;
   /** Stops the daemon once the current response is sent. */
   readonly shutdown: () => void;
 }
@@ -297,6 +299,8 @@ const handlers: Readonly<Record<DaemonEndpointName, RouteHandler>> = {
   },
 
   async shutdown(context) {
+    // A daemon still starting (its daemon.json just published) says so, rather than accepting a stop it can't make.
+    if (!context.ready()) throw new DaemonHttpError(503, "internal", "The daemon is still starting; try again");
     sendEmpty(context.response, 202, context.headers);
     // After the answer is on its way: the shutdown waits for in-flight requests, this one included.
     context.response.once("finish", () => context.shutdown());

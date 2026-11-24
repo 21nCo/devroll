@@ -117,8 +117,12 @@ class Daemon implements RunningDaemon {
       // daemon.json goes before the lock, so a daemon that starts next never has its file removed by this one.
       await removeDaemonFile(this.#store.paths, this.info.token);
     } finally {
-      await this.#store.close();
-      this.#resolveClosed();
+      try {
+        await this.#store.close();
+      } finally {
+        // Settled whatever the lock release did, so whoever waits for this daemon to go is never left waiting.
+        this.#resolveClosed();
+      }
     }
   }
 }
@@ -181,6 +185,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
         request, response, url: url as URL, params: route.params, headers: cors, store, origins, slots, events, statusChanges,
         info: info!,
         // A shutdown asked for over HTTP has no caller left to see a cleanup failure: it goes to the error handler.
+        ready: () => daemon !== undefined,
         shutdown: () => void daemon?.close().catch(onError),
       });
     } catch (error) {
