@@ -1,0 +1,37 @@
+products/iterbar/bar/src/element.ts
+  s_4ded9ba77a0730::t_5f4df1ff3520d3 1062-1065
+products/iterbar/bar/src/pins.ts
+  s_4ded9ba77a0730::t_3fe9198b047e75 75-76
+products/iterbar/bar/src/slots.ts
+  s_4ded9ba77a0730::t_a45ffd6b3cd743 130-131,233,254-262
+products/iterbar/bar/src/threads.ts
+  s_4ded9ba77a0730::t_e6977d66c9a428 507-510
+products/iterbar/bar/test/inbox.pw.ts
+  s_4ded9ba77a0730::t_55dcace9e1d03c 228-241
+products/iterbar/bar/test/pins.pw.ts
+  s_4ded9ba77a0730::t_3ff323461054d7 149-158
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_bfe219438479d1 138-151
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_fb97bcf8107baa 3-4,63-95,304-305,328-331,339,341,344-345
+products/iterbar/variants/src/registry.test.ts
+  s_4ded9ba77a0730::t_9d7837fab1c3c3 539-544,561-564,568
+products/iterbar/variants/src/registry.ts
+  s_4ded9ba77a0730::t_6d828be3b969ea 489-501,503,509-510,512
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "86eac176832c4ff2cdcc79fdf11ac4fd2247ec47",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
