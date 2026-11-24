@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const npmCli = resolve(dirname(process.execPath), process.platform === "win32"
@@ -31,12 +31,20 @@ const packagePaths = [
 try {
   await Promise.all([packDirectory, consumerDirectory, repository].map((directory) => mkdir(directory, { recursive: true })));
   const tarballs = packagePaths.map((packagePath) => {
-    const output = execFileSync(
-      npmCommand.executable,
-      [...npmCommand.prefix, "pack", "--json", "--pack-destination", packDirectory],
-      { cwd: join(root, packagePath), encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
-    );
-    const result = JSON.parse(output);
+    // The Iterbar CLI is packed with pnpm, as the publish workflow packs it: pnpm writes its workspace
+    // devDependency's version into the manifest. pnpm prints one object where npm prints a list.
+    const pnpmPacked = packagePath === "products/iterbar/cli";
+    const output = pnpmPacked
+      ? execFileSync("pnpm", ["pack", "--json", "--pack-destination", packDirectory], {
+        cwd: join(root, packagePath), encoding: "utf8", stdio: ["ignore", "pipe", "inherit"],
+      })
+      : execFileSync(
+        npmCommand.executable,
+        [...npmCommand.prefix, "pack", "--json", "--pack-destination", packDirectory],
+        { cwd: join(root, packagePath), encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+      );
+    const parsed = JSON.parse(output);
+    const result = pnpmPacked ? [{ ...parsed, filename: basename(parsed.filename) }] : parsed;
     assert.equal(result.length, 1, `${packagePath} must create one tarball`);
     const packedPaths = result[0].files.map((file) => file.path);
     assert(packedPaths.includes("package.json"), `${packagePath} must include package.json`);

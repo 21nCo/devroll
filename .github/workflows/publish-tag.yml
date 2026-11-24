@@ -102,7 +102,13 @@ jobs:
           set -euo pipefail
           pack_dir="${RUNNER_TEMP}/diffpanel-pack"
           mkdir -p "${pack_dir}"
-          npm pack --pack-destination "${pack_dir}" --json
+          if [[ "${{ steps.resolve.outputs.pkg_name }}" == "iterbar" ]]; then
+            # The Iterbar CLI has a workspace devDependency (@iterbar/core, bundled at build time): pnpm writes its
+            # version into the packed manifest, where npm pack would leave the workspace reference.
+            pnpm pack --pack-destination "${pack_dir}" --json
+          else
+            npm pack --pack-destination "${pack_dir}" --json
+          fi
           mapfile -t tarballs < <(find "${pack_dir}" -maxdepth 1 -type f -name '*.tgz' -print)
           if [[ ${#tarballs[@]} -ne 1 ]]; then
             echo "Expected exactly one package tarball, found ${#tarballs[@]}" >&2
