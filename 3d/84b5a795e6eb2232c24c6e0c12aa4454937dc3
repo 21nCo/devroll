@@ -1,0 +1,193 @@
+.github/workflows/publish-tag.yml
+  s_4ded9ba77a0730::t_8a45753977dca5 123
+pnpm-lock.yaml
+  s_4ded9ba77a0730::t_2bd14b843ae1c9 246-248,256-258,286-288,333,335,344,438-440,484-486,508,527,529,532
+products/iterbar/bar/README.md
+  s_4ded9ba77a0730::t_dc4f5e52a55b56 299,328
+products/iterbar/bar/package.json
+  s_4ded9ba77a0730::t_8798393a568a87 41,46
+products/iterbar/bar/src/agent-help.ts
+  s_4ded9ba77a0730::t_6d053684bd9242 33-34,38,46,58,67,79,87
+products/iterbar/bar/src/connection.test.ts
+  s_4ded9ba77a0730::t_6d6a381f846268 1
+products/iterbar/bar/src/connection.ts
+  s_4ded9ba77a0730::t_71e169aca101ca 24
+products/iterbar/bar/src/element.ts
+  s_4ded9ba77a0730::t_cd90ab6395d4d8 1
+products/iterbar/bar/src/pick/screenshot.ts
+  s_4ded9ba77a0730::t_0ed10bab5830f3 1
+products/iterbar/bar/src/pick/selector.ts
+  s_4ded9ba77a0730::t_c704507c9e8769 1
+products/iterbar/bar/src/pick/target.ts
+  s_4ded9ba77a0730::t_d48eba19bc4ec3 13
+products/iterbar/bar/src/pins.ts
+  s_4ded9ba77a0730::t_31e0b2d55ba4d1 1
+products/iterbar/bar/src/slots.ts
+  s_4ded9ba77a0730::t_58ecef518420c1 15
+products/iterbar/bar/src/threads-state.test.ts
+  s_4ded9ba77a0730::t_425f1a90fd5664 1
+products/iterbar/bar/src/threads-state.ts
+  s_4ded9ba77a0730::t_498d19f072d81e 1
+products/iterbar/bar/src/threads.ts
+  s_4ded9ba77a0730::t_f633b42b2dad78 1
+products/iterbar/bar/test/comment.pw.ts
+  s_4ded9ba77a0730::t_131dd8fef1c541 2
+products/iterbar/bar/test/drafts.pw.ts
+  s_4ded9ba77a0730::t_5d0342aa69dd68 2
+products/iterbar/bar/test/global.d.ts
+  s_4ded9ba77a0730::t_bf863d9210b29d 1
+products/iterbar/bar/test/inbox.pw.ts
+  s_4ded9ba77a0730::t_acb4004a94bb37 1
+products/iterbar/bar/test/pins.pw.ts
+  s_4ded9ba77a0730::t_f7982744d0c0b5 1
+products/iterbar/bar/test/position.pw.ts
+  s_4ded9ba77a0730::t_05223882a11b52 175,177,351
+products/iterbar/bar/test/real-daemon.pw.ts
+  s_4ded9ba77a0730::t_deb40f2ed5a663 4-6
+products/iterbar/bar/test/slots.pw.ts
+  s_4ded9ba77a0730::t_96d319c436f2fc 1
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_4ded9ba77a0730::t_e5923c05c82dd6 3
+products/iterbar/bar/test/threads.pw.ts
+  s_4ded9ba77a0730::t_b94dc0fb018808 1
+products/iterbar/cli/README.md
+  s_4ded9ba77a0730::t_cdef56b221e317 1,8-10
+products/iterbar/cli/package.json
+  s_4ded9ba77a0730::t_2e721cb11e89b6 2,4,38,41,45
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_7ab7c497e45343 152
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_72375f479ff217 7
+products/iterbar/cli/src/daemon/access.test.ts
+  s_4ded9ba77a0730::t_560c376c11ccb2 2-3
+products/iterbar/cli/src/daemon/access.ts
+  s_4ded9ba77a0730::t_d99b4a0a7e0e9c 3
+products/iterbar/cli/src/daemon/daemon-file.ts
+  s_4ded9ba77a0730::t_12dc1a56599daf 2-3
+products/iterbar/cli/src/daemon/daemon.test.ts
+  s_4ded9ba77a0730::t_26ed4583b2a8db 11-12
+products/iterbar/cli/src/daemon/daemon.ts
+  s_4ded9ba77a0730::t_9e8a34129ef332 14
+products/iterbar/cli/src/daemon/dev-command.test.ts
+  s_4ded9ba77a0730::t_9fed54cd586b6b 5-6
+products/iterbar/cli/src/daemon/events.test.ts
+  s_4ded9ba77a0730::t_a329199d6d33b5 3
+products/iterbar/cli/src/daemon/events.ts
+  s_4ded9ba77a0730::t_a593506c16d4d5 3
+products/iterbar/cli/src/daemon/http.ts
+  s_4ded9ba77a0730::t_649b41f026958e 10
+products/iterbar/cli/src/daemon/routes.ts
+  s_4ded9ba77a0730::t_2a5617ad5d71b4 21
+products/iterbar/cli/src/daemon/startup-failure.test.ts
+  s_4ded9ba77a0730::t_54759b2ca3ef52 5-6
+products/iterbar/cli/src/daemon/test-support/client.ts
+  s_4ded9ba77a0730::t_f8e8d6eeb972dd 3
+products/iterbar/cli/src/mcp/cursor.ts
+  s_4ded9ba77a0730::t_c2f512a02d69f2 1
+products/iterbar/cli/src/mcp/daemon-client.test.ts
+  s_4ded9ba77a0730::t_067754db5eee05 4
+products/iterbar/cli/src/mcp/daemon-client.ts
+  s_4ded9ba77a0730::t_46a82543fb236f 23-24
+products/iterbar/cli/src/mcp/errors.ts
+  s_4ded9ba77a0730::t_5b60b99592e82c 1
+products/iterbar/cli/src/mcp/mcp.test.ts
+  s_4ded9ba77a0730::t_952a53ce7a6305 9-10
+products/iterbar/cli/src/mcp/test-support/feedback.ts
+  s_4ded9ba77a0730::t_f027ad57d62641 1
+products/iterbar/cli/src/mcp/tools.test.ts
+  s_4ded9ba77a0730::t_43311f7c0adfa3 6
+products/iterbar/cli/src/mcp/tools.ts
+  s_4ded9ba77a0730::t_455079a626b27d 12-13
+products/iterbar/cli/src/mcp/wait.test.ts
+  s_4ded9ba77a0730::t_94e5c07fb1f845 2
+products/iterbar/cli/src/mcp/wait.ts
+  s_4ded9ba77a0730::t_9b4b64f9e73f41 1
+products/iterbar/cli/src/store/crash.test.ts
+  s_4ded9ba77a0730::t_8eca1987fc317b 3
+products/iterbar/cli/src/store/errors.ts
+  s_4ded9ba77a0730::t_f3a1a5adaad68e 1
+products/iterbar/cli/src/store/files.test.ts
+  s_4ded9ba77a0730::t_56d34852f4dcfc 3
+products/iterbar/cli/src/store/lock.test.ts
+  s_4ded9ba77a0730::t_67187eedae536e 2-3
+products/iterbar/cli/src/store/lock.ts
+  s_4ded9ba77a0730::t_af74c26c1b4754 5
+products/iterbar/cli/src/store/store.test.ts
+  s_4ded9ba77a0730::t_e6adbfa6c4dde8 5-6
+products/iterbar/cli/src/store/store.ts
+  s_4ded9ba77a0730::t_d1ffc7884add0e 30,37
+products/iterbar/cli/src/store/test-support/helpers.ts
+  s_4ded9ba77a0730::t_1afb3f5917df96 7
+products/iterbar/core/README.md
+  s_4ded9ba77a0730::t_ceffa98ecc8a09 1,8,14,17,47
+products/iterbar/core/package.json
+  s_4ded9ba77a0730::t_d678336609e1ff 2
+products/iterbar/examples/e2e/package.json
+  s_4ded9ba77a0730::t_208b01d295bea3 14,17
+products/iterbar/examples/e2e/test/examples.pw.ts
+  s_4ded9ba77a0730::t_33a63d3e5870be 3,5-6
+products/iterbar/react/package.json
+  s_4ded9ba77a0730::t_0a2c858b9da20d 51
+products/iterbar/react/src/package.test.tsx
+  s_4ded9ba77a0730::t_31dafb6bc3b23d 2
+products/iterbar/react/src/variants.test.tsx
+  s_4ded9ba77a0730::t_1e29fe4c66bf2b 3
+products/iterbar/skills/README.md
+  s_4ded9ba77a0730::t_3e1d6094840345 8-9
+products/iterbar/skills/iterbar/references/setup.md
+  s_4ded9ba77a0730::t_34931a4f1de87c 8,11,18,20,28,46
+products/iterbar/svelte/package.json
+  s_4ded9ba77a0730::t_7df1ad0c688790 51
+products/iterbar/svelte/test/package.test.ts
+  s_4ded9ba77a0730::t_8548de4511319c 1
+products/iterbar/svelte/test/ssr.server.test.ts
+  s_4ded9ba77a0730::t_0f948a0eb3ad68 1
+products/iterbar/svelte/test/variants.test.ts
+  s_4ded9ba77a0730::t_80f84ae1fd6c8e 3
+products/iterbar/variants/README.md
+  s_4ded9ba77a0730::t_8960bcd27e10f2 6
+products/iterbar/variants/package.json
+  s_4ded9ba77a0730::t_95574a46e29405 38
+products/iterbar/variants/src/environment.ts
+  s_4ded9ba77a0730::t_7ed693ea56f3b3 1
+products/iterbar/variants/src/index.ts
+  s_4ded9ba77a0730::t_c975ac49bc8594 36
+products/iterbar/variants/src/registry.test.ts
+  s_4ded9ba77a0730::t_43ec872f8f3b2a 7
+products/iterbar/variants/src/registry.ts
+  s_4ded9ba77a0730::t_f71b227dd89a3c 19
+products/iterbar/variants/src/slot-root.ts
+  s_4ded9ba77a0730::t_2128a325e0acff 1
+products/iterbar/vite/package.json
+  s_4ded9ba77a0730::t_f30a0d0eb5eeba 53
+products/iterbar/vite/src/daemon.test.ts
+  s_4ded9ba77a0730::t_b36c3bb1b4ae2d 6-8
+products/iterbar/vite/src/daemon.ts
+  s_4ded9ba77a0730::t_2e17f5bbabcebb 3,12-13
+products/iterbar/vite/src/origins.ts
+  s_4ded9ba77a0730::t_ee35ccbe53da81 1
+products/iterbar/vite/src/source/location.ts
+  s_4ded9ba77a0730::t_215cd1b27b1c7d 5
+release-packages.json
+  s_4ded9ba77a0730::t_a3fadd3c2336c5 8
+scripts/verify-browser-imports.mjs
+  s_4ded9ba77a0730::t_9d140ca2d23f1f 19
+scripts/verify-package-consumer.mjs
+  s_4ded9ba77a0730::t_78ca5af510ba83 72-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3d84b5a795e6eb2232c24c6e0c12aa4454937dc3",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
