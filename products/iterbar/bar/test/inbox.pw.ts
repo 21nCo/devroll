@@ -258,3 +258,16 @@ test("a thread that leaves the filter while focus is in it hands focus to the th
   await expect(inBar(page, ".thread")).toHaveCount(0);
   await expect(inBar(page, "[data-filter=open]")).toBeFocused();
 });
+
+test("a status change that keeps a thread listed but rebuilds its actions keeps focus on the same action", async ({ page, openFixture, fixtureServer }) => {
+  const item = comment("Stays under All");
+  const daemon = await openInbox(page, openFixture, [comment("Other"), item], fixtureServer.origin);
+  await inBar(page, `[data-feedback-id="${item.id}"] summary`).click();
+  await inBar(page, `[data-feedback-id="${item.id}"] [data-action=archive]`).focus();
+  daemon.send({
+    schemaVersion: SCHEMA_VERSION, type: "feedback.updated",
+    feedback: { ...item, status: "done", updatedAt: new Date(Date.parse(item.updatedAt) + 1000).toISOString() },
+  });
+  await expect(inBar(page, `[data-feedback-id="${item.id}"] .badge`)).toHaveText("Done");
+  await expect(inBar(page, `[data-feedback-id="${item.id}"] [data-action=archive]`)).toBeFocused();
+});

@@ -745,7 +745,8 @@ export class ThreadsPanel {
       }
       previous = row.element;
     }
-    if (focused && focusedIndex !== -1 && !this.#list.contains(focused)) {
+    // Only when the row itself left: a row that rebuilt its actions has already put focus back on the new button.
+    if (focusedRow && focusedIndex !== -1 && !this.#list.contains(focusedRow)) {
       const rows = this.#list.children;
       const next = rows[Math.min(focusedIndex, rows.length - 1)]?.querySelector<HTMLElement>("summary");
       (next ?? this.#filterButtons.get(this.#filter))?.focus();
