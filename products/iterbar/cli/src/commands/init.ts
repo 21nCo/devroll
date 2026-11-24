@@ -107,15 +107,25 @@ function hasIterbarCommand(manifest: string): boolean {
 }
 
 /**
- * Whether the npx copy at `cliPath` came from the npm registry, as its npx folder's lockfile records: resolved to the
- * registry's tarball of this package at this version (`…/iterbar/-/iterbar-<version>.tgz`). A copy npx installed from
- * any other tarball URL, a file, a folder or git cannot be fetched again by version, so it is run by its path instead.
+ * Whether the npx copy at `cliPath` came from the npm registry. npx records what it was asked for in its folder's
+ * package.json: a registry request is a version, range or tag, while a URL, file, folder, git or alias request has a
+ * `:` or `/` in it. Its lockfile must also resolve the package to the registry's tarball of this version
+ * (`…/iterbar/-/iterbar-<version>.tgz`). A copy npx installed any other way cannot be fetched again by version, so it is
+ * run by its path instead.
  */
 function fromRegistry(cliPath: string): boolean {
   const parts = cliPath.split(sep);
   const npxIndex = parts.lastIndexOf("_npx");
-  // <cache>/_npx/<hash>/node_modules/<package>/...: the lockfile sits in <hash>/node_modules.
-  const lockfile = join(parts.slice(0, npxIndex + 2).join(sep) || sep, "node_modules", ".package-lock.json");
+  // <cache>/_npx/<hash>/node_modules/<package>/...: the request and the lockfile sit in <hash>.
+  const folder = parts.slice(0, npxIndex + 2).join(sep) || sep;
+  const lockfile = join(folder, "node_modules", ".package-lock.json");
+  try {
+    const manifest = JSON.parse(readFileSync(join(folder, "package.json"), "utf8")) as { dependencies?: Record<string, unknown> };
+    const requested = manifest.dependencies?.[CLI_PACKAGE];
+    if (typeof requested === "string" && (/[:/\\]/.test(requested) || requested.startsWith("."))) return false;
+  } catch {
+    // No request recorded: the lockfile decides.
+  }
   try {
     const lock = JSON.parse(readFileSync(lockfile, "utf8")) as { packages?: Record<string, { resolved?: unknown }> };
     const resolved = lock.packages?.[`node_modules/${CLI_PACKAGE}`]?.resolved;
@@ -300,7 +310,7 @@ const EARLIER_PACKAGE = "@iterbar/cli";
  * `--root ${workspaceFolder}`). Whatever this init now registers (npx, or a checkout's CLI with node), an untouched
  * earlier default is moved to it; anything else is the user's own.
  */
-function isEarlierDefault(current: unknown, extra: readonly string[]): boolean {
+function isEarlierDefault(current: unknown, extra: readonly string[], entry: object): boolean {
   if (!isPlainObject(current)) return false;
   // Compared field by field, so a formatter's key order does not matter; any extra field makes it the user's own.
   const keys = Object.keys(current).sort();
@@ -308,8 +318,12 @@ function isEarlierDefault(current: unknown, extra: readonly string[]): boolean {
   const args = current.args;
   if (!Array.isArray(args) || args.length !== 3 + extra.length || args[0] !== "-y" || args[2] !== "mcp") return false;
   if (!extra.every((arg, index) => args[3 + index] === arg)) return false;
-  // The earlier package name, or this package pinned to a version by an earlier init run through npx.
-  return args[1] === EARLIER_PACKAGE || (typeof args[1] === "string" && PINNED_SPEC.test(args[1]));
+  if (args[1] === EARLIER_PACKAGE) return true;
+  // This package pinned to a version, as an init run through npx writes it. Only an init that pins too moves such an
+  // entry to its own version: one run from a checkout or a project install keeps it, since a user may have pinned it.
+  const pins = (value: object) => (value as { command?: unknown }).command === "npx"
+    && typeof (value as { args?: unknown[] }).args?.[1] === "string" && PINNED_SPEC.test((value as { args: string[] }).args[1]!);
+  return pins(current) && pins(entry);
 }
 
 /**
@@ -346,7 +360,7 @@ async function registerJson(
   }
   // An entry an earlier init wrote under the package's earlier name (@iterbar/cli) is that init's own default, not a
   // customized entry: it is moved to the current one.
-  if (current !== undefined && isEarlierDefault(current, extra)) {
+  if (current !== undefined && isEarlierDefault(current, extra, entry)) {
     say(`  MCP server: ${options.dryRun ? "would update" : "updated"} the iterbar entry an earlier init wrote in ${path}`);
     if (options.dryRun) return;
     await writeAtomic(path, `${JSON.stringify({ ...config, mcpServers: { ...servers, iterbar: entry } }, null, 2)}\n`);

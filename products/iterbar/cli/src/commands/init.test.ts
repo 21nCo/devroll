@@ -189,6 +189,17 @@ describe("iterbar init", () => {
     await lockResolved(`https://registry.npmjs.org/iterbar/-/iterbar-${version}.tgz`);
     expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toBe(`iterbar@${version}`);
+    // A URL request is not a registry install, even when the URL looks like the registry's tarball.
+    await writeFile(join(base, "cache", "_npx", "1", "package.json"), JSON.stringify({ dependencies: { iterbar: `https://example.com/preview/iterbar/-/iterbar-${version}.tgz` } }));
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [npxCli, "mcp"] });
+    await writeFile(join(base, "cache", "_npx", "1", "package.json"), JSON.stringify({ dependencies: { iterbar: "^0.1.0" } }));
+    // A pinned entry is kept by an init that does not pin itself (run from a checkout): the user may have pinned it.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "iterbar@0.0.9", "mcp"] } } }));
+    const checkout = capture();
+    expect(await runInit(["--root", root], checkout.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toBe("iterbar@0.0.9");
+    expect(checkout.out()).toContain("kept it");
     await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", bin: { iterbar: "./dist/cli.js" } }));
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
