@@ -314,6 +314,22 @@ describe("records", () => {
     expect(again.batchSize).toBe(2);
   });
 
+  it("keeps the deleted-member record right: a batch named constructor, a re-sent member, and Delete All", async () => {
+    const store = await open();
+    const batch = (batchId: string, batchSize: number) => ({ ...commentDraft, evidenceWindow: null, batchId, batchSize });
+    // An id like an Object member works on a store with no record yet.
+    expect((await store.create({ ...batch("constructor", 2), batchIndex: 0 })).batchSize).toBe(2);
+    // Three members: A deleted, then re-sent; B, sent after, still counts all three.
+    const a = await store.create({ ...batch("three", 3), batchIndex: 0 });
+    await store.delete(a.id);
+    expect((await store.create({ ...batch("three", 3), batchIndex: 0 })).batchSize).toBe(3);
+    expect((await store.create({ ...batch("three", 3), batchIndex: 1 })).batchSize).toBe(3);
+    // Delete All remembers what it deleted: a retry of the batch counts one fewer.
+    await store.create({ ...batch("bulk", 2), batchIndex: 0 });
+    await store.deleteAll();
+    expect((await store.create({ ...batch("bulk", 2), batchIndex: 1 })).batchSize).toBe(1);
+  });
+
   it("finishes a delete whose record is gone but whose directory is still there", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });

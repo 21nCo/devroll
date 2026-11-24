@@ -406,7 +406,7 @@ class FileFeedbackStore implements FeedbackStore {
       };
       // A batch member deleted before this one (a retry of a comment that failed, say) no longer counts toward the
       // batch: the size the bar still sends is lowered by the deleted members other than this comment.
-      const deletedMembers = content.batchId === undefined ? [] : (await this.#deletedBatchMembers())[content.batchId] ?? [];
+      const deletedMembers = content.batchId === undefined ? [] : (await this.#deletedBatchMembers()).get(content.batchId) ?? [];
       const removed = deletedMembers.filter((index) => index !== content.batchIndex).length;
       const batchSize = content.batchSize === undefined || removed === 0 ? content.batchSize : Math.max(1, content.batchSize - removed);
       const feedback = parseMessage(feedbackSchema, {
@@ -437,6 +437,10 @@ class FileFeedbackStore implements FeedbackStore {
         throw error;
       }
       await syncDirectory(this.paths.feedbackDirectory);
+      // A deleted member sent again is in the batch again once its record is durable: no longer remembered as deleted.
+      if (content.batchId !== undefined && content.batchIndex !== undefined && deletedMembers.includes(content.batchIndex)) {
+        await this.#forgetDeletedMember(content.batchId, content.batchIndex).catch(() => undefined);
+      }
       return feedback;
     });
   }
@@ -477,7 +481,9 @@ class FileFeedbackStore implements FeedbackStore {
   async delete(feedbackId: string): Promise<void> {
     this.#assertOpen();
     assertSafeId(feedbackId, "feedback id");
-    return this.#exclusive(() => this.#delete(feedbackId, true));
+    return this.#exclusive(async () => {
+      await this.#delete(feedbackId, true);
+    });
   }
 
   /** Deletes every item, one durable delete at a time, going on past one that fails. */
@@ -486,12 +492,16 @@ class FileFeedbackStore implements FeedbackStore {
     return this.#exclusive(async () => {
       const deleted: string[] = [];
       const failed: string[] = [];
+      const members: Array<{ batchId: string; batchIndex: number }> = [];
       for (const entry of await listDirectory(this.paths.feedbackDirectory)) {
         if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
         try {
-          // No batch to shrink: every member goes.
-          await this.#delete(entry.name, false);
+          // No batch to shrink: every member goes. Each deleted member is remembered, for a retry of its batch.
+          const feedback = await this.#delete(entry.name, false);
           deleted.push(entry.name);
+          if (feedback?.batchId !== undefined && feedback.batchIndex !== undefined) {
+            members.push({ batchId: feedback.batchId, batchIndex: feedback.batchIndex });
+          }
         } catch (error) {
           if (!(error instanceof IterbarStoreError && error.code === "not_found")) failed.push(entry.name);
         }
@@ -500,19 +510,21 @@ class FileFeedbackStore implements FeedbackStore {
       // more try now; the next start's sweep removes what is still there.
       const leftover: string[] = [];
       for (const feedbackId of deleted) {
-        if (!(await directoryExists(feedbackDirectoryPath(this.#root, feedbackId)))) continue;
         try {
+          if (!(await directoryExists(feedbackDirectoryPath(this.#root, feedbackId)))) continue;
           await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
         } catch {
           leftover.push(feedbackId);
         }
       }
       if (deleted.length > 0) await syncDirectory(this.paths.feedbackDirectory).catch(() => undefined);
+      // Remembered after the deletes are durable; best effort, as for a single delete.
+      await this.#rememberDeletedMembers(members).catch(() => undefined);
       return { deleted, failed, leftover };
     });
   }
 
-  async #delete(feedbackId: string, shrinkBatch: boolean): Promise<void> {
+  async #delete(feedbackId: string, shrinkBatch: boolean): Promise<Feedback | null> {
     {
       const record = await this.#read(feedbackId);
       // No record, but its directory is still there: an earlier delete removed the record and could not sync. A retry
@@ -534,6 +546,7 @@ class FileFeedbackStore implements FeedbackStore {
         // Left for the sweep.
       }
       if (shrinkBatch && record?.feedback.batchId !== undefined) await this.#shrinkBatch(record.feedback).catch(() => undefined);
+      return record?.feedback ?? null;
     }
   }
 
@@ -549,38 +562,55 @@ class FileFeedbackStore implements FeedbackStore {
   }
 
   /** The deleted members of each batch, newest batches last; empty when none were kept or the file is unreadable. */
-  async #deletedBatchMembers(): Promise<Record<string, number[]>> {
+  async #deletedBatchMembers(): Promise<Map<string, number[]>> {
+    // A Map, so a batch id such as "constructor" never meets an inherited property.
+    const out = new Map<string, number[]>();
     try {
       const value = JSON.parse(await readFile(this.#deletedMembersFile, "utf8")) as unknown;
-      if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-      const out: Record<string, number[]> = Object.create(null) as Record<string, number[]>;
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return out;
       for (const [batchId, indexes] of Object.entries(value)) {
-        if (Array.isArray(indexes)) out[batchId] = indexes.filter((index): index is number => Number.isInteger(index) && index >= 0);
+        if (Array.isArray(indexes)) out.set(batchId, indexes.filter((index): index is number => Number.isInteger(index) && index >= 0));
       }
-      return out;
     } catch {
-      return {};
+      // None kept, or unreadable: nothing is remembered.
     }
+    return out;
+  }
+
+  async #writeDeletedBatchMembers(all: Map<string, number[]>): Promise<void> {
+    // Only the most recent batches are kept: a retry comes soon after its batch.
+    const ids = [...all.keys()];
+    for (const old of ids.slice(0, Math.max(0, ids.length - MAX_REMEMBERED_BATCHES))) all.delete(old);
+    await writeFileAtomic(this.paths.tmpDirectory, this.#deletedMembersFile, `${JSON.stringify(Object.fromEntries(all))}\n`);
   }
 
   async #rememberDeletedMember(batchId: string, batchIndex: number): Promise<void> {
+    await this.#rememberDeletedMembers([{ batchId, batchIndex }]);
+  }
+
+  async #rememberDeletedMembers(members: ReadonlyArray<{ batchId: string; batchIndex: number }>): Promise<void> {
+    if (members.length === 0) return;
     const all = await this.#deletedBatchMembers();
-    const indexes = all[batchId] ?? [];
-    if (indexes.includes(batchIndex)) return;
-    delete all[batchId];
-    all[batchId] = [...indexes, batchIndex];
-    // Only the most recent batches are kept: a retry comes soon after its batch.
-    const ids = Object.keys(all);
-    for (const old of ids.slice(0, Math.max(0, ids.length - MAX_REMEMBERED_BATCHES))) delete all[old];
-    await writeFileAtomic(this.paths.tmpDirectory, this.#deletedMembersFile, `${JSON.stringify(all)}\n`);
+    let changed = false;
+    for (const { batchId, batchIndex } of members) {
+      const indexes = all.get(batchId) ?? [];
+      if (indexes.includes(batchIndex)) continue;
+      // Moved to the end: the most recently touched batches are the ones kept.
+      all.delete(batchId);
+      all.set(batchId, [...indexes, batchIndex]);
+      changed = true;
+    }
+    if (changed) await this.#writeDeletedBatchMembers(all);
   }
 
   async #forgetDeletedMember(batchId: string, batchIndex: number): Promise<void> {
     const all = await this.#deletedBatchMembers();
-    if (!all[batchId]?.includes(batchIndex)) return;
-    all[batchId] = all[batchId]!.filter((index) => index !== batchIndex);
-    if (all[batchId]!.length === 0) delete all[batchId];
-    await writeFileAtomic(this.paths.tmpDirectory, this.#deletedMembersFile, `${JSON.stringify(all)}\n`);
+    const indexes = all.get(batchId);
+    if (!indexes?.includes(batchIndex)) return;
+    const rest = indexes.filter((index) => index !== batchIndex);
+    if (rest.length === 0) all.delete(batchId);
+    else all.set(batchId, rest);
+    await this.#writeDeletedBatchMembers(all);
   }
 
   async #shrinkBatch(deleted: Feedback): Promise<void> {

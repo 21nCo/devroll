@@ -511,11 +511,11 @@ export class SettingsPanel {
           + "It leaves your code, your agent's setup (skill and MCP config), the drafts in this tab and these settings alone.",
         this.#button("Delete everything", "data-delete-confirm", () => void this.#run("data", async () => {
           const { deleted, failed, leftover } = await this.#options.deleteAll();
-          if (failed > 0) throw new Error(`Deleted ${plural(deleted, "item")}; ${failed} could not be deleted. Try again.`);
-          if (leftover > 0) {
-            throw new Error(`Deleted ${plural(deleted, "item")}, but the files of ${leftover} could not be removed yet; `
-              + "the daemon removes them when it next starts, or try again.");
-          }
+          const problems = [
+            failed > 0 ? `${failed} could not be deleted` : "",
+            leftover > 0 ? `the files of ${leftover} deleted ${leftover === 1 ? "item" : "items"} could not be removed yet (the daemon removes them when it next starts)` : "",
+          ].filter(Boolean);
+          if (problems.length > 0) throw new Error(`Deleted ${plural(deleted, "item")}; ${problems.join("; ")}. Try again.`);
           return `Deleted ${plural(deleted, "item")}.`;
         }), { danger: true })));
     }
