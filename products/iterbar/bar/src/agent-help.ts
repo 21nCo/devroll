@@ -39,22 +39,37 @@ export interface AgentCli {
 }
 
 /**
+ * How the manual snippets start the CLI. With the CLI the dev server runs (its path, from the Iterbar Vite plugin),
+ * `node` runs that file: the same version as the daemon, from a checkout or an install alike, and its own bundled
+ * skill is copied. Without it, the published `iterbar` package through npx, and the installed package's skill.
+ */
+function launcher(cli: AgentCli | null): { run: string; command: string; args: readonly string[]; skill: string } {
+  if (!cli) return { run: "npx -y iterbar", command: "npx", args: ["-y", "iterbar"], skill: PACKAGED_SKILL };
+  const packageDir = cli.path.replace(/[\\/]dist[\\/]cli\.js$/u, "");
+  const separator = cli.path.includes("\\") && !cli.path.includes("/") ? "\\" : "/";
+  return { run: `node ${shellWord(cli.path)}`, command: "node", args: [cli.path], skill: shellWord(`${packageDir}${separator}skills${separator}iterbar`) };
+}
+
+/**
  * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md gives them: `npx iterbar init`
  * (the `iterbar` package carries the skill) does both in one go, and in a pnpm project, where only a direct dependency
- * puts the command on the path, `pnpm add -D iterbar` first; the manual steps register the MCP server and copy the
- * skill out of the installed package. `root` is the project's absolute path when the bar knows it; otherwise the
- * snippets keep the references' placeholders.
+ * puts the command on the path, `pnpm add -D iterbar` first. When the dev server says which CLI it runs (`cli`), a
+ * third form runs that one, and the manual steps use it too. `root` is the project's absolute path when the bar knows
+ * it; otherwise the snippets keep the references' placeholders.
  */
-export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
+export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli | null = null): AgentSteps {
   const where = root ? `cd ${shellWord(root)}\n` : "";
+  const launch = launcher(cli);
   const init = (name: string): readonly Snippet[] => [{
     caption: "Run in the project's folder. It installs the iterbar skill and registers the MCP server:",
     text: `${where}npx iterbar init --agent ${name}`,
   }, {
     caption: "In a pnpm project, add the CLI to the project first (pnpm gives a package's command only to direct dependencies):",
     text: `${where}pnpm add -D iterbar && pnpm exec iterbar init --agent ${name}`,
-  }];
-  const launch = { run: "npx -y iterbar", command: "npx", args: ["-y", "iterbar"], skill: PACKAGED_SKILL };
+  }, ...(cli ? [{
+    caption: "Or run the CLI this dev server runs (the same version as its daemon, published or not):",
+    text: `${where}${launch.run} init --agent ${name}`,
+  }] : [])];
   const copySkill = (folder: string): Snippet => ({
     caption: "Copy the skill out of the CLI's package, in the project's folder:",
     text: `mkdir -p ${folder}\ncp -R ${launch.skill} ${folder}/`,
@@ -170,13 +185,11 @@ export class AgentHelp {
     this.#render();
   }
 
-  /** The CLI the dev server runs. The steps name the published `iterbar` package, so it changes nothing shown. */
+  /** The CLI the dev server runs, offered in the setup steps and used by the manual ones; `null` names npx's copy. */
   set cli(value: AgentCli | null) {
+    if (value?.path === this.#cli?.path) return;
     this.#cli = value;
-  }
-
-  get cli(): AgentCli | null {
-    return this.#cli;
+    this.#render();
   }
 
   #choose(agent: AgentName, focus: boolean): void {
@@ -202,7 +215,7 @@ export class AgentHelp {
       button.tabIndex = selected ? 0 : -1;
     }
     this.#body.setAttribute("aria-labelledby", `iterbar-agent-${this.#agent}`);
-    const steps = agentSteps(this.#agent, this.#root);
+    const steps = agentSteps(this.#agent, this.#root, this.#cli);
     const manual = [...steps.connect, ...steps.skill];
     this.#body.replaceChildren(
       this.#step("1", "Set up (one-time)", steps.init, "init"),

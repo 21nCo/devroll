@@ -178,6 +178,23 @@ test("explains every toolbar control in a tooltip; help opens the setup sheet wi
   ]);
   await inBar(page, "[data-role=agent-manual] summary").click();
   await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- npx -y iterbar mcp --root /work/shop");
+  // When the dev server says which CLI it runs, a third form runs that one, and the manual steps use it.
+  await page.evaluate(() => {
+    const bar = document.querySelector("iterbar-bar") as HTMLElement & { devServer: unknown };
+    bar.devServer = {
+      about: { packages: [], cli: { path: "/repo/products/iterbar/cli/dist/cli.js", version: "0.1.0" } },
+      reconnect: async () => ({ daemonUrl: null, token: null }),
+      checkUpdates: async () => ({ packages: [] }),
+    };
+  });
+  await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText([
+    "cd /work/shop\nnpx iterbar init --agent claude",
+    "cd /work/shop\npnpm add -D iterbar && pnpm exec iterbar init --agent claude",
+    "cd /work/shop\nnode /repo/products/iterbar/cli/dist/cli.js init --agent claude",
+  ]);
+  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first())
+    .toHaveText("claude mcp add iterbar -- node /repo/products/iterbar/cli/dist/cli.js mcp --root /work/shop");
+  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").nth(1)).toContainText("cp -R /repo/products/iterbar/cli/skills/iterbar");
   await inBar(page, "#iterbar-agent-codex").click();
   await expect(inBar(page, "[data-step=init] .snippet-text").first()).toContainText("init --agent codex");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: fixtureServer.origin });
