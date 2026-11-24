@@ -65,9 +65,6 @@ export interface SettingsContext {
   readonly devServer: DevServerLink | null;
 }
 
-/** Actions that connect the bar to a new daemon themselves, so the change of daemon is their own outcome. */
-const RECONNECTING_ACTIONS: ReadonlySet<string> = new Set(["start", "restart"]);
-
 /** Where focus goes once an action ends: the first of these controls the sheet shows then. */
 const RUN_FOCUS: Readonly<Record<string, readonly string[]>> = {
   stop: ["daemon-start", "daemon-stop", "settings-setup"],
@@ -150,8 +147,10 @@ export class SettingsPanel {
   #focusCancel = false;
   /** Counts daemon-info requests, so an answer from an earlier daemon is dropped. */
   #infoRequest = 0;
-  /** Counts daemon changes, so an action begun against an earlier daemon says nothing here when it ends. */
-  #connectionEpoch = 0;
+  /** The action running now; an action whose token is no longer this one ended for another daemon or mount. */
+  #runToken: symbol | null = null;
+  /** Start or Restart is about to move the bar to the daemon it started: that change keeps the action. */
+  #ownReconnect = false;
   #updatesResult: readonly PackageUpdate[] | null = null;
   /** The dev-server link the update result belongs to. */
   #updatesFor: DevServerLink | null = null;
@@ -190,9 +189,14 @@ export class SettingsPanel {
    */
   resetForConnection(): void {
     this.#infoRequest += 1;
-    this.#connectionEpoch += 1;
-    // An action still running against the earlier daemon no longer holds this sheet's controls.
-    if (this.#busy !== null && !RECONNECTING_ACTIONS.has(this.#busy)) this.#busy = null;
+    if (this.#ownReconnect) {
+      // The change Start or Restart made itself: the action carries on and reports.
+      this.#ownReconnect = false;
+    } else {
+      // Any other change (another daemon, a remount, no daemon): an action still running is void here.
+      this.#runToken = null;
+      this.#busy = null;
+    }
     this.#info = null;
     this.#infoError = null;
     this.#confirming = null;
@@ -245,9 +249,24 @@ export class SettingsPanel {
   }
 
   /** Runs one of the sheet's actions, showing that it runs and then how it went. */
+  /** The bar was set up again (another dev server): an action still running says and changes nothing here. */
+  voidAction(): void {
+    if (this.#runToken === null) return;
+    this.#runToken = null;
+    this.#ownReconnect = false;
+    this.#busy = null;
+    if (this.#context) this.render(this.#context);
+  }
+
+  /** Start or Restart calls this right before it moves the bar to the daemon it started. */
+  expectOwnReconnect(): void {
+    if (this.#runToken !== null) this.#ownReconnect = true;
+  }
+
   async #run(name: string, action: () => Promise<string>): Promise<void> {
     const focusAfter = RUN_FOCUS[name] ?? [];
-    const epoch = this.#connectionEpoch;
+    const token = Symbol(name);
+    this.#runToken = token;
     this.#busy = name;
     this.#message = null;
     this.#confirming = null;
@@ -258,13 +277,10 @@ export class SettingsPanel {
     } catch (error) {
       message = { text: (error as Error).message, error: true };
     }
-    // Start and Restart switch daemons themselves; any other action's outcome concerns the daemon it began with.
-    const stale = epoch !== this.#connectionEpoch && !RECONNECTING_ACTIONS.has(name);
-    if (stale) {
-      if (this.#busy === name) this.#busy = null;
-      this.#renderAll();
-      return;
-    }
+    // Voided by a change of daemon or mount it did not make itself: it says and changes nothing here.
+    if (this.#runToken !== token) return;
+    this.#runToken = null;
+    this.#ownReconnect = false;
     this.#message = message;
     this.#busy = null;
     // In the sheet, or nowhere (it fell to the page's body); not when the user moved on to the page or another control.

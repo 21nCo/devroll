@@ -1235,6 +1235,8 @@ export class IterbarBarElement extends ElementBase {
     if (this.#devServer !== dev || this.#project !== project) throw new Error("The bar was set up again meanwhile; nothing was changed.");
     if (!config.daemonUrl || !config.token) throw new Error("The dev server could not start the daemon. Its terminal says why.");
     if (config.about) this.devServer = { ...dev, about: config.about };
+    // This change of daemon is the action's own: the settings keep it running.
+    this.#settings.expectOwnReconnect();
     this.daemonUrl = config.daemonUrl;
     this.token = config.token;
     const until = Date.now() + 5000;
@@ -1248,6 +1250,9 @@ export class IterbarBarElement extends ElementBase {
   }
 
   set devServer(value: DevServerLink | null) {
+    // Another dev server (a remount), not the same one with fresh versions: a settings action begun with the earlier
+    // one is void.
+    if (value?.reconnect !== this.#devServer?.reconnect) this.#settings?.voidAction();
     this.#devServer = value;
     this.#agentHelp.cli = value?.about?.cli ?? null;
     if (this.#state.panel === "settings") this.#renderSettings(false);

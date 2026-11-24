@@ -389,9 +389,11 @@ export class ThreadsPanel {
    */
   replace(items: readonly Feedback[], touched: ReadonlySet<string>): boolean {
     const { changed, complete } = this.#state.applyListing(items, touched);
-    // A listing that no longer has a thread whose Undo still shows (deleted elsewhere while the socket was down): Undo
-    // no longer covers it.
-    for (const id of [...(this.#pendingDelete?.ids ?? [])]) if (!this.#state.get(id)) this.#forgetPending(id);
+    // A thread under Undo that the daemon no longer lists (deleted elsewhere while the socket was down), and that no
+    // event touched meanwhile: Undo no longer covers it. Checked against the listing itself, not the rows kept here,
+    // which hold only the newest threads.
+    const listed = new Set(items.map((item) => item.id));
+    for (const id of [...(this.#pendingDelete?.ids ?? [])]) if (!listed.has(id) && !touched.has(id)) this.#forgetPending(id);
     if (changed) this.#render();
     return complete;
   }

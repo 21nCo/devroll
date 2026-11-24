@@ -183,3 +183,33 @@ test("forgets the earlier daemon when the bar loses its configuration, and says 
   await expect(inBar(page, ".settings-confirm")).toHaveCount(0);
   await expect(inBar(page, "[data-role=settings-daemon]")).not.toContainText("Process 4242");
 });
+
+test("a remount for another dev server while Start waits voids it: nothing stays busy and its answer is dropped", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => {
+    const w = window as unknown as { release?: () => void };
+    const bar = window.fixture.mountIterbarBar({
+      devServer: {
+        about: null,
+        reconnect: () => new Promise((resolve) => {
+          w.release = () => resolve({ daemonUrl: null, token: null });
+        }),
+        checkUpdates: async () => ({ packages: [] }),
+      },
+    });
+    bar.expanded = true;
+  });
+  await openPanel(page, "settings");
+  await inBar(page, "[data-role=daemon-start]").click();
+  await expect(inBar(page, "[data-role=daemon-start]")).toHaveAttribute("aria-disabled", "true");
+  // Set up again for another dev server before the first one answers.
+  await page.evaluate(() => {
+    window.fixture.mountIterbarBar({
+      devServer: { about: null, reconnect: async () => ({ daemonUrl: null, token: null }), checkUpdates: async () => ({ packages: [] }) },
+    });
+  });
+  await expect(inBar(page, "[data-role=daemon-start]")).not.toHaveAttribute("aria-disabled", "true");
+  await page.evaluate(() => (window as unknown as { release: () => void }).release());
+  await page.waitForTimeout(200);
+  await expect(inBar(page, "[data-role=settings-message]")).toBeHidden();
+});
