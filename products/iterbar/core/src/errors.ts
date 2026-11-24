@@ -105,53 +105,65 @@ const LEGACY_NAMES: Readonly<Record<string, string>> = Object.freeze(
 /** Most levels of nesting {@link upgradeMessage} walks; protocol messages are far shallower. */
 const MAX_UPGRADE_DEPTH = 32;
 
-/** Where an object sits in a version 1 message, which decides which of its fields are renamed. */
-type V1Place = "message" | "slot" | "warning" | "other";
+/** Copies `record`, upgrading the values under `keys` with `upgrade` and keeping every other field as it is. */
+function copyWith(record: Record<string, unknown>, keys: readonly string[], upgrade: (value: unknown) => unknown): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) copy[key] = keys.includes(key) ? upgrade(value) : value;
+  return copy;
+}
 
-/** The place of the objects under `key`: slot states, active variants and choices hold slot fields; warnings a code. */
-function placeUnder(key: string): V1Place {
-  if (key === "slots" || key === "activeVariants" || key === "choice") return "slot";
-  if (key === "warnings") return "warning";
-  // Nested messages: an event's feedback or report, a listing's items, a slot list's pages.
-  if (key === "feedback" || key === "items" || key === "report" || key === "pages") return "message";
-  return "other";
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
 }
 
 /**
- * Renames version 1 fields only at the paths the protocol defines them: slot states (`slots`), active variants
- * (`activeVariants`), choices (`choice`), a selection (a message naming a `slot`), and a registry warning's `code`.
- * Everything else, extension fields an older writer added included, is copied as it is.
+ * A slot state, active variant, choice or selection with its version 1 slot fields renamed. A version 2 name next
+ * to its version 1 field was an unknown, ignored field in version 1: the version 1 field decides, in any key order.
  */
-function upgradeV1(value: unknown, depth: number, place: V1Place): unknown {
-  if (depth > MAX_UPGRADE_DEPTH) return value;
-  if (Array.isArray(value)) return value.map((item) => upgradeV1(item, depth + 1, place));
-  if (typeof value !== "object" || value === null) return value;
-  const prototype = Object.getPrototypeOf(value) as unknown;
-  if (prototype !== Object.prototype && prototype !== null) return value;
+function upgradeSlotFields(value: unknown): unknown {
+  if (!isPlainRecord(value)) return value;
   const upgraded: Record<string, unknown> = {};
-  const record = value as Record<string, unknown>;
-  // A selection is a whole message that names a slot; nested objects get their place from the key they sit under.
-  const slotObject = place === "slot" || (place === "message" && typeof record.slot === "string");
   for (const [key, item] of Object.entries(value)) {
-    // A version 2 name next to its version 1 field was an unknown, ignored field in version 1: the version 1 field
-    // decides, whichever order the keys come in.
-    const legacy = slotObject ? LEGACY_NAMES[key] : undefined;
-    if (legacy !== undefined && Object.hasOwn(record, legacy)) continue;
-    if (key === "schemaVersion" && item === LEGACY_SCHEMA_VERSION && place === "message") {
-      upgraded[key] = SCHEMA_VERSION;
-    } else if (place === "warning" && key === "code" && item === "unknown_version") {
-      upgraded[key] = "unknown_variant";
-    } else if (slotObject && Object.hasOwn(V1_RENAMES, key)) {
-      // Slot fields hold names (strings and arrays of them), never nested messages.
-      upgraded[V1_RENAMES[key]!] = item;
-    } else if (place === "message") {
-      upgraded[key] = upgradeV1(item, depth + 1, placeUnder(key));
-    } else {
-      // Inside a slot object, a warning or an extension: nothing below is renamed.
-      upgraded[key] = item;
-    }
+    const legacy = LEGACY_NAMES[key];
+    if (legacy !== undefined && Object.hasOwn(value, legacy)) continue;
+    upgraded[Object.hasOwn(V1_RENAMES, key) ? V1_RENAMES[key]! : key] = item;
   }
   return upgraded;
+}
+
+const each = (upgrade: (value: unknown) => unknown) => (value: unknown): unknown =>
+  Array.isArray(value) ? value.map(upgrade) : value;
+
+function upgradeWarning(value: unknown): unknown {
+  return isPlainRecord(value) && value.code === "unknown_version" ? { ...value, code: "unknown_variant" } : value;
+}
+
+/** Keys of a version 1 selection (`{ schemaVersion: 1, slot, version }`); a message with any other key is not one. */
+const SELECTION_KEYS = new Set(["schemaVersion", "slot", "version", "variant"]);
+
+/**
+ * A version 1 message rewritten as version 2, by message type: a feedback record or draft (it has a `kind`) renames
+ * its `activeVariants` and `choice`; an event (a `type`) its `feedback` and `report`; a listing its `items`; a slot
+ * list its `pages`; a snapshot or slot report its `slots` and `warnings`; a selection its own fields. Nothing else is
+ * renamed, so extension fields an older writer added are kept as they are, whatever their names.
+ */
+function upgradeV1(value: unknown, depth: number): unknown {
+  if (depth > MAX_UPGRADE_DEPTH || !isPlainRecord(value)) return value;
+  const nested = (item: unknown) => upgradeV1(item, depth + 1);
+  const record: Record<string, unknown> = { ...value, ...(value.schemaVersion === LEGACY_SCHEMA_VERSION ? { schemaVersion: SCHEMA_VERSION } : {}) };
+  if (typeof record.kind === "string") {
+    return copyWith(record, ["activeVariants", "choice"], (item) => (Array.isArray(item) ? item.map(upgradeSlotFields) : upgradeSlotFields(item)));
+  }
+  if (typeof record.type === "string") return copyWith(record, ["feedback", "report"], nested);
+  if (Array.isArray(record.items)) return copyWith(record, ["items"], each(nested));
+  if (Array.isArray(record.pages)) return copyWith(record, ["pages"], each(nested));
+  if (Array.isArray(record.slots)) {
+    return copyWith(copyWith(record, ["slots"], each(upgradeSlotFields)), ["warnings"], each(upgradeWarning));
+  }
+  if (typeof record.slot === "string" && Object.keys(record).every((key) => SELECTION_KEYS.has(key))) return upgradeSlotFields(record);
+  return record;
 }
 
 /**
@@ -165,7 +177,7 @@ export function upgradeMessage(input: unknown): unknown {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
   if ((input as { schemaVersion?: unknown }).schemaVersion !== LEGACY_SCHEMA_VERSION) return input;
   // Its own fields are copied (the schema reads the version even when inherited); nested messages are plain JSON.
-  const upgraded = upgradeV1({ ...input }, 0, "message") as Record<string, unknown>;
+  const upgraded = upgradeV1({ ...input }, 0) as Record<string, unknown>;
   upgraded.schemaVersion = SCHEMA_VERSION;
   return upgraded;
 }

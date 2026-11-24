@@ -267,9 +267,16 @@ export class ThreadsPanel {
     this.#bulkActions.append(this.#clearSelection);
     this.#clearSelection.addEventListener("click", () => this.clearSelection());
     this.#selectAll.addEventListener("change", () => this.#toggleAll(this.#selectAll.checked));
-    this.#moreButton.addEventListener("click", () => {
+    this.#moreButton.addEventListener("click", (event) => {
+      const shownBefore = this.#visible().length;
       this.#pages += 1;
       this.#render();
+      // From the keyboard (a click with no pointer), focus moves to the first thread just listed, so Tab goes on
+      // through the new rows instead of skipping them or leaving the inbox with the button gone.
+      if (event.detail === 0) {
+        const first = this.#visible()[shownBefore];
+        if (first) this.#rows.get(first.id)?.element.querySelector<HTMLElement>("summary")?.focus();
+      }
     });
     this.#scroller.append(this.#empty, this.#filteredEmpty, this.#list, this.#moreButton, this.#older);
     this.element = h("section", { class: "section inbox", "data-section": "threads", "aria-label": "Feedback threads" },
@@ -394,6 +401,9 @@ export class ThreadsPanel {
   clear(): void {
     this.#generation += 1;
     this.#deleting.clear();
+    // A status change or delete still running for the old daemon no longer holds this inbox busy or shows its error.
+    this.#setBusy(false);
+    this.#showError(null);
     this.#dropPendingDelete();
     this.#selected.clear();
     this.#anchor = null;
@@ -429,13 +439,17 @@ export class ThreadsPanel {
     const onStatus = this.#options.onStatus;
     if (!onStatus) return;
     this.#setBusy(true);
+    const generation = this.#generation;
     onStatus(targets, status).then(() => {
+      if (generation !== this.#generation) return;
       const done = { done: "marked done", reopen: "reopened", archive: "archived" }[action];
       this.#options.announce?.(`${plural(targets.length, "thread")} ${done}.`);
       for (const id of targets) this.#selected.delete(id);
     }, (error: unknown) => {
-      this.#showError((error as Error).message);
+      // An answer from the daemon the bar has since switched away from says nothing about this inbox.
+      if (generation === this.#generation) this.#showError((error as Error).message);
     }).finally(() => {
+      if (generation !== this.#generation) return;
       this.#setBusy(false);
       this.#render();
     });

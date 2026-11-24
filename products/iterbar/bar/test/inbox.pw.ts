@@ -179,3 +179,12 @@ test("a bulk delete removes the threads that went even when one fails, and Escap
   await page.keyboard.press("Escape");
   await expect(inBar(page, "[data-role=panel]")).toBeHidden();
 });
+
+test("Show more from the keyboard moves focus to the first thread it lists", async ({ page, openFixture, fixtureServer }) => {
+  const items = Array.from({ length: 30 }, (_, index) => comment(`Thread ${index}`));
+  await openInbox(page, openFixture, items, fixtureServer.origin);
+  await inBar(page, "[data-role=threads-more]").focus();
+  await page.keyboard.press("Enter");
+  await expect(inBar(page, "[data-role=inbox-count]")).toHaveText("30 of 30");
+  await expect(inBar(page, ".thread").nth(25).locator("summary")).toBeFocused();
+});

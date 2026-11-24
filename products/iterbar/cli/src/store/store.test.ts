@@ -281,6 +281,14 @@ describe("records", () => {
     await expect(store.delete(item.id)).rejects.toMatchObject({ code: "not_found" });
   });
 
+  it("finishes a delete whose record is gone but whose directory is still there", async () => {
+    const store = await open();
+    const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
+    await rm(feedbackRecordPath(root, item.id));
+    await store.delete(item.id);
+    expect(await readdir(iterbarPaths(root).feedbackDirectory)).toEqual([]);
+  });
+
   it("reports corrupt_store for a referenced attachment that is missing or altered", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });

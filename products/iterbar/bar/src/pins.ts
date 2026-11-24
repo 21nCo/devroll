@@ -41,6 +41,29 @@ interface Pin {
  * The layer is a manual popover in the top layer, like the bar, so page stacking cannot hide it; only the pins take
  * pointer events.
  */
+/**
+ * The part of `element` its scrolling or clipping ancestors leave in view, as a viewport rectangle; `null` when none
+ * of it is (scrolled out of an `overflow: auto` list, say).
+ */
+function visibleRect(element: Element): DOMRect | null {
+  const rect = element.getBoundingClientRect();
+  let left = rect.left;
+  let top = rect.top;
+  let right = rect.right;
+  let bottom = rect.bottom;
+  for (let ancestor = element.parentElement; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
+    const style = getComputedStyle(ancestor);
+    if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+    const box = ancestor.getBoundingClientRect();
+    left = Math.max(left, box.left);
+    top = Math.max(top, box.top);
+    right = Math.min(right, box.right);
+    bottom = Math.min(bottom, box.bottom);
+    if (right <= left || bottom <= top) return null;
+  }
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
 export class PinLayer {
   readonly #options: PinLayerOptions;
   readonly #layer = h("div", { class: "pin-layer", popover: "manual", "data-role": "pin-layer" });
@@ -101,6 +124,9 @@ export class PinLayer {
   detach(): void {
     if (!this.#attached) return;
     this.#attached = false;
+    // The pins go with the observers; attaching again builds them afresh, each observed by the new resize observer.
+    for (const pin of this.#pins.values()) pin.button.remove();
+    this.#pins.clear();
     window.removeEventListener("scroll", this.#queuePlace, true);
     window.removeEventListener("resize", this.#queuePlace);
     this.#mutations?.disconnect();
@@ -223,7 +249,7 @@ export class PinLayer {
     }
     for (const pin of this.#pins.values()) {
       const element = pin.element;
-      const rect = element.isConnected ? element.getBoundingClientRect() : null;
+      const rect = element.isConnected ? visibleRect(element) : null;
       const shown = rect !== null && rect.width > 0 && rect.height > 0
         && rect.bottom > 0 && rect.right > 0 && rect.top < height && rect.left < width
         && (element as HTMLElement).checkVisibility?.({ visibilityProperty: true, opacityProperty: false }) !== false;

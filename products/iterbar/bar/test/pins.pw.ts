@@ -86,3 +86,27 @@ test("threads whose different selectors find the same element share one pin", as
   await expect(pins(page)).toHaveCount(1);
   await expect(pins(page).locator(".pin-count")).toHaveText("2");
 });
+
+test("a pin hides while its element is scrolled out of a scrolling box, and survives the bar being put back", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  const item = comment("In the list", { pageUrl: here, target: target("#row-30") });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [item]);
+  await openFixture();
+  await page.evaluate(() => {
+    const rows = Array.from({ length: 40 }, (_, index) => `<p id="row-${index}" style="margin: 0; height: 20px; width: 200px">Row ${index}</p>`).join("");
+    document.querySelector("main")!.insertAdjacentHTML("afterbegin", `<div id="scroller" style="height: 100px; width: 260px; overflow: auto">${rows}</div>`);
+  });
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  await expect(inBar(page, "[data-role=pin]")).toHaveCount(1);
+  await expect(pins(page)).toHaveCount(0);
+  await page.evaluate(() => { document.getElementById("row-30")!.scrollIntoView({ block: "center" }); });
+  await expect(pins(page)).toHaveCount(1);
+  await page.evaluate(() => {
+    const bar = document.querySelector("iterbar-bar")!;
+    bar.remove();
+    document.body.append(bar);
+  });
+  await expect(pins(page)).toHaveCount(1);
+  await page.evaluate(() => { document.getElementById("row-30")!.style.height = "60px"; document.getElementById("row-30")!.scrollIntoView({ block: "center" }); });
+  await expect.poll(async () => Math.round((await pins(page).boundingBox())!.y + 11)).toBe(Math.round((await page.locator("#row-30").boundingBox())!.y));
+});

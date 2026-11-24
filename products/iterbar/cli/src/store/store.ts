@@ -452,7 +452,11 @@ class FileFeedbackStore implements FeedbackStore {
     this.#assertOpen();
     assertSafeId(feedbackId, "feedback id");
     return this.#exclusive(async () => {
-      await this.#require(feedbackId);
+      const record = await this.#read(feedbackId);
+      // No record, but its directory is still there: an earlier delete removed the record and could not sync. A retry
+      // finishes that delete (syncs, then cleans up) instead of reporting it gone before it is durable.
+      const unfinished = !record && (await listDirectory(feedbackDirectoryPath(this.#root, feedbackId))).length > 0;
+      if (!record && !unfinished) throw new IterbarStoreError("not_found", `Feedback ${feedbackId} does not exist`);
       // The record goes first: a crash after it leaves a directory without feedback.json, which the next open sweeps,
       // so the item never comes back half deleted.
       await rm(feedbackRecordPath(this.#root, feedbackId), { force: true });

@@ -728,19 +728,22 @@ describe("protocol version 1 input", () => {
   it("keeps the version 1 field when a version 1 message also carries its version 2 name", () => {
     for (const choice of [{ slot: "pricing", version: "v2", variant: "metadata" }, { variant: "metadata", slot: "pricing", version: "v2" }]) {
       expect(api.parseMessage(api.activeVariantsSchema, [{ ...choice }], "x")).toBeDefined();
-      expect(api.upgradeMessage({ schemaVersion: 1, choice })).toEqual({ schemaVersion: 2, choice: { slot: "pricing", variant: "v2" } });
+      expect(api.upgradeMessage({ schemaVersion: 1, kind: "choose_variant", choice })).toEqual({ schemaVersion: 2, kind: "choose_variant", choice: { slot: "pricing", variant: "v2" } });
     }
   });
 
   it("renames only protocol fields, never an extension field with the same name", () => {
     const stored = {
-      schemaVersion: 1, metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
+      schemaVersion: 1, kind: "choose_variant", metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
       choice: { slot: "pricing", version: "v2" },
     };
     expect(api.upgradeMessage(stored)).toEqual({
-      schemaVersion: 2, metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
+      schemaVersion: 2, kind: "choose_variant", metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
       choice: { slot: "pricing", variant: "v2" },
     });
+    // A feedback record's own extension fields named like a selection's, or like a listing's, stay as they are.
+    const record = { schemaVersion: 1, kind: "comment", slot: "sidebar", version: "design-3", items: [{ slot: "x", version: "y" }] };
+    expect(api.upgradeMessage(record)).toEqual({ ...record, schemaVersion: 2 });
     // Nested messages (an event's feedback, a slot list's pages) are upgraded at their own paths.
     expect(api.upgradeMessage({ schemaVersion: 1, type: "slots.reported", report: { schemaVersion: 1, slots: [{ slot: "a", versions: ["x"] }] } }))
       .toEqual({ schemaVersion: 2, type: "slots.reported", report: { schemaVersion: 2, slots: [{ slot: "a", variants: ["x"] }] } });
