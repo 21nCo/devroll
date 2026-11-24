@@ -413,7 +413,11 @@ export class IterbarBarElement extends ElementBase {
       stopDaemon: () => this.#stopDaemon(),
       startDaemon: () => this.#startDaemon(),
       restartDaemon: async () => {
+        // The dev server and project the restart began with: set up again for another one meanwhile, it stops there.
+        const dev = this.#devServer;
+        const project = this.#project;
         await this.#stopDaemon();
+        if (this.#devServer !== dev || this.#project !== project) throw new Error("The bar was set up again meanwhile; nothing was started.");
         await this.#startDaemon();
       },
       deleteAll: () => this.#requireConnection().deleteAll(),

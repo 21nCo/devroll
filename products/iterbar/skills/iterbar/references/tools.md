@@ -93,7 +93,8 @@ The bar posts a batch one item at a time. `expectedCount` is how many items the 
 have arrived (`null` when no item gives a size; a comment stored twice counts once, by its `batchIndex`). When
 `complete` is `false` and `lastArrivedAt` (the newest item's `createdAt`) is under a minute ago, call
 `wait_for_feedback` with a `timeoutSeconds` no longer than what is left of that minute, then `get_batch` again.
-Otherwise the rest will not come (the user may have dropped a comment that failed to send): work on the items present.
+Otherwise the rest will not come (the user may have dropped a comment that failed to send, or deleted one from the
+inbox, which `expectedCount` does not account for): work on the items present.
 Work only on unfinished items; one retried later arrives on its own and leaves the done ones alone. Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
 your cursor.
 

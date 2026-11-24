@@ -281,55 +281,6 @@ describe("records", () => {
     await expect(store.delete(item.id)).rejects.toMatchObject({ code: "not_found" });
   });
 
-  it("lowers a batch's size when one of its comments is deleted, but not while a retried copy of it survives", async () => {
-    const store = await open();
-    const batch = { ...commentDraft, evidenceWindow: null, batchId: "batch-delete", batchSize: 3 };
-    const first = await store.create({ ...batch, batchIndex: 0 });
-    const second = await store.create({ ...batch, batchIndex: 1 });
-    const retry = await store.create({ ...batch, batchIndex: 1 });
-    const third = await store.create({ ...batch, batchIndex: 2 });
-    // The retried copy of comment 1 survives, so the batch still holds three comments.
-    await store.delete(second.id);
-    expect((await store.get(first.id)).batchSize).toBe(3);
-    await store.delete(retry.id);
-    expect((await store.get(first.id)).batchSize).toBe(2);
-    const kept = await store.get(third.id);
-    expect(kept.batchSize).toBe(2);
-    // Metadata only: the survivors' updatedAt does not move.
-    expect(kept.updatedAt).toBe(third.updatedAt);
-  });
-
-  it("counts a batch member deleted before a retry arrives, even across a restart", async () => {
-    const store = await open();
-    const batch = { ...commentDraft, evidenceWindow: null, batchId: "batch-retry", batchSize: 2 };
-    const first = await store.create({ ...batch, batchIndex: 0 });
-    // The second comment failed to send; the first is deleted before the retry comes.
-    await store.delete(first.id);
-    await store.close();
-    const reopened = await open();
-    const retried = await reopened.create({ ...batch, batchIndex: 1 });
-    expect(retried.batchSize).toBe(1);
-    // A re-sent copy of the deleted comment itself is not counted against.
-    const again = await reopened.create({ ...batch, batchIndex: 0 });
-    expect(again.batchSize).toBe(2);
-  });
-
-  it("keeps the deleted-member record right: a batch named constructor, a re-sent member, and Delete All", async () => {
-    const store = await open();
-    const batch = (batchId: string, batchSize: number) => ({ ...commentDraft, evidenceWindow: null, batchId, batchSize });
-    // An id like an Object member works on a store with no record yet.
-    expect((await store.create({ ...batch("constructor", 2), batchIndex: 0 })).batchSize).toBe(2);
-    // Three members: A deleted, then re-sent; B, sent after, still counts all three.
-    const a = await store.create({ ...batch("three", 3), batchIndex: 0 });
-    await store.delete(a.id);
-    expect((await store.create({ ...batch("three", 3), batchIndex: 0 })).batchSize).toBe(3);
-    expect((await store.create({ ...batch("three", 3), batchIndex: 1 })).batchSize).toBe(3);
-    // Delete All remembers what it deleted: a retry of the batch counts one fewer.
-    await store.create({ ...batch("bulk", 2), batchIndex: 0 });
-    await store.deleteAll();
-    expect((await store.create({ ...batch("bulk", 2), batchIndex: 1 })).batchSize).toBe(1);
-  });
-
   it("finishes a delete whose record is gone but whose directory is still there", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
