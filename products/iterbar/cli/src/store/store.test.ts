@@ -299,6 +299,21 @@ describe("records", () => {
     expect(kept.updatedAt).toBe(third.updatedAt);
   });
 
+  it("counts a batch member deleted before a retry arrives, even across a restart", async () => {
+    const store = await open();
+    const batch = { ...commentDraft, evidenceWindow: null, batchId: "batch-retry", batchSize: 2 };
+    const first = await store.create({ ...batch, batchIndex: 0 });
+    // The second comment failed to send; the first is deleted before the retry comes.
+    await store.delete(first.id);
+    await store.close();
+    const reopened = await open();
+    const retried = await reopened.create({ ...batch, batchIndex: 1 });
+    expect(retried.batchSize).toBe(1);
+    // A re-sent copy of the deleted comment itself is not counted against.
+    const again = await reopened.create({ ...batch, batchIndex: 0 });
+    expect(again.batchSize).toBe(2);
+  });
+
   it("finishes a delete whose record is gone but whose directory is still there", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });

@@ -778,6 +778,12 @@ export class ThreadsPanel {
     this.#selectAll.checked = allVisibleSelected;
     this.#selectAll.indeterminate = selected > 0 && !allVisibleSelected;
     this.#selectAll.disabled = visible.length === 0;
+    // Focus on a bulk action that this render hid or disabled (the action no longer applies, the selection cleared, an
+    // action is running) moves to the select-all box, or to the filter when nothing is listed, so it stays in the inbox.
+    if (focused instanceof HTMLButtonElement && this.#bulkActions.contains(focused)
+      && (this.#bulkActions.hidden || focused.hidden || focused.disabled)) {
+      (this.#selectAll.disabled ? this.#filterButtons.get(this.#filter) : this.#selectAll)?.focus();
+    }
     this.element.toggleAttribute("data-selecting", selected > 0);
     this.#empty.hidden = live.length > 0 || total > shown.length;
     this.#filteredEmpty.hidden = live.length === 0 || filtered.length > 0;

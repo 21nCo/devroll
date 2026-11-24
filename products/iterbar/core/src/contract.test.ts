@@ -339,7 +339,7 @@ const cases: Case[] = [
   },
   {
     schema: "deleteAllFeedbackResponseSchema",
-    valid: { schemaVersion: 2, deleted: 3, failed: 1 },
+    valid: { schemaVersion: 2, deleted: 3, failed: 1, leftover: 0 },
     invalid: { schemaVersion: 2, deleted: -1 },
     path: "deleted",
   },

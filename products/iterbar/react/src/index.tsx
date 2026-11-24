@@ -6,6 +6,7 @@ import {
   SLOT_BOUNDARY_ATTRIBUTE,
   validateSlotDefinition,
   type SlotRange,
+  type SlotRegistration,
   type VariantsRegistry,
 } from "@iterbar/variants";
 import {
@@ -159,7 +160,31 @@ function DevelopmentVariants<VariantMap extends Readonly<Record<string, VariantC
   const end = useRef<HTMLTemplateElement>(null);
   const range = useRef<SlotRange | null>(null);
 
-  useEffect(() => registry().register(definition), [registry, definition]);
+  // Registered once per slot, variants and default; a description change updates the registration in place, so this
+  // instance keeps its place among the slot's mounts (a version 1 registry knows no descriptions and has no
+  // `describe`).
+  const describedRef = useRef(definition.descriptions);
+  describedRef.current = definition.descriptions;
+  const registrationRef = useRef<SlotRegistration | null>(null);
+  const base = useMemo(
+    () => ({ slot: definition.slot, variants: definition.variants, defaultVariant: definition.defaultVariant }),
+    // Keyed on the variant names' text, not the array, and not on the descriptions, which the effect below applies.
+    [definition.slot, variantNames, definition.defaultVariant],
+  );
+  useEffect(() => {
+    const described = describedRef.current;
+    const registration = registry().register({ ...base, ...(described ? { descriptions: described } : {}) });
+    registrationRef.current = registration;
+    return () => {
+      registration();
+      if (registrationRef.current === registration) registrationRef.current = null;
+    };
+  }, [registry, base]);
+  useEffect(() => {
+    const registration = registrationRef.current;
+    if (!registration) return;
+    if (registration.describe) registration.describe(definition.descriptions);
+  }, [definition]);
 
   // Re-run on every switch so the new variant's elements are marked as soon as it commits; between
   // switches, the range observer follows elements the variant itself adds or replaces.

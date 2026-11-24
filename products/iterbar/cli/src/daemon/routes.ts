@@ -286,10 +286,12 @@ const handlers: Readonly<Record<DaemonEndpointName, RouteHandler>> = {
   },
 
   async deleteAllFeedback(context) {
-    const { deleted, failed } = await context.store.deleteAll();
+    const { deleted, failed, leftover } = await context.store.deleteAll();
     // Every delete that happened is announced, even when another item could not be deleted.
     for (const feedbackId of deleted) context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId });
-    const body: DeleteAllFeedbackResponse = { schemaVersion: SCHEMA_VERSION, deleted: deleted.length, failed: failed.length };
+    const body: DeleteAllFeedbackResponse = {
+      schemaVersion: SCHEMA_VERSION, deleted: deleted.length, failed: failed.length, leftover: leftover.length,
+    };
     sendJson(context.response, 200, body, context.headers);
   },
 

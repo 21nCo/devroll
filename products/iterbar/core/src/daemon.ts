@@ -137,6 +137,8 @@ export const deleteAllFeedbackResponseSchema = z.object({
   schemaVersion: schemaVersionSchema,
   deleted: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative().default(0),
+  /** Deleted items whose files (attachments) could not all be removed yet; the daemon's next start removes them. */
+  leftover: z.number().int().nonnegative().default(0),
 });
 
 /** Response of `GET /info`. */

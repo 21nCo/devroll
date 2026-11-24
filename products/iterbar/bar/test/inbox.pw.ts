@@ -271,3 +271,16 @@ test("a status change that keeps a thread listed but rebuilds its actions keeps 
   await expect(inBar(page, `[data-feedback-id="${item.id}"] .badge`)).toHaveText("Done");
   await expect(inBar(page, `[data-feedback-id="${item.id}"] [data-action=archive]`)).toBeFocused();
 });
+
+test("a bulk action from the keyboard that hides itself leaves focus in the inbox", async ({ page, openFixture, fixtureServer }) => {
+  await openInbox(page, openFixture, [comment("A"), comment("B")], fixtureServer.origin);
+  await inBar(page, "[data-role=select-all]").check();
+  await inBar(page, "[data-bulk=done]").focus();
+  await page.keyboard.press("Enter");
+  await expect(inBar(page, "[data-filter=done]")).toHaveAttribute("aria-label", "Done, 2");
+  // Mark done no longer applies to the selection (or it cleared): focus is on the select-all box, not the page.
+  await expect.poll(() => page.evaluate(() => {
+    const active = document.querySelector("iterbar-bar")!.shadowRoot!.activeElement as HTMLElement | null;
+    return active?.dataset.role ?? active?.dataset.filter ?? null;
+  })).toMatch(/^(select-all|all)$/);
+});

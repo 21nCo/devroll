@@ -45,7 +45,7 @@ export interface SettingsOptions {
   readonly startDaemon: () => Promise<void>;
   readonly restartDaemon: () => Promise<void>;
   /** Deletes every item in the store; resolves with how many went and how many could not be deleted. */
-  readonly deleteAll: () => Promise<{ deleted: number; failed: number }>;
+  readonly deleteAll: () => Promise<{ deleted: number; failed: number; leftover: number }>;
   /** Removes every draft; resolves with how many went. */
   readonly clearDrafts: () => number;
   readonly openSetup: () => void;
@@ -510,8 +510,12 @@ export class SettingsPanel {
           + `with their replies, screenshots and evidence: everything in ${where}. Your agent can't read them afterwards, and they can't be brought back. `
           + "It leaves your code, your agent's setup (skill and MCP config), the drafts in this tab and these settings alone.",
         this.#button("Delete everything", "data-delete-confirm", () => void this.#run("data", async () => {
-          const { deleted, failed } = await this.#options.deleteAll();
-          if (failed > 0) throw new Error(`Deleted ${plural(deleted, "item")}; ${failed} could not be deleted (see the daemon's log).`);
+          const { deleted, failed, leftover } = await this.#options.deleteAll();
+          if (failed > 0) throw new Error(`Deleted ${plural(deleted, "item")}; ${failed} could not be deleted. Try again.`);
+          if (leftover > 0) {
+            throw new Error(`Deleted ${plural(deleted, "item")}, but the files of ${leftover} could not be removed yet; `
+              + "the daemon removes them when it next starts, or try again.");
+          }
           return `Deleted ${plural(deleted, "item")}.`;
         }), { danger: true })));
     }

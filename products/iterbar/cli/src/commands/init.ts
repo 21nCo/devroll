@@ -352,8 +352,12 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
         await registerJson(root, join(root, ".cursor", "mcp.json"), { ...launch, args: [...launch.args, "--root", "${workspaceFolder}"] }, parsed, say);
       } else {
         say(`  MCP server: add to ${join(env.codexHome ?? join(env.home, ".codex"), "config.toml")}:`);
-        const args = [...launch.args, "--root", root].map((arg) => JSON.stringify(arg)).join(", ");
-        say(`    [mcp_servers.iterbar]\n    command = ${JSON.stringify(launch.command)}\n    args = [${args}]\n    tool_timeout_sec = 1900`);
+        // Codex's config is the user's, so Codex starts the server from any folder, where npx would not find the
+        // project's own install: that install is named by its absolute path instead.
+        const projectCli = join(root, "node_modules", ...CLI_PACKAGE.split("/"), "dist", "cli.js");
+        const codexLaunch = launch === MCP_COMMAND && existsSync(projectCli) ? { command: "node", args: [projectCli, "mcp"] } : launch;
+        const args = [...codexLaunch.args, "--root", root].map((arg) => JSON.stringify(arg)).join(", ");
+        say(`    [mcp_servers.iterbar]\n    command = ${JSON.stringify(codexLaunch.command)}\n    args = [${args}]\n    tool_timeout_sec = 1900`);
       }
     }
     say("\nNext: start your dev server with the Iterbar plugin, open the page, and paste this into your agent:");

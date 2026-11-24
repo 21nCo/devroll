@@ -155,6 +155,13 @@ describe("iterbar init", () => {
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
+    // Codex starts the server from any folder, so its config names the project's install by its absolute path.
+    const projectCli = join(root, "node_modules", "@iterbar", "cli", "dist", "cli.js");
+    await mkdir(join(root, "node_modules", "@iterbar", "cli", "dist"), { recursive: true });
+    await writeFile(projectCli, "");
+    const codex = capture();
+    expect(await runInit(["--root", root, "--agent", "codex"], codex.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
+    expect(codex.out()).toContain(`command = "node"\n    args = [${JSON.stringify(projectCli)}, "mcp", "--root", ${JSON.stringify(root)}]`);
   });
 
   it("writes nothing on a dry run, and prints Codex's config instead of editing it", async () => {

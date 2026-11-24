@@ -3,6 +3,7 @@
     getVariantsRegistry,
     markSlotRange,
     validateSlotDefinition,
+    type SlotRegistration,
   } from "@iterbar/variants";
   import { variantContent } from "./content.js";
   import { providedRegistry } from "./context.js";
@@ -46,24 +47,38 @@
   let start = $state<HTMLTemplateElement>();
   let end = $state<HTMLTemplateElement>();
 
+  // The slot, variant names and default, which registering depends on; the descriptions are applied in place below,
+  // so a description change keeps this instance's place among the slot's mounts.
+  const baseKey = $derived(JSON.stringify([slot, Object.keys(variants), defaultVariant]));
+  let registration: SlotRegistration | null = null;
+
   // Runs only in the browser, after mount: registers the slot and follows the registry's selections.
   $effect(() => {
-    const current = definition;
+    void baseKey;
+    const current = untrack(() => definition);
     const registry = provided ?? getVariantsRegistry();
     // Untracked: registering notifies at once, and this effect must not depend on the count it bumps.
     const unsubscribe = registry.subscribe(() => untrack(() => (changes += 1)));
-    let unregister: () => void;
+    let unregister: SlotRegistration;
     try {
       unregister = registry.register(current);
     } catch (error) {
       unsubscribe();
       throw error;
     }
+    registration = unregister;
     live = true;
     return () => {
       unsubscribe();
       unregister();
+      if (registration === unregister) registration = null;
     };
+  });
+
+  // A description change updates the registration in place (a version 1 registry knows no descriptions).
+  $effect(() => {
+    const descriptions = definition.descriptions;
+    untrack(() => registration?.describe?.(descriptions));
   });
 
   // Re-run on every switch so the new variant's elements are marked as soon as it renders; between switches,

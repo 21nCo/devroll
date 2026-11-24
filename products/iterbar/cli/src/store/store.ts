@@ -79,6 +79,11 @@ export interface OpenFeedbackStoreOptions {
 }
 
 /** Feedback, replies, status changes and attachments under a project's `.iterbar/`, owned by this process. */
+/** The file in `.iterbar/` that remembers deleted batch members (see FeedbackStore.delete). */
+const DELETED_BATCH_MEMBERS_FILE = "deleted-batch-members.json";
+/** How many batches' deleted members are remembered. */
+const MAX_REMEMBERED_BATCHES = 200;
+
 export interface FeedbackStore {
   readonly paths: IterbarPaths;
   /** Items matching every given filter, oldest first. `since` keeps items with `updatedAt >= since`. */
@@ -101,7 +106,7 @@ export interface FeedbackStore {
    * Deletes every item with its attachments, one at a time. Resolves with the ids deleted and those that could not be
    * (an unreadable record, a failed write), so every delete that happened can be announced.
    */
-  deleteAll(): Promise<{ deleted: string[]; failed: string[] }>;
+  deleteAll(): Promise<{ deleted: string[]; failed: string[]; leftover: string[] }>;
   /** Waits for pending writes, then releases the lock. Idempotent. */
   close(): Promise<void>;
 }
@@ -399,8 +404,14 @@ class FileFeedbackStore implements FeedbackStore {
         byteLength: evidenceData.byteLength,
         sha256: sha256(evidenceData),
       };
+      // A batch member deleted before this one (a retry of a comment that failed, say) no longer counts toward the
+      // batch: the size the bar still sends is lowered by the deleted members other than this comment.
+      const deletedMembers = content.batchId === undefined ? [] : (await this.#deletedBatchMembers())[content.batchId] ?? [];
+      const removed = deletedMembers.filter((index) => index !== content.batchIndex).length;
+      const batchSize = content.batchSize === undefined || removed === 0 ? content.batchSize : Math.max(1, content.batchSize - removed);
       const feedback = parseMessage(feedbackSchema, {
         ...content,
+        ...(batchSize === undefined ? {} : { batchSize }),
         id,
         screenshot,
         evidence: evidenceAttachment && evidenceWindow ? { window: evidenceWindow, attachment: evidenceAttachment } : null,
@@ -470,7 +481,7 @@ class FileFeedbackStore implements FeedbackStore {
   }
 
   /** Deletes every item, one durable delete at a time, going on past one that fails. */
-  async deleteAll(): Promise<{ deleted: string[]; failed: string[] }> {
+  async deleteAll(): Promise<{ deleted: string[]; failed: string[]; leftover: string[] }> {
     this.#assertOpen();
     return this.#exclusive(async () => {
       const deleted: string[] = [];
@@ -485,7 +496,19 @@ class FileFeedbackStore implements FeedbackStore {
           if (!(error instanceof IterbarStoreError && error.code === "not_found")) failed.push(entry.name);
         }
       }
-      return { deleted, failed };
+      // Items whose record went but whose folder (attachments) could not be removed: deleted, yet files remain. One
+      // more try now; the next start's sweep removes what is still there.
+      const leftover: string[] = [];
+      for (const feedbackId of deleted) {
+        if (!(await directoryExists(feedbackDirectoryPath(this.#root, feedbackId)))) continue;
+        try {
+          await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
+        } catch {
+          leftover.push(feedbackId);
+        }
+      }
+      if (deleted.length > 0) await syncDirectory(this.paths.feedbackDirectory).catch(() => undefined);
+      return { deleted, failed, leftover };
     });
   }
 
@@ -520,14 +543,60 @@ class FileFeedbackStore implements FeedbackStore {
    * batchIndex) survives, since that comment is still there. Best effort, after the delete is durable; a member
    * still being sent carries the size the bar knew, which get_batch then reads as the newest.
    */
+  /** Where the indexes of deleted batch members are kept, by batch id (in `.iterbar/`, which git ignores). */
+  get #deletedMembersFile(): string {
+    return join(this.paths.directory, DELETED_BATCH_MEMBERS_FILE);
+  }
+
+  /** The deleted members of each batch, newest batches last; empty when none were kept or the file is unreadable. */
+  async #deletedBatchMembers(): Promise<Record<string, number[]>> {
+    try {
+      const value = JSON.parse(await readFile(this.#deletedMembersFile, "utf8")) as unknown;
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+      const out: Record<string, number[]> = Object.create(null) as Record<string, number[]>;
+      for (const [batchId, indexes] of Object.entries(value)) {
+        if (Array.isArray(indexes)) out[batchId] = indexes.filter((index): index is number => Number.isInteger(index) && index >= 0);
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
+  async #rememberDeletedMember(batchId: string, batchIndex: number): Promise<void> {
+    const all = await this.#deletedBatchMembers();
+    const indexes = all[batchId] ?? [];
+    if (indexes.includes(batchIndex)) return;
+    delete all[batchId];
+    all[batchId] = [...indexes, batchIndex];
+    // Only the most recent batches are kept: a retry comes soon after its batch.
+    const ids = Object.keys(all);
+    for (const old of ids.slice(0, Math.max(0, ids.length - MAX_REMEMBERED_BATCHES))) delete all[old];
+    await writeFileAtomic(this.paths.tmpDirectory, this.#deletedMembersFile, `${JSON.stringify(all)}\n`);
+  }
+
+  async #forgetDeletedMember(batchId: string, batchIndex: number): Promise<void> {
+    const all = await this.#deletedBatchMembers();
+    if (!all[batchId]?.includes(batchIndex)) return;
+    all[batchId] = all[batchId]!.filter((index) => index !== batchIndex);
+    if (all[batchId]!.length === 0) delete all[batchId];
+    await writeFileAtomic(this.paths.tmpDirectory, this.#deletedMembersFile, `${JSON.stringify(all)}\n`);
+  }
+
   async #shrinkBatch(deleted: Feedback): Promise<void> {
+    // Remembered, so a member stored later (a retry) is counted against the smaller batch too.
+    if (deleted.batchId !== undefined && deleted.batchIndex !== undefined) await this.#rememberDeletedMember(deleted.batchId, deleted.batchIndex);
     const siblings: StoredRecord[] = [];
     for (const entry of await listDirectory(this.paths.feedbackDirectory)) {
       if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
       const record = await this.#read(entry.name);
       if (record && record.feedback.batchId === deleted.batchId) siblings.push(record);
     }
-    if (deleted.batchIndex !== undefined && siblings.some((each) => each.feedback.batchIndex === deleted.batchIndex)) return;
+    if (deleted.batchIndex !== undefined && siblings.some((each) => each.feedback.batchIndex === deleted.batchIndex)) {
+      // Another copy of that comment survives: it still counts, so it is not remembered as deleted either.
+      await this.#forgetDeletedMember(deleted.batchId!, deleted.batchIndex);
+      return;
+    }
     for (const sibling of siblings) {
       const size = sibling.feedback.batchSize;
       // Metadata only: updatedAt stays, so the change is not reported as an update to the thread.

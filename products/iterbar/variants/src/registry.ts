@@ -58,8 +58,17 @@ export interface SlotDefinition {
 }
 
 interface SlotInstance {
-  readonly definition: SlotDefinition;
+  definition: SlotDefinition;
 }
+
+/**
+ * What {@link VariantsRegistry.register} returns: calling it unregisters the instance, and `describe` changes the
+ * instance's variant descriptions in place, keeping its place among the slot's mounts (a version 1 registry's
+ * handle has no `describe`; callers register again there).
+ */
+export type SlotRegistration = (() => void) & {
+  describe?(descriptions: Readonly<Record<string, string>> | undefined): void;
+};
 
 interface SlotRecord {
   /** One entry per mounted instance, earliest first. The earliest one's definition defines the slot. */
@@ -177,7 +186,7 @@ export class VariantsRegistry {
    * update) ends up with the new variants. Throws `invalid_message` for an invalid definition or when the
    * page already has {@link MAX_SLOTS} slots.
    */
-  register(definition: SlotDefinition): () => void {
+  register(definition: SlotDefinition): SlotRegistration {
     const valid = validateSlotDefinition(definition);
     const instance: SlotInstance = { definition: valid };
     let record = this.#slots.get(valid.slot);
@@ -203,7 +212,7 @@ export class VariantsRegistry {
 
     const registered = record;
     let active = true;
-    return () => {
+    const unregister = () => {
       if (!active) return;
       active = false;
       const index = registered.instances.indexOf(instance);
@@ -214,6 +223,17 @@ export class VariantsRegistry {
       else this.#refreshDefinition(registered, previous);
       this.#notify();
     };
+    return Object.assign(unregister, {
+      describe: (descriptions: Readonly<Record<string, string>> | undefined) => {
+        if (!active || this.#slots.get(valid.slot) !== registered) return;
+        // Validated like any definition; the slot, variants and default stay, and so does this instance's place.
+        const { slot, variants, defaultVariant } = instance.definition;
+        const next = validateSlotDefinition({ slot, variants, defaultVariant, ...(descriptions ? { descriptions } : {}) });
+        if (JSON.stringify(next.descriptions ?? null) === JSON.stringify(instance.definition.descriptions ?? null)) return;
+        instance.definition = next;
+        this.#notify();
+      },
+    });
   }
 
   /**

@@ -608,3 +608,15 @@ describe("browser helpers", () => {
     expect(slotBoundaryAttributes("start")).toEqual({ "data-iterbar-slot-boundary": "start" });
   });
 });
+
+describe("descriptions", () => {
+  it("describe() changes an instance's descriptions in place, keeping the order of the slot's mounts", () => {
+    const { registry } = page();
+    const first = registry.register({ slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", descriptions: { v1: "One" } });
+    registry.register({ slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1" });
+    first.describe?.({ v1: "One, edited", v2: "Two" });
+    expect(registry.getSnapshot().slots[0]?.descriptions).toEqual({ v1: "One, edited", v2: "Two" });
+    // Validated like any definition.
+    expect(() => first.describe?.({ v9: "No such variant" })).toThrow();
+  });
+});

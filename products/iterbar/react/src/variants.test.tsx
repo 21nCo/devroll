@@ -837,3 +837,22 @@ describe("slot ranges", () => {
     expect(errors).toEqual([]);
   });
 });
+
+describe("descriptions", () => {
+  it("updates a description in place, so the mount that defines the slot stays the first", () => {
+    const registry = createVariantsRegistry();
+    const variants = { v1: <p>Plan one</p>, v2: <p>Plan two</p> };
+    function Page({ text }: { text: string }) {
+      return (
+        <VariantsProvider registry={registry}>
+          <Variants slot="pricing" variants={variants} default="v1" descriptions={{ v1: text }} />
+          <Variants slot="pricing" variants={variants} default="v1" />
+        </VariantsProvider>
+      );
+    }
+    const { rerender } = render(<Page text="First" />);
+    expect(registry.getSnapshot().slots[0]?.descriptions).toEqual({ v1: "First" });
+    rerender(<Page text="Edited" />);
+    expect(registry.getSnapshot().slots[0]?.descriptions).toEqual({ v1: "Edited" });
+  });
+});
