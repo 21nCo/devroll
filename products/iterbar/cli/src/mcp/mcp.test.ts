@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -108,6 +109,7 @@ describe("iterbar mcp", { timeout: 60_000 }, () => {
   it("offers the feedback-loop tools with a bounded wait timeout", async () => {
     const { client } = await connect();
     expect(client.getServerVersion()?.name).toBe("iterbar");
+    expect(client.getServerVersion()?.version).toBe((JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version);
     expect(client.getInstructions()).toContain("iterbar dev");
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual(TOOL_NAMES);

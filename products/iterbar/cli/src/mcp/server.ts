@@ -1,9 +1,28 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { DaemonClient } from "./daemon-client.js";
 import { HANDLED_EVENT_RULE, registerTools, SESSION_RULE } from "./tools.js";
 
-/** The MCP server's name and version as it reports them to clients. */
-export const ITERBAR_MCP_SERVER_INFO = Object.freeze({ name: "iterbar", version: "0.0.0" });
+/** This package's version, from its package.json: the nearest one above this file, built (dist/) or not (src/). */
+function packageVersion(): string {
+  let directory = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    try {
+      const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8")) as { version?: unknown };
+      if (typeof manifest.version === "string") return manifest.version;
+    } catch {
+      // Not here; look further up.
+    }
+    const parent = dirname(directory);
+    if (parent === directory) return "0.0.0";
+    directory = parent;
+  }
+}
+
+/** The MCP server's name and version (the package's) as it reports them to clients. */
+export const ITERBAR_MCP_SERVER_INFO = Object.freeze({ name: "iterbar", version: packageVersion() });
 
 /** How often a waiting `wait_for_feedback` sends a progress notification to a client that asked for progress. */
 export const DEFAULT_HEARTBEAT_MS = 15_000;

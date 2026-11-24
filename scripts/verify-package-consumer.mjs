@@ -12,6 +12,11 @@ const npmCli = resolve(dirname(process.execPath), process.platform === "win32"
 const npmCommand = existsSync(npmCli)
   ? { executable: process.execPath, prefix: [npmCli] }
   : { executable: "npm", prefix: [] };
+// pnpm, run as this script was (`pnpm verify:packages` sets npm_execpath to its JavaScript entry), so a Windows
+// `.cmd` shim never has to be launched directly; a plain `pnpm` on PATH otherwise.
+const pnpmCommand = /pnpm/i.test(process.env.npm_execpath ?? "") && /\.c?js$/i.test(process.env.npm_execpath ?? "")
+  ? { executable: process.execPath, prefix: [process.env.npm_execpath] }
+  : { executable: "pnpm", prefix: [] };
 const temporaryRoot = await mkdtemp(join(tmpdir(), "diffpanel-consumer-"));
 const packDirectory = join(temporaryRoot, "packs");
 const consumerDirectory = join(temporaryRoot, "consumer");
@@ -35,7 +40,7 @@ try {
     // devDependency's version into the manifest. pnpm prints one object where npm prints a list.
     const pnpmPacked = packagePath === "products/iterbar/cli";
     const output = pnpmPacked
-      ? execFileSync("pnpm", ["pack", "--json", "--pack-destination", packDirectory], {
+      ? execFileSync(pnpmCommand.executable, [...pnpmCommand.prefix, "pack", "--json", "--pack-destination", packDirectory], {
         cwd: join(root, packagePath), encoding: "utf8", stdio: ["ignore", "pipe", "inherit"],
       })
       : execFileSync(

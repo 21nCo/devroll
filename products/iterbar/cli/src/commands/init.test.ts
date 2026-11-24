@@ -158,8 +158,13 @@ describe("iterbar init", () => {
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
     expect(run.out()).toContain(`command = "node"`);
     // Installed in the project, or fetched by npx: npx runs it.
+    // The earlier contracts package installed under the name does not count: it has no iterbar command.
     await mkdir(join(root, "node_modules", "iterbar"), { recursive: true });
-    await writeFile(join(root, "node_modules", "iterbar", "package.json"), "{}");
+    await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", version: "0.0.1" }));
+    const contracts = capture();
+    expect(await runInit(["--root", root, "--force"], contracts.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
+    await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", bin: { iterbar: "./dist/cli.js" } }));
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
@@ -182,6 +187,10 @@ describe("iterbar init", () => {
     const fromCheckout = capture();
     expect(await runInit(["--root", root], fromCheckout.io, { home, skillSource: skill, cliPath: "/checkout/cli/dist/cli.js" })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: ["/checkout/cli/dist/cli.js", "mcp"] });
+    // Keys in another order are the same entry.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { args: ["-y", "@iterbar/cli", "mcp"], command: "npx" } } }));
+    expect(await runInit(["--root", root], capture().io, { home, skillSource: skill })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
     await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp", "--verbose"] } } }));
     const custom = capture();
     expect(await runInit(["--root", root], custom.io, { home, skillSource: skill })).toBe(0);

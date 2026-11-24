@@ -1,6 +1,6 @@
 import { chmod, cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { existsSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -79,9 +79,22 @@ interface McpLaunch {
  * absolute path, so the agent can start the server.
  */
 function mcpLaunch(root: string, cliPath: string | null): McpLaunch {
-  const installed = existsSync(join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json"));
+  const installed = hasIterbarCommand(join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json"));
   if (installed || cliPath === null || cliPath.split(sep).includes("_npx")) return MCP_COMMAND;
   return { command: "node", args: [cliPath, "mcp"] };
+}
+
+/**
+ * Whether the package installed at `manifest` provides the `iterbar` command: the CLI, not the contracts package that
+ * was published under the same name before it.
+ */
+function hasIterbarCommand(manifest: string): boolean {
+  try {
+    const bin = (JSON.parse(readFileSync(manifest, "utf8")) as { bin?: unknown }).bin;
+    return typeof bin === "object" && bin !== null && typeof (bin as Record<string, unknown>).iterbar === "string";
+  } catch {
+    return false;
+  }
 }
 
 /** The running CLI file (`cli.js`, links resolved), or `null` when init runs some other way (a test). */
@@ -254,7 +267,13 @@ const EARLIER_PACKAGE = "@iterbar/cli";
  * earlier default is moved to it; anything else is the user's own.
  */
 function isEarlierDefault(current: unknown, extra: readonly string[]): boolean {
-  return JSON.stringify(current) === JSON.stringify({ command: "npx", args: ["-y", EARLIER_PACKAGE, "mcp", ...extra] });
+  if (!isPlainObject(current)) return false;
+  // Compared field by field, so a formatter's key order does not matter; any extra field makes it the user's own.
+  const keys = Object.keys(current).sort();
+  const expected = ["-y", EARLIER_PACKAGE, "mcp", ...extra];
+  return keys.length === 2 && keys[0] === "args" && keys[1] === "command" && current.command === "npx"
+    && Array.isArray(current.args) && current.args.length === expected.length
+    && current.args.every((arg, index) => arg === expected[index]);
 }
 
 /**
