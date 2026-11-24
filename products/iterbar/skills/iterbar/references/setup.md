@@ -14,10 +14,17 @@ npx iterbar init --agent claude     # or codex, cursor, all
 It copies this skill into the agent's skills folder (`--scope project` puts it in the project instead), registers the
 MCP server (Claude Code: `.mcp.json`; Cursor: `.cursor/mcp.json`; for Codex it prints the `config.toml` lines to add),
 and prints the prompt to paste. It never replaces an existing iterbar skill or server entry that differs unless you
-pass `--force`, and `--dry-run` shows what it would change. Projects that use the Vite plugin (`@iterbar/vite`)
-already have `iterbar` installed, so `npx` runs that copy.
+pass `--force` (an entry an earlier init wrote is its own, and is updated), and `--dry-run` shows what it would
+change.
 
-The MCP configs it writes run `npx -y iterbar mcp`, so nothing has to be on `PATH`.
+The MCP entry it writes depends on where the CLI comes from, so the agent can always start the server:
+
+- The project has `iterbar` installed directly (`npm i -D iterbar`), so its `iterbar` command is the project's:
+  `npx -y iterbar mcp`, which runs that copy.
+- Otherwise, run through `npx iterbar init`: `npx -y iterbar@<version> mcp`, pinned to the version init ran, so
+  npx fetches that CLI. (The Vite plugin depends on `iterbar`, but with pnpm a dependency's dependency is not a
+  project command, so npx would not find the plugin's copy; install `iterbar` directly to use one copy.)
+- Run from a Devroll checkout (below), or from a tarball npx installed: `node <path to cli.js> mcp`.
 
 ## From a Devroll checkout (contributors)
 

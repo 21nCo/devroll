@@ -166,9 +166,19 @@ describe("iterbar init", () => {
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
     // Run through npx with that package in the way, the entry names this CLI's version so npx fetches it instead.
     const viaNpx = capture();
-    expect(await runInit(["--root", root, "--force"], viaNpx.io, { home, skillSource: skill, cliPath: "/cache/_npx/1/node_modules/iterbar/dist/cli.js" })).toBe(0);
+    const npxCli = join(base, "cache", "_npx", "1", "node_modules", "iterbar", "dist", "cli.js");
+    expect(await runInit(["--root", root, "--force"], viaNpx.io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toMatch(/^iterbar@\d+\.\d+\.\d+/);
     expect(viaNpx.out()).not.toContain("with node");
+    // A pin an earlier init wrote is init's own: a later init moves it to the version it runs.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "iterbar@0.0.9", "mcp"] } } }));
+    expect(await runInit(["--root", root], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).not.toBe("iterbar@0.0.9");
+    // npx installed it from a tarball: it cannot be fetched by version, so it runs by its path.
+    await mkdir(join(base, "cache", "_npx", "1", "node_modules"), { recursive: true });
+    await writeFile(join(base, "cache", "_npx", "1", "node_modules", ".package-lock.json"), JSON.stringify({ packages: { "node_modules/iterbar": { resolved: "file:../iterbar-0.1.0.tgz" } } }));
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [npxCli, "mcp"] });
     await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", bin: { iterbar: "./dist/cli.js" } }));
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);

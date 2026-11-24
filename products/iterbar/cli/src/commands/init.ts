@@ -87,7 +87,9 @@ function mcpLaunch(root: string, cliPath: string | null): McpLaunch {
   // Fetched by npx, with no CLI in the project: the entry names this CLI's version, so npx fetches it even when
   // something without the command holds the name nearby (the contracts package once published as iterbar, here or
   // hoisted to a workspace root, where an unversioned npx would run it).
-  if (cliPath.split(sep).includes("_npx")) return { command: "npx", args: ["-y", `${CLI_PACKAGE}@${packageVersion()}`, "mcp"] };
+  if (cliPath.split(sep).includes("_npx") && fromRegistry(cliPath)) {
+    return { command: "npx", args: ["-y", `${CLI_PACKAGE}@${packageVersion()}`, "mcp"] };
+  }
   return { command: "node", args: [cliPath, "mcp"] };
 }
 
@@ -101,6 +103,25 @@ function hasIterbarCommand(manifest: string): boolean {
     return typeof bin === "object" && bin !== null && typeof (bin as Record<string, unknown>).iterbar === "string";
   } catch {
     return false;
+  }
+}
+
+/**
+ * Whether the npx copy at `cliPath` came from the npm registry, as its npx folder's lockfile records. A copy npx
+ * installed from a tarball, a folder or git cannot be fetched again by version, so it is run by its path instead.
+ */
+function fromRegistry(cliPath: string): boolean {
+  const parts = cliPath.split(sep);
+  const npxIndex = parts.lastIndexOf("_npx");
+  // <cache>/_npx/<hash>/node_modules/<package>/...: the lockfile sits in <hash>/node_modules.
+  const lockfile = join(parts.slice(0, npxIndex + 2).join(sep) || sep, "node_modules", ".package-lock.json");
+  try {
+    const lock = JSON.parse(readFileSync(lockfile, "utf8")) as { packages?: Record<string, { resolved?: unknown }> };
+    const resolved = lock.packages?.[`node_modules/${CLI_PACKAGE}`]?.resolved;
+    return typeof resolved !== "string" || /^https?:\/\//.test(resolved);
+  } catch {
+    // No lockfile to say otherwise: npx fetched it by name.
+    return true;
   }
 }
 
@@ -265,6 +286,9 @@ async function writeAtomic(path: string, text: string): Promise<void> {
   }
 }
 
+/** A version of this package that an earlier init pinned, as `iterbar@0.1.0`. */
+const PINNED_SPEC = new RegExp(`^${CLI_PACKAGE.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}@\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$`);
+
 /** The package name an earlier init registered, before the CLI was published as `iterbar`. */
 const EARLIER_PACKAGE = "@iterbar/cli";
 
@@ -277,10 +301,12 @@ function isEarlierDefault(current: unknown, extra: readonly string[]): boolean {
   if (!isPlainObject(current)) return false;
   // Compared field by field, so a formatter's key order does not matter; any extra field makes it the user's own.
   const keys = Object.keys(current).sort();
-  const expected = ["-y", EARLIER_PACKAGE, "mcp", ...extra];
-  return keys.length === 2 && keys[0] === "args" && keys[1] === "command" && current.command === "npx"
-    && Array.isArray(current.args) && current.args.length === expected.length
-    && current.args.every((arg, index) => arg === expected[index]);
+  if (keys.length !== 2 || keys[0] !== "args" || keys[1] !== "command" || current.command !== "npx") return false;
+  const args = current.args;
+  if (!Array.isArray(args) || args.length !== 3 + extra.length || args[0] !== "-y" || args[2] !== "mcp") return false;
+  if (!extra.every((arg, index) => args[3 + index] === arg)) return false;
+  // The earlier package name, or this package pinned to a version by an earlier init run through npx.
+  return args[1] === EARLIER_PACKAGE || (typeof args[1] === "string" && PINNED_SPEC.test(args[1]));
 }
 
 /**
@@ -318,7 +344,7 @@ async function registerJson(
   // An entry an earlier init wrote under the package's earlier name (@iterbar/cli) is that init's own default, not a
   // customized entry: it is moved to the current one.
   if (current !== undefined && isEarlierDefault(current, extra)) {
-    say(`  MCP server: ${options.dryRun ? "would update" : "updated"} iterbar in ${path} to the package's new name`);
+    say(`  MCP server: ${options.dryRun ? "would update" : "updated"} the iterbar entry an earlier init wrote in ${path}`);
     if (options.dryRun) return;
     await writeAtomic(path, `${JSON.stringify({ ...config, mcpServers: { ...servers, iterbar: entry } }, null, 2)}\n`);
     return;
