@@ -1,0 +1,25 @@
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_c30d6054c69c4f 159-162
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_c9d5caff523d20 3,6,83-89
+products/iterbar/cli/src/mcp/server.ts
+  s_4ded9ba77a0730::t_9200b137dfd086 2
+products/iterbar/cli/src/version.ts
+  s_4ded9ba77a0730::t_d1ba2a7464c1d0 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5a48fb70a1396a4c43304d9306aa73ad5b107dca",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
