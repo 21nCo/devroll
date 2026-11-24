@@ -349,6 +349,13 @@ const cases: Case[] = [
   },
   {
     schema: "daemonEventSchema",
+    variant: "feedback.deleted",
+    valid: { schemaVersion: 1, type: "feedback.deleted", feedbackId: comment.id },
+    invalid: { schemaVersion: 1, type: "feedback.deleted", feedbackId: "../x" },
+    path: "feedbackId",
+  },
+  {
+    schema: "daemonEventSchema",
     variant: "slots.reported",
     valid: { schemaVersion: 1, type: "slots.reported", report: slotReport },
     invalid: { schemaVersion: 1, type: "slots.reported", report: { ...slotReport, slots: [{ ...slotState, mounts: 0 }] } },
@@ -444,7 +451,7 @@ describe("nested records", () => {
   });
 
   it("rejects an unknown daemon event type on the discriminator", () => {
-    const result = safeParseMessage(daemonEventSchema, { schemaVersion: 1, type: "feedback.deleted", feedback: comment }, label);
+    const result = safeParseMessage(daemonEventSchema, { schemaVersion: 1, type: "feedback.removed", feedback: comment }, label);
     expect(result.success).toBe(false);
     if (!result.success) {
       for (const issue of (result.error as InvalidMessageError).issues) expect(issueOnPath(issue, "type"), issue).toBe(true);

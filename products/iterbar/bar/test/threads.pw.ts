@@ -40,34 +40,41 @@ test.describe("threads from the daemon", () => {
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.created", feedback: second });
     await expect(threads).toHaveCount(2);
     await expect(threads.first().locator(".thread-text")).toHaveText("Typo in the heading");
-    await expect(inBar(page, "[data-section=threads] h2")).toHaveText("Feedback (2)");
+    // The panel title says Inbox; the count lives on the filter, with no heading of its own.
+    await expect(inBar(page, "[data-section=threads] h2")).toHaveCount(0);
+    await expect(inBar(page, "[data-filter=all]")).toHaveAttribute("aria-label", "All, 2");
   });
 
-  test("shows the newest threads of a long history and keeps the counts exact as events arrive", async ({ page, openFixture, fixtureServer }) => {
-    const history = Array.from({ length: 250 }, (_, index) => comment(`Thread ${index}`));
+  test("lists a long history a page at a time, keeps the newest 500 and the counts exact as events arrive", async ({ page, openFixture, fixtureServer }) => {
+    const history = Array.from({ length: 520 }, (_, index) => comment(`Thread ${index}`));
     // Listed in an order unrelated to creation.
     const daemon = await fakeDaemon(page, fixtureServer.origin, history.map((_, index) => history[(index * 7) % history.length]!));
     await openFixture();
     await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+    await openPanel(page, "inbox");
     const threads = inBar(page, ".thread");
-    const heading = inBar(page, "[data-section=threads] h2");
-    const more = inBar(page, "[data-section=threads] > p.muted:not([data-role])");
-    await expect(heading).toHaveText("Feedback (250)");
-    await expect(threads).toHaveCount(100);
-    await expect(threads.first().locator(".thread-text")).toHaveText("Thread 249");
-    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 150");
-    await expect(more).toHaveText("150 older not shown.");
+    const count = inBar(page, "[data-role=inbox-count]");
+    const older = inBar(page, "[data-role=threads-older]");
+    const more = inBar(page, "[data-role=threads-more]");
+    await expect(inBar(page, "[data-filter=all]")).toHaveAttribute("aria-label", "All, 500");
+    await expect(threads).toHaveCount(25);
+    await expect(count).toHaveText("25 of 500");
+    await expect(threads.first().locator(".thread-text")).toHaveText("Thread 519");
+    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 495");
+    await expect(more).toHaveText("Show 25 more");
+    await expect(older).toHaveText("20 older threads not loaded. The bar keeps the newest 500.");
+    await more.click();
+    await expect(threads).toHaveCount(50);
+    await expect(count).toHaveText("50 of 500");
 
-    // An update to a hidden thread adds no row; a new thread comes first and pushes the oldest shown one out.
+    // An update to a hidden thread adds no row; a new thread comes first and pushes the oldest kept one out.
     const hidden = history[10]!;
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: { ...hidden, status: "done", updatedAt: new Date(Date.parse(hidden.updatedAt) + 1000).toISOString() } });
     const newest = comment("Newest thread");
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.created", feedback: newest });
     await expect(threads.first().locator(".thread-text")).toHaveText("Newest thread");
-    await expect(heading).toHaveText("Feedback (251)");
-    await expect(threads).toHaveCount(100);
-    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 151");
-    await expect(more).toHaveText("151 older not shown.");
+    await expect(threads).toHaveCount(50);
+    await expect(older).toHaveText("21 older threads not loaded. The bar keeps the newest 500.");
     await expect(inBar(page, `[data-feedback-id="${hidden.id}"]`)).toHaveCount(0);
   });
 
@@ -171,7 +178,7 @@ test.describe("threads from the daemon", () => {
       pageUrl: `${fixtureServer.origin}/shop`,
       slots: [{ slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 }],
     });
-    await openPanel(page, "versions");
+    await openPanel(page, "variants");
     await inBar(page, "[data-version=v3]").click();
     await expect.poll(() => daemon.slotReports.at(-1)?.slots[0]?.activeVersion).toBe("v3");
     expect(daemon.slotReports.at(-1)?.pageUrl).toBe(`${fixtureServer.origin}/shop`);

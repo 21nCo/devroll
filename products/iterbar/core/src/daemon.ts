@@ -45,6 +45,8 @@ export const daemonEndpoints = Object.freeze({
   getAttachment: { method: "GET", path: "/feedback/:feedbackId/attachments/:attachmentId" },
   reply: { method: "POST", path: "/feedback/:feedbackId/replies" },
   setStatus: { method: "POST", path: "/feedback/:feedbackId/status" },
+  /** Deletes an item with its attachments; the bar's inbox offers it, agents do not. */
+  deleteFeedback: { method: "DELETE", path: "/feedback/:feedbackId" },
   reportSlots: { method: "POST", path: "/slots" },
   listSlots: { method: "GET", path: "/slots" },
   /** WebSocket upgrade for {@link daemonEventSchema} messages. */
@@ -148,6 +150,7 @@ export const daemonErrorResponseSchema = z.object({
 export const daemonEventSchema = z.discriminatedUnion("type", [
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("feedback.created"), feedback: feedbackSchema }),
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("feedback.updated"), feedback: feedbackSchema }),
+  z.object({ schemaVersion: schemaVersionSchema, type: z.literal("feedback.deleted"), feedbackId: idSchema }),
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("slots.reported"), report: slotReportSchema }),
 ]);
 

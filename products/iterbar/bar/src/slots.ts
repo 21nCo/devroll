@@ -12,6 +12,7 @@ import {
   type SlotState,
 } from "iterbar";
 import { h } from "./dom.js";
+import { icon } from "./icons.js";
 
 /** How often the bar looks for `window.__ITERBAR__` until a registry installs it. */
 const PAGE_API_POLL_MS = 500;
@@ -83,18 +84,18 @@ export interface SlotsPanelOptions {
 }
 
 /**
- * The page's slots and their versions, read from and switched through the `window.__ITERBAR__` page API. With more
- * than one slot a dropdown chooses which slot's versions are shown.
+ * The page's slots and their variants, read from and switched through the `window.__ITERBAR__` page API. With more
+ * than one slot a dropdown chooses which slot's variants are shown. (The page API and the protocol name a slot's
+ * variants its "versions".)
  */
 export class SlotsPanel {
   readonly element: HTMLElement;
   readonly #options: SlotsPanelOptions;
   readonly #message = h("p", { class: "muted", "data-role": "slots-message" });
   readonly #single = h("p", { class: "slot-name", "data-role": "slot-name", hidden: true });
-  readonly #select = h("select", { id: "iterbar-slot-select", "data-role": "slot-select" });
-  readonly #picker = h("div", { class: "field", hidden: true },
-    h("label", { for: "iterbar-slot-select" }, "Slot"), this.#select);
-  readonly #versions = h("div", { class: "versions", role: "group", "data-role": "versions", hidden: true });
+  readonly #select = h("select", { id: "iterbar-slot-select", "data-role": "slot-select", "aria-label": "Slot" });
+  readonly #picker = h("div", { class: "field slot-picker", hidden: true }, this.#select, icon("caret"));
+  readonly #versions = h("div", { class: "variants", role: "group", "data-role": "variants", hidden: true });
   readonly #warnings = h("ul", { class: "warnings", "data-role": "warnings", hidden: true });
   #api: IterbarPageApi | null = null;
   #unsubscribe: (() => void) | null = null;
@@ -106,8 +107,8 @@ export class SlotsPanel {
 
   constructor(options: SlotsPanelOptions) {
     this.#options = options;
-    this.element = h("section", { class: "section", "data-section": "slots" },
-      h("h2", { class: "section-title" }, "Slots"), this.#message, this.#single, this.#picker, this.#versions, this.#warnings);
+    this.element = h("section", { class: "section", "data-section": "slots", "aria-label": "Variants" },
+      this.#message, this.#single, this.#picker, this.#versions, this.#warnings);
     this.#select.addEventListener("change", () => {
       this.#selectedSlot = this.#select.value;
       this.#render();
@@ -200,7 +201,7 @@ export class SlotsPanel {
 
     this.#single.hidden = slots.length !== 1;
     this.#picker.hidden = slots.length === 1;
-    this.#single.replaceChildren("Slot ", h("strong", {}, slot.slot));
+    this.#single.replaceChildren(h("span", { class: "muted" }, "Slot "), h("strong", {}, slot.slot));
     const slotKey = JSON.stringify(slots.map((entry) => entry.slot));
     if (slotKey !== this.#slotKey) {
       this.#slotKey = slotKey;
@@ -212,13 +213,15 @@ export class SlotsPanel {
 
   #renderVersions(slot: SlotState): void {
     this.#versions.hidden = false;
-    this.#versions.setAttribute("aria-label", `Versions of ${slot.slot}`);
+    this.#versions.setAttribute("aria-label", `Variants of ${slot.slot}`);
     const key = JSON.stringify([slot.slot, slot.versions, slot.defaultVersion]);
     if (key !== this.#versionsKey) {
       this.#versionsKey = key;
       this.#versions.replaceChildren(...slot.versions.map((version) => {
-        const button = h("button", { type: "button", class: "version", "data-version": version },
-          version, version === slot.defaultVersion ? h("span", { class: "muted" }, " (default)") : null);
+        const button = h("button", { type: "button", class: "variant", "data-version": version },
+          h("span", { class: "variant-name" }, version),
+          version === slot.defaultVersion ? h("span", { class: "variant-tag" }, "default") : null,
+          h("span", { class: "variant-check", "aria-hidden": "true" }, icon("check")));
         button.addEventListener("click", () => this.#choose(slot.slot, version));
         return button;
       }));

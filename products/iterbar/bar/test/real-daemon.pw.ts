@@ -78,7 +78,7 @@ test("connects once its origin is registered, reports slots and follows an agent
   await expect(thread.locator(".reply")).toHaveText("Agent (Codex)Raised the contrast.");
 
   // Switching a version reaches the daemon too.
-  await openPanel(page, "versions");
+  await openPanel(page, "variants");
   await inBar(page, "[data-version=v3]").click();
   await expect.poll(async () => {
     const { pages } = await call<{ pages: { slots: { activeVersion: string }[] }[] }>("GET", "/slots");

@@ -3,9 +3,25 @@
 The agent needs two things: the `iterbar` command on `PATH`, and its MCP server registered with the agent CLI.
 These steps are for the user (or for you, when the user asks you to set it up).
 
-## The `iterbar` command
+## The quick way: `iterbar init`
 
-From a checkout of the Devroll monorepo:
+The `@iterbar/cli` package carries the `iterbar` command, the MCP server and this skill. In the project's root:
+
+```bash
+npx @iterbar/cli init --agent claude     # or codex, cursor, all
+```
+
+It copies this skill into the agent's skills folder (`--scope project` puts it in the project instead), registers the
+MCP server (Claude Code: `.mcp.json`; Cursor: `.cursor/mcp.json`; for Codex it prints the `config.toml` lines to add),
+and prints the prompt to paste. It never replaces an existing iterbar skill or server entry that differs unless you
+pass `--force`, and `--dry-run` shows what it would change. Projects that use the Vite plugin (`@iterbar/vite`)
+already have `@iterbar/cli` installed, so `npx` runs that copy.
+
+The MCP configs it writes run `npx -y @iterbar/cli mcp`, so nothing has to be on `PATH`.
+
+## From a Devroll checkout (contributors)
+
+To run the command from a checkout instead of the package:
 
 ```bash
 pnpm install
@@ -18,15 +34,17 @@ iterbar --help
 If `iterbar --help` reports that the command is not found, `$HOME/.local/bin` is not on `PATH`: add
 `export PATH="$HOME/.local/bin:$PATH"` to your shell profile (`~/.zshrc` or `~/.bashrc`) and open a new shell. An
 agent CLI started some other way may not read that profile; then register the server with the symlink's absolute
-path (`$HOME/.local/bin/iterbar`, expanded) as its command instead of `iterbar`.
+path (`$HOME/.local/bin/iterbar`, expanded) as its command instead of `iterbar`. `iterbar init` from a checkout
+installs the checkout's copy of this skill.
 
 `iterbar dev --root <project>` runs the daemon for a project; `iterbar mcp --root <project>` runs the MCP server
 for the same project. Both default to the current directory. The MCP server starts even when no daemon runs; its
 tools report `daemon_unavailable` until one does.
 
-## Registering the server
+## Registering the server by hand
 
-Pass `--root` with the project's absolute path whenever the agent might start the server from another directory.
+`iterbar init` does this for you. By hand, the command is `npx -y @iterbar/cli mcp` (or `iterbar mcp` when the
+command is on `PATH`, as in the examples below). Pass `--root` with the project's absolute path whenever the agent might start the server from another directory.
 
 Claude Code, from the project root, registering it only for you:
 

@@ -2,6 +2,7 @@ import {
   bearerAuthorization,
   DAEMON_HOST,
   daemonErrorResponseSchema,
+  daemonEndpoints,
   daemonEventSchema,
   daemonPath,
   FEEDBACK_MULTIPART_PARTS,
@@ -13,8 +14,10 @@ import {
   slotReportSchema,
   tokenSchema,
   webSocketProtocols,
+  type DaemonEndpointName,
   type Feedback,
   type FeedbackDraft,
+  type FeedbackStatus,
   type SlotState,
 } from "iterbar";
 
@@ -90,6 +93,8 @@ export interface ConnectionCallbacks {
    * (not older than the one shown), so that it may take precedence over a listing in flight.
    */
   onFeedback(item: Feedback): boolean;
+  /** The daemon deleted an item (from this bar or another tab), so the bar stops showing it. */
+  onDeleted?(feedbackId: string): void;
   /**
    * The daemon's complete feedback listing, which replaces what the bar shows. `touched` holds the ids of items that
    * current events delivered while the listing was in flight; those events may be newer than the listing. Returns
@@ -254,6 +259,40 @@ export class DaemonConnection {
     return feedback.data;
   }
 
+  /** Sets an item's status from the inbox (mark done, reopen, archive). Resolves with the updated item. */
+  async setStatus(feedbackId: string, status: FeedbackStatus): Promise<Feedback> {
+    const response = await this.#userRequest("setStatus", { feedbackId }, JSON.stringify({ schemaVersion: SCHEMA_VERSION, status }));
+    const feedback = feedbackSchema.safeParse(response);
+    if (!feedback.success) throw new DaemonRequestError("The daemon's answer was not a feedback item.");
+    return feedback.data;
+  }
+
+  /** Deletes an item and its attachments. An item that is already gone counts as deleted. */
+  async deleteFeedback(feedbackId: string): Promise<void> {
+    try {
+      await this.#userRequest("deleteFeedback", { feedbackId });
+    } catch (error) {
+      if (error instanceof DaemonRequestError && error.status === 404) return;
+      throw error;
+    }
+  }
+
+  /** A request the user started from the inbox: refused while stopped, and a `401` stops the connection. */
+  async #userRequest(endpoint: "setStatus" | "deleteFeedback", params: Readonly<Record<string, string>>, body?: string): Promise<unknown> {
+    if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
+    try {
+      return await this.#request(endpoint, body, params);
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        this.#reject();
+        throw new DaemonRequestError("The daemon rejected the token. Restart the dev server to get a new one.");
+      }
+      if (error instanceof DaemonRequestError) throw error;
+      if (error instanceof DeadlineError) throw new DaemonRequestError(`The daemon did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
+      throw new DaemonRequestError(`The daemon did not answer (${(error as Error).message}).`);
+    }
+  }
+
   #open(): void {
     let socket: WebSocket;
     try {
@@ -286,6 +325,8 @@ export class DaemonConnection {
       if (!parsed.success) return;
       if (parsed.data.type === "feedback.created" || parsed.data.type === "feedback.updated") {
         if (this.#callbacks.onFeedback(parsed.data.feedback)) this.#touched?.add(parsed.data.feedback.id);
+      } else if (parsed.data.type === "feedback.deleted") {
+        this.#callbacks.onDeleted?.(parsed.data.feedbackId);
       }
     });
     socket.addEventListener("close", () => {
@@ -414,11 +455,15 @@ export class DaemonConnection {
   }
 
   /**
-   * Sends a request and resolves with the parsed JSON body, if any. A `GET` and `createFeedback` answer with JSON.
+   * Sends a request and resolves with the parsed JSON body, if any (a `204` and a slot report have none).
    * The whole exchange, body included, must finish within {@link REQUEST_TIMEOUT_MS}, so a daemon that stops
    * answering leads to the usual retry instead of a hang. A `FormData` body sets its own multipart content type.
    */
-  async #request(endpoint: "listFeedback" | "reportSlots" | "createFeedback", body?: string | FormData): Promise<unknown> {
+  async #request(
+    endpoint: Exclude<DaemonEndpointName, "registerOrigins" | "events" | "getFeedback" | "getAttachment" | "reply" | "listSlots">,
+    body?: string | FormData,
+    params: Readonly<Record<string, string>> = {},
+  ): Promise<unknown> {
     const deadline = new AbortController();
     const cancel = (): void => deadline.abort();
     if (this.#abort.signal.aborted) cancel();
@@ -435,8 +480,8 @@ export class DaemonConnection {
     const exchange = async (): Promise<unknown> => {
       const headers: Record<string, string> = { authorization: bearerAuthorization(this.#config.token) };
       if (typeof body === "string") headers["content-type"] = "application/json";
-      const response = await fetch(`${this.#config.url}${daemonPath(endpoint)}`, {
-        method: body === undefined ? "GET" : "POST",
+      const response = await fetch(`${this.#config.url}${daemonPath(endpoint, params)}`, {
+        method: daemonEndpoints[endpoint].method,
         headers,
         body,
         cache: "no-store",
@@ -448,7 +493,7 @@ export class DaemonConnection {
         refusedStatus = response.status;
         throw await answerError(response);
       }
-      return body === undefined || endpoint === "createFeedback" ? await response.json() : undefined;
+      return response.status === 204 ? undefined : endpoint === "reportSlots" ? undefined : await response.json();
     };
     try {
       return await Promise.race([exchange(), timeout]);

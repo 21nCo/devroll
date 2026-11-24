@@ -22,3 +22,34 @@ export function icon(name: IconName): SVGSVGElement {
   svg.append(path);
   return svg;
 }
+
+/**
+ * The Iterbar mark: a lowercase "i" standing on a bar, in the accent fill's text colour, on the accent disc the
+ * stylesheet draws behind it. Hidden from assistive technology; the logo button carries the name.
+ */
+export function logoMark(): SVGSVGElement {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "18");
+  svg.setAttribute("height", "18");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.setAttribute("class", "logo-mark");
+  const dot = document.createElementNS(SVG, "circle");
+  dot.setAttribute("cx", "12");
+  dot.setAttribute("cy", "5.75");
+  dot.setAttribute("r", "1.9");
+  dot.setAttribute("fill", "currentColor");
+  svg.append(dot);
+  for (const [x, y, width, height] of [[10.6, 9.25, 2.8, 8.5], [5.5, 16.25, 13, 2.8]] as const) {
+    const bar = document.createElementNS(SVG, "rect");
+    bar.setAttribute("x", String(x));
+    bar.setAttribute("y", String(y));
+    bar.setAttribute("width", String(width));
+    bar.setAttribute("height", String(height));
+    bar.setAttribute("rx", "1.4");
+    bar.setAttribute("fill", "currentColor");
+    svg.append(bar);
+  }
+  return svg;
+}

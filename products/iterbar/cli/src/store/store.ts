@@ -94,6 +94,8 @@ export interface FeedbackStore {
   reply(feedbackId: string, input: ReplyInput): Promise<Feedback>;
   /** Changes an item's status; setting the current status changes nothing. */
   setStatus(feedbackId: string, status: FeedbackStatus): Promise<Feedback>;
+  /** Deletes an item and its attachments; throws `not_found` when it does not exist. */
+  delete(feedbackId: string): Promise<void>;
   /** Waits for pending writes, then releases the lock. Idempotent. */
   close(): Promise<void>;
 }
@@ -437,6 +439,20 @@ class FileFeedbackStore implements FeedbackStore {
       const current = await this.#require(feedbackId);
       if (current.feedback.status === next) return current.feedback;
       return this.#update(current, { status: next, updatedAt: formatTimestamp(this.#clock.tick()) });
+    });
+  }
+
+  async delete(feedbackId: string): Promise<void> {
+    this.#assertOpen();
+    assertSafeId(feedbackId, "feedback id");
+    return this.#exclusive(async () => {
+      await this.#require(feedbackId);
+      // The record goes first: a crash after it leaves a directory without feedback.json, which the next open sweeps,
+      // so the item never comes back half deleted.
+      await rm(feedbackRecordPath(this.#root, feedbackId), { force: true });
+      await syncDirectory(feedbackDirectoryPath(this.#root, feedbackId));
+      await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
+      await syncDirectory(this.paths.feedbackDirectory);
     });
   }
 

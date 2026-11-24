@@ -28,7 +28,7 @@ const HOSTILE_CSS = `
     all: unset !important; background: rgb(255, 0, 0) !important; border: 9px solid red !important;
     font-size: 40px !important; padding: 30px !important; outline: none !important;
   }
-  .bar, .dock, .toolbar, .panel, .version, .thread, .badge, #iterbar-panel { background: rgb(255, 0, 0) !important; display: none !important; }
+  .bar, .dock, .toolbar, .panel, .version, .variant, .logo, .thread, .badge, #iterbar-panel { background: rgb(255, 0, 0) !important; display: none !important; }
   :focus-visible { outline: none !important; }
 `;
 
@@ -41,7 +41,7 @@ const PROPERTIES = [
 
 const SELECTORS = [
   ".dock", ".toolbar", "[data-role=status]", "[data-role=comment]", "[data-role=inbox-toggle]", "[data-role=open-count]",
-  "[data-role=grab]", "[data-role=toggle]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
+  "[data-role=logo]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
   "[data-version=v1]", "[data-version=v2]", ".thread", ".thread summary", ".badge", ".thread-text",
 ];
 
@@ -74,7 +74,7 @@ async function pageStyles(page: Page) {
 
 /** Mounts the bar with a thread and a slot, pinned expanded with the versions panel open, the pointer off it. */
 async function mountWithContent(page: Page, daemonUrl: string, token: string) {
-  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ expanded: true, panel: "versions" })));
+  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ expanded: true, panel: "variants" })));
   await registerSlots(page, [PRICING]);
   await mountBar(page, { daemonUrl, token });
   await page.mouse.move(0, 0);
@@ -204,7 +204,6 @@ test("loads nothing but the page and the daemon", async ({ page, openFixture, fi
 test("small muted text and links keep 4.5:1 contrast in both themes", async ({ page, openFixture }) => {
   await openFixture();
   await mountBar(page);
-  await page.locator("iterbar-bar [data-role=comment]").hover();
   await page.locator("iterbar-bar [data-role=drafts-toggle]").click();
   const ratio = (selector: string) => page.evaluate((target) => {
     const root = document.querySelector("iterbar-bar")!.shadowRoot!;

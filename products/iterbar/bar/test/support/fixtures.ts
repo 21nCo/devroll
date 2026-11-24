@@ -88,17 +88,25 @@ export async function registerSlots(page: Page, slots: readonly SlotDefinitionIn
 }
 
 /** Adds the bar with an optional daemon configuration. */
-export async function mountBar(page: Page, options: { daemonUrl?: string; token?: string; project?: string } = {}): Promise<void> {
-  await page.evaluate((config) => {
-    window.fixture.mountIterbarBar(config);
-  }, options);
+/**
+ * Mounts the bar. It starts expanded, so its controls can be clicked, unless `expanded` is `false` (the collapsed
+ * toolbar shows only its logo).
+ */
+export async function mountBar(
+  page: Page, options: { daemonUrl?: string; token?: string; project?: string; expanded?: boolean } = {},
+): Promise<void> {
+  const { expanded = true, ...config } = options;
+  await page.evaluate(({ config, expanded }) => {
+    const bar = window.fixture.mountIterbarBar(config);
+    if (expanded) bar.expanded = true;
+  }, { config, expanded });
 }
 
-/** Opens the toolbar's `inbox`, `drafts` or `versions` panel, unless it is already open. */
-export async function openPanel(page: Page, panel: "inbox" | "drafts" | "versions"): Promise<void> {
+/** Opens the toolbar's `inbox`, `drafts` or `variants` panel, unless it is already open. */
+export async function openPanel(page: Page, panel: "inbox" | "drafts" | "variants"): Promise<void> {
   const button = page.locator(`iterbar-bar [data-role=${panel}-toggle]`);
-  // Asleep, the versions button shows only on hover; the toolbar wakes for the keyboard too.
-  await page.locator("iterbar-bar [data-role=comment]").hover();
+  // Collapsed, the toolbar shows only its logo; clicking it expands the toolbar.
+  if (!(await button.isVisible())) await page.locator("iterbar-bar [data-role=logo]").click();
   if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
   await page.mouse.move(0, 0);
 }

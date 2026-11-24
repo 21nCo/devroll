@@ -153,6 +153,29 @@ describe("feedback API", () => {
     expect(one).toMatchObject({ id: feedback.id, status: "done", replies: [{ text: "Made it larger." }] });
   });
 
+  it("archives and deletes feedback, announcing the delete and removing its files", async () => {
+    const daemon = await start();
+    const client = await events(daemon);
+    const form = new FormData();
+    form.append("feedback", JSON.stringify(commentDraft));
+    form.append("screenshot", new Blob([PNG], { type: "image/png" }), "screenshot.png");
+    form.append("evidence", new Blob([EVIDENCE], { type: "application/json" }), "evidence.json");
+    const created = await call(daemon, "/feedback", { method: "POST", body: form });
+    expect(created.status).toBe(201);
+    const feedback = parseMessageJson(feedbackSchema, await created.text(), "feedback");
+    const archived = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 1, status: "archived" });
+    expect(((await archived.json()) as Feedback).status).toBe("archived");
+    const deleted = await call(daemon, `/feedback/${feedback.id}`, { method: "DELETE" });
+    expect(deleted.status).toBe(204);
+    expect(await storedItems()).toEqual([]);
+    expect((await call(daemon, `/feedback/${feedback.id}`)).status).toBe(404);
+    const again = await call(daemon, `/feedback/${feedback.id}`, { method: "DELETE" });
+    expect(again.status).toBe(404);
+    expect((await client.next()).type).toBe("feedback.created");
+    expect((await client.next()).type).toBe("feedback.updated");
+    expect(await client.next()).toEqual({ schemaVersion: 1, type: "feedback.deleted", feedbackId: feedback.id });
+  });
+
   // Moves tens of MiB through the daemon.
   it("refuses an attachment over 10 MiB with payload_too_large and stores nothing", { timeout: 30_000 }, async () => {
     const daemon = await start();
@@ -173,6 +196,29 @@ describe("feedback API", () => {
     expect(accepted.status).toBe(201);
     const { evidence } = JSON.parse(accepted.text) as Feedback;
     expect(evidence?.attachment.byteLength).toBe(MAX_ATTACHMENT_BYTES);
+  });
+
+  it("archives and deletes feedback, announcing the delete and removing its files", async () => {
+    const daemon = await start();
+    const client = await events(daemon);
+    const form = new FormData();
+    form.append("feedback", JSON.stringify(commentDraft));
+    form.append("screenshot", new Blob([PNG], { type: "image/png" }), "screenshot.png");
+    form.append("evidence", new Blob([EVIDENCE], { type: "application/json" }), "evidence.json");
+    const created = await call(daemon, "/feedback", { method: "POST", body: form });
+    expect(created.status).toBe(201);
+    const feedback = parseMessageJson(feedbackSchema, await created.text(), "feedback");
+    const archived = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 1, status: "archived" });
+    expect(((await archived.json()) as Feedback).status).toBe("archived");
+    const deleted = await call(daemon, `/feedback/${feedback.id}`, { method: "DELETE" });
+    expect(deleted.status).toBe(204);
+    expect(await storedItems()).toEqual([]);
+    expect((await call(daemon, `/feedback/${feedback.id}`)).status).toBe(404);
+    const again = await call(daemon, `/feedback/${feedback.id}`, { method: "DELETE" });
+    expect(again.status).toBe(404);
+    expect((await client.next()).type).toBe("feedback.created");
+    expect((await client.next()).type).toBe("feedback.updated");
+    expect(await client.next()).toEqual({ schemaVersion: 1, type: "feedback.deleted", feedbackId: feedback.id });
   });
 
   // Moves tens of MiB through the daemon.
@@ -228,7 +274,7 @@ describe("feedback API", () => {
       ["uppercase id", { path: `/feedback/${id.toUpperCase()}`, headers: token }, 404, "not_found"],
       ["missing attachment", { path: `/feedback/${id}/attachments/attachment-missing`, headers: token }, 404, "not_found"],
       ["unknown endpoint", { path: "/feedback/", headers: token }, 404, "not_found"],
-      ["wrong method", { method: "DELETE", path: `/feedback/${id}`, headers: token }, 405, "invalid_request"],
+      ["wrong method", { method: "PUT", path: `/feedback/${id}`, headers: token }, 405, "invalid_request"],
       ["repeated filter", { path: "/feedback?status=open&status=done", headers: token }, 400, "invalid_request"],
       ["bad filter", { path: "/feedback?since=yesterday", headers: token }, 400, "invalid_request"],
       ["events without upgrade", { path: "/events", headers: token }, 426, "invalid_request"],

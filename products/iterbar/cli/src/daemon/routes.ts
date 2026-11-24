@@ -263,6 +263,13 @@ const handlers: Readonly<Record<DaemonEndpointName, RouteHandler>> = {
     sendJson(context.response, 200, feedback, context.headers);
   },
 
+  async deleteFeedback(context) {
+    const feedbackId = param(context, "feedbackId");
+    await context.store.delete(feedbackId);
+    context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId });
+    sendEmpty(context.response, 204, context.headers);
+  },
+
   async reportSlots(context) {
     const report = await readJson(context.request, slotReportSchema, "slot report");
     // A report superseded by a later one is acknowledged but neither kept nor pushed as the page's state.

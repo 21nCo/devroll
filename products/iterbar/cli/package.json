@@ -2,8 +2,12 @@
   "name": "@iterbar/cli",
   "version": "0.0.0",
   "private": true,
-  "description": "Iterbar command line, daemon and local feedback store.",
+  "description": "Iterbar command line: the daemon, the MCP server for coding agents, `iterbar init`, and the bundled agent skill.",
   "type": "module",
+  "files": [
+    "dist",
+    "skills"
+  ],
   "bin": {
     "iterbar": "./dist/cli.js"
   },
@@ -23,8 +27,8 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "build": "tsup --entry.store src/store/index.ts --entry.daemon src/daemon/index.ts --entry.cli src/cli.ts --format esm --dts --sourcemap --clean",
-    "clean": "rm -rf dist coverage",
+    "build": "tsup --entry.store src/store/index.ts --entry.daemon src/daemon/index.ts --entry.cli src/cli.ts --format esm --dts --sourcemap --clean && node scripts/bundle-skill.mjs",
+    "clean": "rm -rf dist coverage skills",
     "lint": "eslint src",
     "test": "pnpm --filter @iterbar/cli... build && vitest run",
     "typecheck": "tsc --noEmit"

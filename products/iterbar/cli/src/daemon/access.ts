@@ -113,7 +113,7 @@ export function authorizePreflight(headers: IncomingHttpHeaders, policy: AccessP
     allowed: true,
     headers: {
       ...cors,
-      "access-control-allow-methods": "GET, POST",
+      "access-control-allow-methods": "GET, POST, DELETE",
       "access-control-allow-headers": "authorization, content-type",
       "access-control-max-age": String(PREFLIGHT_MAX_AGE_SECONDS),
       // Chrome's Private Network Access preflight, for a dev server reached through a LAN address.

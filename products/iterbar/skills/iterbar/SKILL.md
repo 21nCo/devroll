@@ -81,7 +81,8 @@ Work in a loop, one feedback item at a time, oldest first:
 6. When the comment is ambiguous, `reply` with one specific question and `set_status` to `needs-info` instead of
    guessing (read the thread again first, as above). Their answer arrives as a user reply in the same thread.
 7. When the user says a thread is finished, or you have answered a question that needs no change, `set_status` to
-   `resolved`.
+   `done` too. (`resolved` is an older name for `done`; the bar shows both as Done.) Threads the user archived in the
+   bar (`archived`) need nothing from you unless a user reply in them is unanswered.
 
 ### Batches
 

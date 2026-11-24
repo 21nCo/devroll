@@ -61,8 +61,6 @@ export const BAR_CSS = String.raw`
   --ib-shadow: 0 10px 32px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.10);
   --ib-margin: 12px;
   --ib-bottom: 20px;
-  /* Where the toolbar's room starts from the left; asleep it keeps room for the grab handle (see below). */
-  --ib-start: var(--ib-margin);
   color-scheme: light;
   font: 13px/1.4 "Iterbar Twenty One Native", "Twenty One Native", ui-sans-serif, system-ui, sans-serif;
   font-weight: 400;
@@ -115,11 +113,8 @@ export const BAR_CSS = String.raw`
   position: fixed;
   inset: auto;
   bottom: var(--ib-bottom);
-  /* --ib-x (0 at the left margin, 1 at the right) shares out the room between the margins, as leftForPosition does:
-     the left edge moves by x of the viewport's room and the dock back by x of its own width, so it never leaves the
-     viewport and needs no measuring. */
-  left: calc(var(--ib-start) + var(--ib-x, 0.5) * (100% - var(--ib-start) - var(--ib-margin)));
-  transform: translateX(calc(var(--ib-x, 0.5) * -100%));
+  /* Set by the bar (see #layout): the logo sits at the stored position and the expanded toolbar grows away from it. */
+  left: var(--ib-left, calc(50% - 19px));
   z-index: 2147483647;
   display: flex;
   /* The dock is the toolbar's box; the panel (first for the keyboard after the toolbar) is placed above it on its own. */
@@ -135,15 +130,11 @@ export const BAR_CSS = String.raw`
   background: transparent;
   pointer-events: none;
 }
-/* Past two thirds of the way along, the toolbar runs right to left, so it wakes away from the edge; the grab handle
-   stays at its left end. */
+/* Past two thirds of the way along, the toolbar runs right to left, so it expands away from the edge with the logo at
+   its right end. */
 .dock[data-align="end"] .toolbar { flex-direction: row-reverse; }
-.dock[data-align="end"] .grab { order: 1; margin-right: 0; margin-left: -2px; }
 /* Running right to left, the status's label grows leftward, away from its dot. */
 .dock[data-align="end"] .status { flex-direction: row-reverse; padding: 0 7px 0 8px; }
-/* Woken by the pointer or being dragged: the toolbar stays where the bar holds it (see #holdPlace and the grab handle),
-   and what does not fit in the room it has wraps onto a row above. */
-.dock[data-held] { left: var(--ib-held-left); transform: none; max-width: var(--ib-held-room, calc(100% - 2 * var(--ib-margin))); }
 .dock[data-dragging], .dock[data-dragging] * { cursor: grabbing !important; user-select: none; }
 
 .toolbar, .panel { pointer-events: auto; background: var(--ib-bg); border: 1px solid var(--ib-border); box-shadow: var(--ib-shadow); }
@@ -160,24 +151,46 @@ export const BAR_CSS = String.raw`
   border-radius: 20px;
   max-width: 100%;
 }
-/* Asleep: only the essentials. Awake (pointer, focus, pinned, a panel, the composer or comment mode): everything. The
-   pointer wakes it through data-hovered, set once the toolbar's place is held (see #holdPlace), not through :hover. */
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .extra { display: none; }
-/* Asleep, the toolbar keeps room at the left margin for the grab handle that waking adds before its buttons. */
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) { --ib-start: calc(var(--ib-margin) + 16px); }
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .toolbar { opacity: 0.94; }
-/* Asleep, the status label is left to assistive technology; its dot shows the connection. */
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .status-label,
-.dock[data-compact] .status-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
+/* Collapsed: only the logo. Expanded (or while a panel, the composer or comment mode needs it): everything. Hovering
+   never expands it; clicking the logo does. */
+.dock:not([data-awake]) .toolbar > :not(.logo) { display: none; }
+
+/* The Iterbar logo: the collapsed toolbar, the expanded toolbar's first control, and the handle that moves it. */
+.logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
   border: 0;
+  border-radius: 999px;
+  background: var(--ib-accent) !important;
+  color: var(--ib-accent-fg);
+  cursor: pointer;
+  touch-action: none;
+  transition: filter 120ms ease, transform 120ms ease;
 }
+.logo:hover { filter: brightness(1.08); }
+.logo:active { transform: scale(0.96); }
+.dock[data-dragging] .logo { transform: none; }
+.logo-mark { display: block; }
+/* Collapsed, a connection problem still shows as a dot on the logo's corner. */
+.dock:not([data-awake]):is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) .logo::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--ib-bg);
+  background: var(--ib-danger);
+}
+.dock[data-awake] .logo { margin-right: 2px; }
+.dock[data-awake][data-align="end"] .logo { margin-right: 0; margin-left: 2px; }
 
 .divider { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--ib-border); }
 
@@ -254,26 +267,6 @@ button:disabled { cursor: default; opacity: 0.55; }
 .status-dot[data-status="retrying"], .status-dot[data-status="connecting"] { background: var(--ib-warn); }
 .status-dot[data-status="unauthorized"], .status-dot[data-status="invalid"] { background: var(--ib-danger); }
 
-/* The grab handle at the toolbar's start: shown while the toolbar is awake; dragging it moves the toolbar along the
-   bottom edge. */
-.grab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  min-height: 30px;
-  margin-right: -2px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ib-muted);
-  cursor: grab;
-  touch-action: none;
-}
-.grab:hover { color: var(--ib-fg); background: transparent !important; }
-.grab .glyph { width: 14px; height: 14px; }
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within) .grab { display: none; }
 
 /* Tooltips for the toolbar's controls: a short label, the shortcut where there is one, and for the connection a line
    that explains it. Shown on hover (after a short delay) and on keyboard focus. */
@@ -306,28 +299,14 @@ button:disabled { cursor: default; opacity: 0.55; }
   opacity: 0.9;
 }
 
-/* Asleep, a connection problem still shows as a dot on the inbox button, drawn over its corner so the button keeps
-   its size whether the dot shows or not. */
-[data-role=inbox-toggle] { position: relative; }
-.dock:not([data-awake]):not([data-hovered]):not(:focus-within):is([data-status="unauthorized"], [data-status="invalid"], [data-status="retrying"]) [data-role=inbox-toggle]::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ib-danger);
-}
-
-/* The panel: inbox, draft tray, versions or "Use with your agent", opening upward from the toolbar. It is placed by
-   the same position as the toolbar, over its own width, so it stays in view: its left edge is the toolbar's plus x of
-   the difference in width. */
+/* The panel: inbox, draft tray, variants or "Use with your agent", opening upward from the toolbar. The bar lines it
+   up with the toolbar and keeps it in view (see #layout). */
 .panel {
   --ib-panel-width: min(400px, calc(100vw - 2 * var(--ib-margin)));
+  --ib-panel-max: calc(100vh - var(--ib-bottom) - var(--ib-toolbar-height, 40px) - 8px - var(--ib-margin));
   position: absolute;
   bottom: calc(100% + 8px);
-  left: calc(var(--ib-x, 0.5) * (100% - var(--ib-panel-width)));
+  left: 0;
   display: flex;
   flex-direction: column;
   width: var(--ib-panel-width);
@@ -335,6 +314,9 @@ button:disabled { cursor: default; opacity: 0.55; }
   border-radius: 12px;
   overflow: hidden;
 }
+/* The inbox keeps one height whichever filter is chosen; its list scrolls inside it. */
+.panel[data-panel="inbox"] { --ib-panel-width: min(440px, calc(100vw - 2 * var(--ib-margin))); height: min(540px, 72vh, var(--ib-panel-max)); max-height: none; }
+.panel[data-panel="inbox"] .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
 /* "Use with your agent" holds commands and config, so it takes more width. */
 .panel[data-panel="agent"] { --ib-panel-width: min(480px, calc(100vw - 2 * var(--ib-margin))); max-height: min(78vh, 640px, calc(100vh - var(--ib-bottom) - var(--ib-toolbar-height, 40px) - 8px - var(--ib-margin))); }
 .panel-header {
@@ -380,12 +362,99 @@ p { margin: 0 0 6px; }
 
 .field { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .field select { flex: 1; min-width: 0; }
-.slot-name strong { font-weight: 500; }
-.versions { display: flex; flex-wrap: wrap; gap: 4px; }
-.warnings { margin: 6px 0 0; padding-left: 16px; color: var(--ib-warn); font-size: 12px; }
+
+/* Variants: the slot (named, or chosen from a list), then one row per variant. */
+.slot-name { display: flex; align-items: baseline; gap: 6px; margin: 0 0 12px; font-size: 12px; }
+.slot-name strong { font-weight: 500; font-size: 13px; color: var(--ib-fg); }
+.slot-picker { position: relative; margin: 0 0 12px; }
+.slot-picker select {
+  appearance: none;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 30px 5px 10px;
+  border-radius: 8px;
+  background: var(--ib-surface);
+  font-weight: 500;
+}
+.slot-picker .glyph { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--ib-muted); pointer-events: none; }
+.variants { display: grid; gap: 6px; }
+.variants .variant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  text-align: left;
+  background: var(--ib-surface);
+  color: var(--ib-fg);
+}
+.variants .variant[aria-pressed="true"] { background: var(--ib-accent-soft); border-color: var(--ib-accent); color: var(--ib-fg); }
+.variants .variant[aria-pressed="true"]:hover:not(:disabled) { filter: none; }
+.variant-name { font-weight: 500; overflow-wrap: anywhere; }
+.variant-tag { font-size: 11px; line-height: 16px; padding: 0 7px; border-radius: 999px; background: var(--ib-hover); color: var(--ib-muted); }
+.variant-check { margin-left: auto; color: var(--ib-accent); visibility: hidden; }
+.variant-check .glyph { width: 15px; height: 15px; }
+.variant[aria-pressed="true"] .variant-check { visibility: visible; }
+.warnings { margin: 12px 0 0; padding-left: 16px; color: var(--ib-warn); font-size: 12px; }
 
 .filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
 .chip { border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+.chip-count { margin-left: 5px; color: var(--ib-muted); font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] .chip-count { color: inherit; opacity: 0.8; }
+
+/* The inbox: filters and the selection row stay put; the threads scroll below them. */
+.inbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.bulk { display: flex; align-items: center; gap: 6px; min-height: 30px; margin: 0 0 6px; }
+.bulk-text { font-size: 12px; color: var(--ib-muted); font-variant-numeric: tabular-nums; }
+.inbox[data-selecting] .bulk-text { color: var(--ib-fg); font-weight: 500; }
+.bulk-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.inbox[data-busy] .bulk-actions, .inbox[data-busy] .thread-actions { opacity: 0.6; }
+.threads-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  margin: 0 -8px 0 0;
+  padding: 0 8px 12px 0;
+  overscroll-behavior: contain;
+}
+.threads-scroller .empty { margin: 16px 0 0; text-align: center; }
+.older { margin: 8px 0 0; font-size: 12px; text-align: center; }
+button.more { display: block; width: 100%; margin-top: 8px; padding: 5px 8px; font-size: 12px; color: var(--ib-fg2); }
+.inbox-error { margin: 0 0 6px; color: var(--ib-danger-text); font-size: 12px; overflow-wrap: anywhere; }
+.undo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--ib-tip-bg);
+  color: var(--ib-tip-fg);
+  font-size: 12px;
+}
+.undo button.link { color: var(--ib-tip-fg); margin-left: auto; }
+
+/* A checkbox in a gutter before each thread: shown on hover, on focus and while anything is selected. */
+.thread-gutter { flex: none; display: flex; justify-content: center; width: 18px; }
+.thread-check { width: 14px; height: 14px; margin: 0; accent-color: var(--ib-accent); cursor: pointer; }
+.thread .thread-check { opacity: 0; transition: opacity 100ms ease; }
+.thread:hover .thread-check, .thread .thread-check:focus-visible, .thread .thread-check:checked,
+.inbox[data-selecting] .thread .thread-check { opacity: 1; }
+.thread { display: flex; align-items: flex-start; gap: 4px; }
+.thread .thread-gutter { padding-top: 11px; }
+.thread details { flex: 1; min-width: 0; }
+.threads[data-dragging] { user-select: none; }
+.thread[data-selected] details { border-color: var(--ib-accent); background: color-mix(in srgb, var(--ib-accent-soft) 55%, var(--ib-surface)); }
+
+.icon.action { min-height: 26px; padding: 2px 8px; gap: 5px; font-size: 12px; color: var(--ib-fg2); }
+.icon.action .glyph { width: 14px; height: 14px; }
+.icon.action:hover:not(:disabled) { color: var(--ib-fg); }
+.icon.action.danger { color: var(--ib-danger-text); }
+.bulk-actions .icon { min-height: 28px; padding: 4px 7px; }
+.thread-actions { display: flex; flex-wrap: wrap; gap: 2px; margin: 2px -4px 0; padding-top: 6px; border-top: 1px solid var(--ib-border); }
 
 .threads, .drafts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .thread details { border: 1px solid var(--ib-border); border-radius: 8px; background: var(--ib-surface); }
@@ -411,7 +480,8 @@ p { margin: 0 0 6px; }
 }
 .thread details[open] .thread-text { display: block; -webkit-line-clamp: none; overflow: visible; }
 .thread-count { margin-left: auto; color: var(--ib-muted); font-size: 11px; white-space: nowrap; }
-.thread-body { padding: 0 10px 10px; display: grid; gap: 6px; }
+.thread-body { padding: 0 10px 8px; display: grid; gap: 8px; }
+.thread-content { display: grid; gap: 6px; }
 .thread-meta { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .replies { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .reply { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--ib-bg); border: 1px solid var(--ib-border); min-width: 0; }
@@ -430,6 +500,7 @@ p { margin: 0 0 6px; }
 .badge[data-status="working"] { background: var(--ib-warn); color: var(--ib-warn-fg); }
 .badge[data-status="needs-info"] { background: var(--ib-danger); color: var(--ib-on-status); }
 .badge[data-status="done"], .badge[data-status="resolved"] { background: var(--ib-success); color: var(--ib-on-status); }
+.badge[data-status="archived"] { background: var(--ib-hover); color: var(--ib-muted); }
 
 .draft {
   display: flex;
@@ -493,6 +564,8 @@ button.link {
   text-align: center;
 }
 .agent-caption { margin: 0; font-size: 12px; }
+.agent-manual { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--ib-border); }
+.agent-manual summary { cursor: pointer; font-size: 12px; font-weight: 500; color: var(--ib-fg2); margin-bottom: 2px; }
 .snippet {
   display: flex;
   align-items: flex-start;

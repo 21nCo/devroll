@@ -25,8 +25,9 @@ server before any daemon call, as an `Input validation error` tool error.
 
 Every tool that returns feedback returns full items:
 
-- `id`, `kind` (`comment` or `choose_variant`), `status` (`open`, `working`, `needs-info`, `done`, `resolved`),
-  `createdAt`, `updatedAt`;
+- `id`, `kind` (`comment` or `choose_variant`), `status` (`open`, `working`, `needs-info`, `done`, `resolved`,
+  `archived`), `createdAt`, `updatedAt`. `resolved` is an older name for `done`; `archived` means the user put the
+  thread away in the bar. A thread the user deletes in the bar is gone: `get_feedback` then fails with `not_found`;
 - `text`: the comment, or the optional note of a variant choice; `choice: { slot, version }` for `choose_variant`;
 - `pageUrl` and `activeVariants` (`[{ slot, version }]`, the versions shown when it was sent);
 - `target`: `null`, or the element: `selector`, `textExcerpt`, `boundingBox` and `sourceLocation`
@@ -105,7 +106,8 @@ client.
 
 ## `set_status`
 
-Inputs: `feedbackId`, `status`: `working`, `needs-info`, `done` or `resolved`. Agents never set `open`.
+Inputs: `feedbackId`, `status`: `working`, `needs-info` or `done` (`resolved`, an older name for `done`, is still
+accepted). Agents never set `open` or `archived`; those are the user's, from the bar.
 
 Result: `{ feedback }`. Setting the current status again changes nothing.
 

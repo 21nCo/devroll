@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   anchorPopover, BAR_MARGIN_PX, BAR_STATE_STORAGE_KEY, barStateStorageKey, DEFAULT_BAR_STATE, describePosition, formatBarState,
-  leftForPosition, parseBarState, positionForKey, positionForLeft,
+  leftForPosition, panelLeft, parseBarState, positionForKey, positionForLeft, toolbarLeft,
 } from "./position.js";
 
 describe("stored toolbar state", () => {
@@ -102,5 +102,28 @@ describe("anchorPopover", () => {
     expect(anchorPopover({ left: 950, top: 100, width: 40, height: 20 }, size, viewport).left).toBe(1000 - BAR_MARGIN_PX - 300);
     const tall = anchorPopover({ left: -50, top: -100, width: 2000, height: 2000 }, size, viewport);
     expect(tall).toEqual({ left: BAR_MARGIN_PX, top: 800 - BAR_MARGIN_PX - 160 });
+  });
+});
+
+describe("logo-anchored layout", () => {
+  it("reads the earlier versions panel as the variants panel", () => {
+    expect(parseBarState(JSON.stringify({ panel: "versions" })).panel).toBe("variants");
+    expect(parseBarState(JSON.stringify({ filter: "archived" })).filter).toBe("archived");
+  });
+
+  it("keeps the logo where it is and grows the toolbar away from it, inside the margins", () => {
+    const logo = leftForPosition(0.5, 30, 1000);
+    expect(toolbarLeft(0.5, 30, 300, 1000, false)).toBe(logo);
+    // Running right to left, the logo is the toolbar's right end.
+    expect(toolbarLeft(0.9, 30, 300, 1000, true) + 300).toBe(leftForPosition(0.9, 30, 1000) + 30);
+    // Too close to an edge, the toolbar is pushed back inside.
+    expect(toolbarLeft(1, 30, 300, 1000, false)).toBe(1000 - BAR_MARGIN_PX - 300);
+    expect(toolbarLeft(0, 30, 300, 1000, true)).toBe(BAR_MARGIN_PX);
+  });
+
+  it("lines the panel up with the toolbar's start, or its end when it runs right to left", () => {
+    expect(panelLeft(100, 300, 400, 1000, false)).toBe(100);
+    expect(panelLeft(600, 300, 400, 1000, true)).toBe(500);
+    expect(panelLeft(800, 150, 400, 1000, false)).toBe(1000 - BAR_MARGIN_PX - 400);
   });
 });

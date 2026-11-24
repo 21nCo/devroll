@@ -34,7 +34,10 @@ export interface FakeDaemon {
   send(event: DaemonEvent | string): void;
 }
 
-/** A daemon answered by Playwright routes: `GET /feedback`, `POST /feedback`, `POST /slots` and the `/events` WebSocket. */
+/**
+ * A daemon answered by Playwright routes: `GET /feedback`, `POST /feedback`, `POST /feedback/:id/status`,
+ * `DELETE /feedback/:id`, `POST /slots` and the `/events` WebSocket.
+ */
 /** The error body the fake daemon refuses or fails a `POST /feedback` with, by status. */
 const FEEDBACK_ERRORS: Readonly<Record<number, { code: string; message: string }>> = {
   409: { code: "store_locked", message: "The store is locked" },
@@ -78,7 +81,7 @@ export async function fakeDaemon(
     if (request.method() === "OPTIONS") {
       await route.fulfill({
         status: 204,
-        headers: { ...cors, "access-control-allow-methods": "GET, POST", "access-control-allow-headers": "authorization, content-type" },
+        headers: { ...cors, "access-control-allow-methods": "GET, POST, DELETE", "access-control-allow-headers": "authorization, content-type" },
       });
       return;
     }
@@ -121,6 +124,26 @@ export async function fakeDaemon(
         return;
       }
       await route.fulfill({ status: 201, headers: cors, contentType: "application/json", body: JSON.stringify(stored) });
+      return;
+    }
+    const statusPath = /^\/feedback\/([^/]+)\/status$/.exec(path);
+    if (request.method() === "POST" && statusPath) {
+      const item = daemon.items.find((each) => each.id === statusPath[1]);
+      if (!item) {
+        await route.fulfill({ status: 404, headers: cors });
+        return;
+      }
+      const { status } = request.postDataJSON() as { status: Feedback["status"] };
+      const updated = { ...item, status, updatedAt: new Date(Date.parse(item.updatedAt) + 1000).toISOString() };
+      daemon.items = daemon.items.map((each) => (each.id === item.id ? updated : each));
+      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify(updated) });
+      return;
+    }
+    const itemPath = /^\/feedback\/([^/]+)$/.exec(path);
+    if (request.method() === "DELETE" && itemPath) {
+      const before = daemon.items.length;
+      daemon.items = daemon.items.filter((each) => each.id !== itemPath[1]);
+      await route.fulfill({ status: daemon.items.length < before ? 204 : 404, headers: cors });
       return;
     }
     if (request.method() === "POST" && path === "/slots") {

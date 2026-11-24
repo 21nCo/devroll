@@ -1,20 +1,23 @@
-import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackTarget, type SlotState } from "iterbar";
+import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackStatus, type FeedbackTarget, type SlotState } from "iterbar";
 import { Composer } from "./composer.js";
 import { DaemonConnection, DaemonRequestError, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
 import { h } from "./dom.js";
 import { AgentHelp } from "./agent-help.js";
 import { DraftTray, type DraftView } from "./drafts.js";
 import { registerBarFonts } from "./fonts.js";
-import { icon } from "./icons.js";
+import { icon, logoMark } from "./icons.js";
 import {
   anchorPopover,
   BAR_MARGIN_PX,
   barStateStorageKey,
   describePosition,
   formatBarState,
+  leftForPosition,
+  panelLeft,
   parseBarState,
   positionForKey,
   positionForLeft,
+  toolbarLeft,
   type BarState,
   type PanelName,
 } from "./position.js";
@@ -76,7 +79,7 @@ const STATUS_DETAIL: Readonly<Record<ConnectionStatus["kind"], string>> = {
 };
 
 const PANEL_TITLES: Readonly<Record<PanelName, string>> = {
-  inbox: "Inbox", drafts: "Drafts", versions: "Versions", agent: "Use with your agent",
+  inbox: "Inbox", drafts: "Drafts", variants: "Variants", agent: "Use with your agent",
 };
 
 /** Hovering a control shows its tooltip after this delay; keyboard focus shows it at once. */
@@ -132,6 +135,18 @@ function isTextEntry(target: EventTarget | undefined): boolean {
   if (target.localName !== "input") return false;
   return !["button", "checkbox", "radio", "range", "color", "file", "image", "reset", "submit"].includes((target as HTMLInputElement).type);
 }
+
+/** Whether a key typed at one of the bar's own elements is text entry, which must never reach the page's shortcuts. */
+function isOwnTextEntry(target: EventTarget | undefined): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLElement && target.isContentEditable) return true;
+  if (target.localName === "textarea" || target.localName === "select") return true;
+  if (target.localName !== "input") return false;
+  return !["button", "checkbox", "radio", "range", "color", "file", "image", "reset", "submit"].includes((target as HTMLInputElement).type);
+}
+
+/** Pointer travel, in CSS pixels, after which a press on the logo moves the toolbar instead of clicking it. */
+const DRAG_THRESHOLD_PX = 4;
 
 function readStoredState(project: string | null): BarState {
   try {
@@ -222,8 +237,8 @@ interface Draft {
  * through the `daemonUrl` and `token` properties (or the `daemon-url` and `token` attributes); without them it still
  * switches slots, but shows no feedback. Everything it renders lives in its shadow root.
  *
- * It sleeps as a compact pill (comment and inbox buttons, the open-feedback count) and wakes on hover or focus, or
- * stays expanded with Ctrl/Cmd+. ; C enters comment mode. The inbox, draft tray and versions open as a panel above it.
+ * Collapsed it shows only the Iterbar logo; clicking the logo (or Ctrl/Cmd+.) expands it, and dragging the logo moves
+ * it along the bottom edge. C enters comment mode. The inbox, draft tray and variants open as a panel above it.
  */
 export class IterbarBarElement extends ElementBase {
   static get observedAttributes(): string[] {
@@ -243,15 +258,21 @@ export class IterbarBarElement extends ElementBase {
   readonly #statusButton = h("button", {
     type: "button", class: "status", "data-role": "status-button", "aria-expanded": "false", "aria-controls": "iterbar-panel",
   }, this.#statusDot, this.#status);
-  /** The grab handle: drag it (or use the arrow keys on it) to move the toolbar along the bottom edge. */
-  readonly #grab = h("button", {
-    type: "button", class: "grab", "data-role": "grab", role: "slider", "aria-label": "Toolbar position",
-    "aria-orientation": "horizontal", "aria-valuemin": "0", "aria-valuemax": "100", "aria-keyshortcuts": "ArrowLeft ArrowRight Home End",
-  }, icon("grab"));
+  /**
+   * The Iterbar logo: the whole toolbar while it is collapsed. Clicking it (Enter, Space) expands or collapses the
+   * toolbar; dragging it (or the arrow keys, Home and End on it) moves the toolbar along the bottom edge.
+   */
+  readonly #logo = h("button", {
+    type: "button", class: "logo", "data-role": "logo", "aria-controls": "iterbar-toolbar",
+    "aria-keyshortcuts": "Control+. Meta+. ArrowLeft ArrowRight Home End",
+  }, logoMark());
   readonly #tooltip = h("div", { class: "tooltip", role: "tooltip", id: "iterbar-tooltip", "data-role": "tooltip", hidden: true });
   #tooltipFor: HTMLElement | null = null;
   #tooltipTimer: ReturnType<typeof setTimeout> | null = null;
-  #drag: { pointerId: number; startX: number; startLeft: number; width: number; moved: boolean } | null = null;
+  /** A press on the logo: a drag once it travels past {@link DRAG_THRESHOLD_PX}, otherwise a click. */
+  #drag: { pointerId: number; startX: number; startLeft: number; logoWidth: number; moved: boolean } | null = null;
+  /** A drag just ended on the logo: the click its release makes must not expand or collapse the toolbar. */
+  #swallowLogoClick = false;
   #project: string | null = null;
   #heightObserver: ResizeObserver | null = null;
   readonly #detail = h("p", { class: "detail", "data-role": "status-detail", hidden: true });
@@ -269,14 +290,11 @@ export class IterbarBarElement extends ElementBase {
     "aria-label": "Inbox",
   }, icon("inbox"));
   readonly #openCount = h("span", { class: "count", "data-role": "open-count", hidden: true });
-  readonly #versionsButton = h("button", {
-    type: "button", class: "tool extra", "data-role": "versions-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
-    "aria-label": "Versions",
-  }, icon("layers"), h("span", { class: "tool-label", "aria-hidden": "true" }, "Versions"));
+  readonly #variantsButton = h("button", {
+    type: "button", class: "tool", "data-role": "variants-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+    "aria-label": "Variants",
+  }, icon("layers"), h("span", { class: "tool-label", "aria-hidden": "true" }, "Variants"));
   readonly #slotCount = h("span", { class: "count", "data-role": "slot-count", hidden: true });
-  readonly #toggle = h("button", {
-    type: "button", class: "icon extra", "data-role": "toggle", "aria-controls": "iterbar-toolbar", "aria-keyshortcuts": "Control+. Meta+.",
-  });
   /** Inherits the page's effective `zoom`, which the bar cancels; see {@link #fitZoom}. */
   readonly #zoomProbe = h("span", { class: "zoom-probe", "aria-hidden": "true" });
   #zoomObserver: ResizeObserver | null = null;
@@ -336,7 +354,13 @@ export class IterbarBarElement extends ElementBase {
     applyBarStyles(this.#root);
     registerBarFonts();
     this.#slots = new SlotsPanel({ onSlots: (slots) => this.#onSlots(slots) });
-    this.#threads = new ThreadsPanel(() => this.#renderCounts(), (filter) => this.#saveState({ ...this.#state, filter }));
+    this.#threads = new ThreadsPanel({
+      onChange: () => this.#renderCounts(),
+      onFilter: (filter) => this.#saveState({ ...this.#state, filter }),
+      onStatus: (ids, status) => this.#setStatuses(ids, status),
+      onDelete: (ids) => this.#deleteThreads(ids),
+      announce: (text) => this.#announce(text),
+    });
     this.#tray = new DraftTray({
       onSendAll: () => void this.#sendAll(),
       onRemove: (id) => this.#removeDraft(id),
@@ -350,24 +374,22 @@ export class IterbarBarElement extends ElementBase {
     });
     this.#draftsButton.append(this.#draftCount);
     this.#inboxButton.append(this.#openCount);
-    this.#versionsButton.append(this.#slotCount);
+    this.#variantsButton.append(this.#slotCount);
     this.#panel = h("div", {
       class: "panel", id: "iterbar-panel", role: "region", "aria-labelledby": "iterbar-panel-title", "data-role": "panel", hidden: true,
     },
     h("div", { class: "panel-header" }, this.#panelTitle, this.#panelClose),
     h("div", { class: "panel-body" }, this.#detail, this.#tray.element, this.#threads.element, this.#slots.element, this.#agentHelp.element));
     const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
-      // The grab handle shows at the start while the toolbar is awake (see #holdPlace, which makes room for it so the
-      // sleeping buttons stay under the pointer). Drafts, always shown with its count, sits before the connection
-      // status so it never splits the status's dot from its label, and the label grows away from the other buttons.
-      this.#grab, this.#comment, this.#inboxButton, this.#draftsButton, this.#statusButton,
-      h("span", { class: "divider extra", "aria-hidden": "true" }),
-      this.#versionsButton, this.#toggle);
+      // The logo comes first and stays where it is when the toolbar expands (see #layout); the rest grows away from it.
+      // Drafts sits before the connection status so it never splits the status's dot from its label.
+      this.#logo, this.#comment, this.#inboxButton, this.#draftsButton, this.#statusButton,
+      h("span", { class: "divider", "aria-hidden": "true" }),
+      this.#variantsButton);
     this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel, this.#tooltip);
     const mod = modKey();
     tip(this.#comment, "Comment", "C", "Pick an element and write a comment on it. Esc leaves.");
-    tip(this.#versionsButton, "Versions", null, "Switch the variants of slots on this page");
-    tip(this.#grab, "Drag to move", "← →");
+    tip(this.#variantsButton, "Variants", null, "Switch between the variants of each slot on this page");
     this.#toggleKeys = `${mod} .`;
     this.#root.append(this.#zoomProbe, this.#dock, this.#composer.element, this.#announcer);
     this.#picker = new ElementPicker({
@@ -384,14 +406,29 @@ export class IterbarBarElement extends ElementBase {
       },
     });
 
-    this.#toggle.addEventListener("click", () => this.#setExpanded(!this.#state.expanded));
+    this.#logo.addEventListener("click", (event) => {
+      if (this.#swallowLogoClick) {
+        this.#swallowLogoClick = false;
+        event.preventDefault();
+        return;
+      }
+      this.#setExpanded(!this.#state.expanded);
+    });
     this.#statusButton.addEventListener("click", () => this.#togglePanel("agent"));
-    this.#grab.addEventListener("pointerdown", (event) => this.#startDrag(event));
-    this.#grab.addEventListener("pointermove", (event) => this.#moveDrag(event));
-    this.#grab.addEventListener("pointerup", (event) => this.#endDrag(event, true));
-    this.#grab.addEventListener("pointercancel", (event) => this.#endDrag(event, false));
-    this.#grab.addEventListener("lostpointercapture", (event) => this.#endDrag(event, true));
-    this.#grab.addEventListener("keydown", (event) => this.#moveWithKey(event));
+    this.#logo.addEventListener("pointerdown", (event) => this.#startDrag(event));
+    this.#logo.addEventListener("pointermove", (event) => this.#moveDrag(event));
+    this.#logo.addEventListener("pointerup", (event) => this.#endDrag(event, true));
+    this.#logo.addEventListener("pointercancel", (event) => this.#endDrag(event, false));
+    this.#logo.addEventListener("lostpointercapture", (event) => this.#endDrag(event, true));
+    this.#logo.addEventListener("keydown", (event) => this.#moveWithKey(event));
+    // Keys typed into the bar's own fields (the composer, a draft being edited, the slot list) are the user's text:
+    // they stop at the bar, so the page's shortcuts never see them. The bar's own shortcuts, listening on the window in
+    // the capture phase, skip text entry themselves.
+    for (const type of ["keydown", "keyup", "keypress"] as const) {
+      this.#root.addEventListener(type, (event) => {
+        if (isOwnTextEntry(event.composedPath()[0])) event.stopPropagation();
+      });
+    }
     this.#dock.addEventListener("pointerover", (event) => this.#onTipEnter(event, false));
     this.#dock.addEventListener("pointerout", (event) => this.#onTipLeave(event));
     this.#dock.addEventListener("focusin", (event) => this.#onTipEnter(event, true));
@@ -402,20 +439,17 @@ export class IterbarBarElement extends ElementBase {
     });
     this.#draftsButton.addEventListener("click", () => this.#togglePanel("drafts"));
     this.#inboxButton.addEventListener("click", () => this.#togglePanel("inbox"));
-    this.#versionsButton.addEventListener("click", () => this.#togglePanel("versions"));
+    this.#variantsButton.addEventListener("click", () => this.#togglePanel("variants"));
     this.#panelClose.addEventListener("click", () => this.#closePanel(true));
-    toolbar.addEventListener("pointerenter", () => this.#holdPlace(true));
-    this.addEventListener("pointerdown", (event) => {
-      this.#pressesInside.add(event);
-    });
-    // A touch leaves as the finger lifts; a tap keeps the toolbar awake until the next tap elsewhere instead.
-    this.#dock.addEventListener("pointerleave", (event) => {
-      if (event.pointerType !== "touch") this.#holdPlace(false);
-    });
     this.#dock.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && this.#tooltipFor) this.#hideTooltip();
       if (event.key !== "Escape" || event.isComposing || this.#state.panel === null || this.#commentMode) return;
       event.preventDefault();
+      // Escape first clears an inbox selection, then closes the panel.
+      if (this.#state.panel === "inbox" && this.#threads.selectionSize > 0) {
+        this.#threads.clearSelection();
+        return;
+      }
       this.#closePanel(true);
     });
     this.#applyState();
@@ -487,7 +521,7 @@ export class IterbarBarElement extends ElementBase {
     }));
   }
 
-  /** Whether the full toolbar stays shown; when `false` it sleeps as a pill until hovered or focused. Ctrl/Cmd+. toggles it. */
+  /** Whether the full toolbar shows; when `false` it is collapsed to its logo. Clicking the logo or Ctrl/Cmd+. toggles it. */
   get expanded(): boolean {
     return this.#state.expanded;
   }
@@ -550,16 +584,19 @@ export class IterbarBarElement extends ElementBase {
     }
     this.#watchZoom();
     window.addEventListener("keydown", this.#onKeydown, true);
-    window.addEventListener("pointerdown", this.#onPagePointerDown, true);
-    window.addEventListener("resize", this.#releaseHold);
-    window.visualViewport?.addEventListener("resize", this.#releaseHold);
-    // The panel's height cap leaves room for the toolbar as tall as it is (it wraps on a narrow screen).
+    window.addEventListener("resize", this.#queueLayout);
+    window.addEventListener("pagehide", this.#onPageHide);
+    // The panel's height cap leaves room for the toolbar as tall as it is (it wraps on a narrow screen), and the
+    // toolbar and panel are placed again whenever either changes size.
     if (typeof ResizeObserver === "function" && !this.#heightObserver) {
       this.#heightObserver = new ResizeObserver(() => {
         this.#dock.style.setProperty("--ib-toolbar-height", `${this.#dock.getBoundingClientRect().height}px`);
+        this.#layout();
       });
       this.#heightObserver.observe(this.#dock);
+      this.#heightObserver.observe(this.#panel);
     }
+    this.#layout();
     this.#watchUrl(true);
     this.#slots.attach();
     this.#reconnect();
@@ -570,24 +607,25 @@ export class IterbarBarElement extends ElementBase {
     this.commentMode = false;
     this.#setCrosshair(false);
     this.#picker.mark(null);
-    // A drag in progress ends here (its pointer capture went with the element), unsaved, so the cleanup below runs.
+    // A drag in progress ends here (its pointer capture went with the element), unsaved.
     if (this.#drag) {
       try {
-        this.#grab.releasePointerCapture(this.#drag.pointerId);
+        this.#logo.releasePointerCapture(this.#drag.pointerId);
       } catch {
         // Already released.
       }
     }
     this.#drag = null;
     this.#dock.removeAttribute("data-dragging");
-    // A wake and a held place belong to this stay on the page; reinserted, the toolbar starts asleep at its place.
-    this.#holdPlace(false);
+    // A delete waiting for its undo is sent rather than lost with the bar.
+    this.#threads.flushDeletes();
     window.removeEventListener("keydown", this.#onKeydown, true);
-    window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
-    window.removeEventListener("resize", this.#releaseHold);
-    window.visualViewport?.removeEventListener("resize", this.#releaseHold);
+    window.removeEventListener("resize", this.#queueLayout);
+    window.removeEventListener("pagehide", this.#onPageHide);
     this.#heightObserver?.disconnect();
     this.#heightObserver = null;
+    if (this.#layoutFrame !== null) cancelAnimationFrame(this.#layoutFrame);
+    this.#layoutFrame = null;
     this.#hideTooltip();
     this.#watchUrl(false);
     this.#zoomObserver?.disconnect();
@@ -600,30 +638,19 @@ export class IterbarBarElement extends ElementBase {
     this.#followComposer(false);
   }
 
-  /**
-   * A press outside the toolbar ends a wake that a tap began (see the dock's pointerleave listener). Every press is
-   * seen here first, in the capture phase, where a page cannot stop it; whether it was inside is decided once it has
-   * been dispatched, by a listener on the bar itself, since a closed shadow root around the bar would hide the bar
-   * from the event's composed path here.
-   */
-  readonly #pressesInside = new WeakSet<Event>();
-  /** Counts presses, so only the latest one's decision counts: an earlier press never undoes what a later one did. */
-  #pressCount = 0;
-
-  readonly #onPagePointerDown = (event: PointerEvent): void => {
-    const press = ++this.#pressCount;
-    setTimeout(() => {
-      if (press === this.#pressCount && !this.#pressesInside.has(event)) this.#holdPlace(false);
-    }, 0);
+  /** Leaving the page sends a delete still waiting for its undo, so a reload does not bring the threads back. */
+  readonly #onPageHide = (): void => {
+    this.#threads.flushDeletes();
   };
 
-  /** Lets go of the place held for the pointer; the toolbar stays awake. A drag in progress keeps it. */
-  readonly #releaseHold = (): void => {
-    if (this.#drag) return;
-    this.#dock.removeAttribute("data-held");
-    this.#dock.removeAttribute("data-compact");
-    this.#dock.style.removeProperty("--ib-held-left");
-    this.#dock.style.removeProperty("--ib-held-room");
+  #layoutFrame: number | null = null;
+
+  readonly #queueLayout = (): void => {
+    if (this.#layoutFrame !== null) return;
+    this.#layoutFrame = requestAnimationFrame(() => {
+      this.#layoutFrame = null;
+      this.#layout();
+    });
   };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
@@ -634,8 +661,10 @@ export class IterbarBarElement extends ElementBase {
       event.preventDefault();
       const focusInside = this.#root.activeElement !== null;
       this.#setExpanded(!this.#state.expanded);
-      // Expanding moves focus into the toolbar so keyboard users can carry on; sleeping keeps focus where it was inside.
-      if (this.#state.expanded || focusInside) this.#comment.focus();
+      // Expanding moves focus into the toolbar so keyboard users can carry on; collapsing moves focus that was inside to
+      // the logo, the one control left (unless a panel or comment mode keeps the toolbar showing).
+      if (this.#state.expanded) this.#comment.focus();
+      else if (focusInside && !this.#root.activeElement?.checkVisibility?.()) this.#logo.focus();
       return;
     }
     if (event.key !== "c" && event.key !== "C") return;
@@ -986,6 +1015,31 @@ export class IterbarBarElement extends ElementBase {
     }
   }
 
+  /** Sets `status` on each thread through the daemon, merging what it answers; rejects saying how many failed. */
+  async #setStatuses(ids: readonly string[], status: FeedbackStatus): Promise<void> {
+    const connection = this.#connection;
+    if (!connection) throw new Error("The bar is not connected to the Iterbar daemon.");
+    const results = await Promise.allSettled(ids.map((id) => connection.setStatus(id, status)));
+    const failed = results.filter((result) => result.status === "rejected");
+    for (const result of results) if (result.status === "fulfilled" && this.#connection === connection) this.#threads.merge(result.value);
+    if (failed.length > 0) {
+      const reason = ((failed[0] as PromiseRejectedResult).reason as Error).message;
+      throw new Error(`${failed.length} of ${ids.length} could not be changed. ${reason}`);
+    }
+  }
+
+  /** Deletes each thread through the daemon; rejects saying how many failed. */
+  async #deleteThreads(ids: readonly string[]): Promise<void> {
+    const connection = this.#connection;
+    if (!connection) throw new Error("The bar is not connected to the Iterbar daemon, so nothing was deleted.");
+    const results = await Promise.allSettled(ids.map((id) => connection.deleteFeedback(id)));
+    const failed = results.filter((result) => result.status === "rejected");
+    if (failed.length > 0) {
+      const reason = ((failed[0] as PromiseRejectedResult).reason as Error).message;
+      throw new Error(`${failed.length} of ${ids.length} could not be deleted. ${reason}`);
+    }
+  }
+
   #renderDrafts(): void {
     this.#tray.render(this.#drafts.map((draft) => ({
       id: draft.id, label: draft.pick.label, text: draft.text, state: draft.state, error: draft.error,
@@ -1008,13 +1062,26 @@ export class IterbarBarElement extends ElementBase {
     this.#openCount.hidden = open === 0;
     this.#inboxButton.setAttribute("aria-label", open ? `Inbox, ${open} open` : "Inbox");
     tip(this.#inboxButton, open ? `Inbox: ${open} open` : "Inbox", null, "Sent comments, their status and your agent's replies");
+    this.#renderLogoTip();
+  }
+
+  /** The logo's tooltip: what clicking does, how to move it, and (collapsed) what the hidden toolbar would show. */
+  #renderLogoTip(): void {
+    const expanded = this.#state.expanded;
+    const open = this.#threads?.openCount ?? 0;
+    const status = STATUS_TEXT[(this.#dock?.dataset.status ?? "unconfigured") as ConnectionStatus["kind"]] ?? "";
+    const parts = [open ? `${open} open in the inbox` : "", status].filter(Boolean).join(" · ");
+    this.#logo.setAttribute("aria-label", expanded ? "Iterbar: collapse the toolbar" : "Iterbar: expand the toolbar");
+    this.#logo.setAttribute("aria-expanded", String(expanded));
+    tip(this.#logo, expanded ? "Collapse Iterbar" : "Expand Iterbar", this.#toggleKeys, `${parts ? `${parts}. ` : ""}Drag to move it.`);
+    if (this.#tooltipFor === this.#logo) this.#showTooltip(this.#logo);
   }
 
   #onSlots(slots: readonly SlotState[]): void {
     this.#slotCount.textContent = String(slots.length);
     this.#slotCount.hidden = slots.length === 0;
-    this.#versionsButton.toggleAttribute("data-has", slots.length > 0);
-    this.#versionsButton.setAttribute("aria-label", slots.length ? `Versions, ${slots.length} ${slots.length === 1 ? "slot" : "slots"}` : "Versions");
+    this.#variantsButton.toggleAttribute("data-has", slots.length > 0);
+    this.#variantsButton.setAttribute("aria-label", slots.length ? `Variants, ${slots.length} ${slots.length === 1 ? "slot" : "slots"}` : "Variants");
     this.#queueReport(slots);
   }
 
@@ -1050,7 +1117,7 @@ export class IterbarBarElement extends ElementBase {
     switch (panel) {
       case "drafts": return this.#draftsButton;
       case "inbox": return this.#inboxButton;
-      case "versions": return this.#versionsButton;
+      case "variants": return this.#variantsButton;
       case "agent": return this.#statusButton;
     }
   }
@@ -1178,6 +1245,9 @@ export class IterbarBarElement extends ElementBase {
         if (this.#connection === connection) this.#renderStatus(status);
       },
       onFeedback: (item): boolean => this.#connection === connection && this.#threads.merge(item),
+      onDeleted: (feedbackId) => {
+        if (this.#connection === connection) this.#threads.remove(feedbackId);
+      },
       onListing: (items, touched): boolean => this.#connection !== connection || this.#threads.replace(items, touched),
       isComplete: (): boolean => this.#connection !== connection || this.#threads.complete,
     });
@@ -1199,6 +1269,7 @@ export class IterbarBarElement extends ElementBase {
     tip(this.#statusButton, STATUS_TEXT[status.kind], null,
       `${STATUS_DETAIL[status.kind]}${detail && status.kind !== "unconfigured" ? ` ${detail}` : ""} Click for how to use it with your agent.`);
     if (this.#tooltipFor === this.#statusButton) this.#showTooltip(this.#statusButton);
+    this.#renderLogoTip();
   }
 
   #queueReport(slots: readonly SlotState[]): void {
@@ -1234,37 +1305,69 @@ export class IterbarBarElement extends ElementBase {
     const { x, expanded, panel } = this.#state;
     this.#setPosition(x);
     this.#dock.toggleAttribute("data-expanded", expanded);
-    this.#toggle.setAttribute("aria-expanded", String(expanded));
-    this.#toggle.setAttribute("aria-label", expanded ? "Let the toolbar sleep" : "Keep the toolbar expanded");
-    tip(this.#toggle, expanded ? "Let it sleep" : "Keep expanded", this.#toggleKeys);
-    this.#toggle.replaceChildren(icon(expanded ? "collapse" : "expand"));
-    this.#grab.setAttribute("aria-valuenow", String(Math.round(x * 100)));
-    this.#grab.setAttribute("aria-valuetext", describePosition(x));
+    this.#renderLogoTip();
     this.#agentHelp.agent = this.#state.agent;
     this.#panel.hidden = panel === null;
     this.#panelTitle.textContent = panel ? PANEL_TITLES[panel] : "";
     this.#tray.element.hidden = panel !== "drafts";
     this.#threads.element.hidden = panel !== "inbox";
-    this.#slots.element.hidden = panel !== "versions";
+    this.#slots.element.hidden = panel !== "variants";
     this.#agentHelp.element.hidden = panel !== "agent";
     // An open composer keeps clear of the panel, which may just have opened or closed.
     if (this.#composer.open) this.#queuePlaceComposer();
     // The connection's details belong with "Use with your agent", where the status opens to.
     this.#panel.dataset.panel = panel ?? "";
-    for (const name of ["drafts", "inbox", "versions", "agent"] as const) {
+    for (const name of ["drafts", "inbox", "variants", "agent"] as const) {
       this.#panelButton(name).setAttribute("aria-expanded", String(panel === name));
     }
     this.#applyAwake();
   }
 
   /**
-   * Places the toolbar and its panel at position `x` (see theme.ts: both share out their room between the margins, so
-   * neither leaves the viewport). Past two thirds the toolbar runs right to left, so it wakes away from the edge.
+   * Puts the logo at position `x` along the bottom edge (see {@link #layout}). Past two thirds the toolbar runs right
+   * to left, so it expands away from the edge.
    */
   #setPosition(x: number): void {
     this.#dock.style.setProperty("--ib-x", String(x));
     this.#dock.dataset.align = x > 2 / 3 ? "end" : "start";
+    this.#layout();
   }
+
+  /**
+   * Places the toolbar so its logo sits at the state's position, collapsed or expanded: the logo never moves when the
+   * toolbar expands, and the rest grows away from it, kept inside the margins. The panel opens above, lined up with
+   * the toolbar's start (its end when the toolbar runs right to left), and also kept inside the margins.
+   */
+  #layout(): void {
+    if (!this.isConnected) return;
+    const viewport = this.#viewport();
+    const end = this.#dock.dataset.align === "end";
+    const { anchor } = this.#anchor();
+    const width = this.#dock.getBoundingClientRect().width;
+    const x = this.#drag?.moved ? positionForLeft(this.#dragLogoLeft - viewport.left, anchor, viewport.width) : this.#state.x;
+    const left = this.#dock.hasAttribute("data-awake")
+      ? toolbarLeft(x, anchor, width, viewport.width, end)
+      : leftForPosition(x, anchor, viewport.width);
+    this.#dock.style.setProperty("--ib-left", `${Math.round(viewport.left + left)}px`);
+    if (!this.#panel.hidden) {
+      const panelWidth = this.#panel.getBoundingClientRect().width;
+      this.#panel.style.left = `${Math.round(panelLeft(left, width, panelWidth, viewport.width, end) - left)}px`;
+    }
+    if (this.#tooltipFor) this.#showTooltip(this.#tooltipFor);
+  }
+
+  /**
+   * The collapsed toolbar's width (the logo with the toolbar's padding and border around it), which the stored position
+   * places, and that inset: the expanded toolbar keeps the logo exactly where the collapsed one shows it.
+   */
+  #anchor(): { anchor: number; inset: number } {
+    const toolbar = getComputedStyle(this.#logo.parentElement!);
+    const inset = (Number.parseFloat(toolbar.paddingLeft) || 0) + (Number.parseFloat(toolbar.borderLeftWidth) || 0);
+    return { anchor: this.#logo.getBoundingClientRect().width + 2 * inset, inset };
+  }
+
+  /** Where a drag has the collapsed toolbar's left edge (the logo's, less the inset), in viewport pixels. */
+  #dragLogoLeft = 0;
 
   /**
    * The layout viewport, which the toolbar's CSS places it in (a fixed, top-layer box), in the coordinates element
@@ -1277,52 +1380,51 @@ export class IterbarBarElement extends ElementBase {
 
   #startDrag(event: PointerEvent): void {
     if (event.button !== 0 || this.#drag) return;
-    event.preventDefault();
-    this.#hideTooltip();
-    // The drag holds the toolbar exactly as it is shown (the dock is the toolbar alone; the panel is placed on its
-    // own): its width is frozen, so a toolbar a pointer wake wrapped on a narrow screen stays wrapped, and that one
-    // width clamps the drag and settles the drop.
-    const rect = this.#dock.getBoundingClientRect();
-    this.#dock.style.setProperty("--ib-held-room", `${rect.width}px`);
-    this.#drag = { pointerId: event.pointerId, startX: event.clientX, startLeft: rect.left, width: rect.width, moved: false };
+    const logo = this.#logo.getBoundingClientRect();
+    const { anchor, inset } = this.#anchor();
+    this.#drag = { pointerId: event.pointerId, startX: event.clientX, startLeft: logo.left - inset, logoWidth: anchor, moved: false };
     try {
-      this.#grab.setPointerCapture(event.pointerId);
+      this.#logo.setPointerCapture(event.pointerId);
     } catch {
-      // Without capture the drag still follows the pointer while it stays over the handle.
+      // Without capture the drag still follows the pointer while it stays over the logo.
     }
-    this.#dock.style.setProperty("--ib-held-left", `${rect.left}px`);
-    this.#dock.toggleAttribute("data-held", true);
-    this.#dock.toggleAttribute("data-dragging", true);
   }
 
   #moveDrag(event: PointerEvent): void {
     const drag = this.#drag;
     if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.moved) {
+      if (Math.abs(event.clientX - drag.startX) <= DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      this.#hideTooltip();
+      this.#dock.toggleAttribute("data-dragging", true);
+    }
     const viewport = this.#viewport();
     const min = viewport.left + BAR_MARGIN_PX;
-    const max = Math.max(min, viewport.left + viewport.width - BAR_MARGIN_PX - drag.width);
-    const left = Math.min(max, Math.max(min, drag.startLeft + event.clientX - drag.startX));
-    if (Math.abs(event.clientX - drag.startX) > 2) drag.moved = true;
-    this.#dock.style.setProperty("--ib-held-left", `${left}px`);
-    const x = positionForLeft(left - viewport.left, drag.width, viewport.width);
-    // The panel and the toolbar's direction follow the drag as it goes, so nothing jumps when it is dropped.
-    this.#setPosition(x);
-    this.#grab.setAttribute("aria-valuenow", String(Math.round(x * 100)));
-    this.#grab.setAttribute("aria-valuetext", describePosition(x));
+    const max = Math.max(min, viewport.left + viewport.width - BAR_MARGIN_PX - drag.logoWidth);
+    this.#dragLogoLeft = Math.min(max, Math.max(min, drag.startLeft + event.clientX - drag.startX));
+    const x = positionForLeft(this.#dragLogoLeft - viewport.left, drag.logoWidth, viewport.width);
+    // The toolbar's direction and the panel follow the drag as it goes, so nothing jumps when it is dropped.
+    this.#dock.style.setProperty("--ib-x", String(x));
+    this.#dock.dataset.align = x > 2 / 3 ? "end" : "start";
+    this.#layout();
   }
 
-  /** Ends a drag; `keep` saves where it was dropped (as a position, so it fits other widths), otherwise it springs back. */
+  /** Ends a press on the logo; a drag (`keep`) saves where it was dropped, as a position, so it fits other widths. */
   #endDrag(event: PointerEvent, keep: boolean): void {
     const drag = this.#drag;
     if (!drag || event.pointerId !== drag.pointerId) return;
     this.#drag = null;
+    if (!drag.moved) return;
     this.#dock.removeAttribute("data-dragging");
-    const left = Number.parseFloat(this.#dock.style.getPropertyValue("--ib-held-left"));
-    this.#dock.removeAttribute("data-held");
-    this.#dock.style.removeProperty("--ib-held-left");
-    if (keep && drag.moved && Number.isFinite(left)) {
+    // The release's click must not also expand or collapse the toolbar.
+    this.#swallowLogoClick = true;
+    setTimeout(() => {
+      this.#swallowLogoClick = false;
+    }, 0);
+    if (keep) {
       const viewport = this.#viewport();
-      const x = positionForLeft(left - viewport.left, drag.width, viewport.width);
+      const x = positionForLeft(this.#dragLogoLeft - viewport.left, drag.logoWidth, viewport.width);
       this.#saveState({ ...this.#state, x });
       this.#announce(`Toolbar moved to the ${describePosition(x)}.`);
     } else {
@@ -1392,79 +1494,22 @@ export class IterbarBarElement extends ElementBase {
     this.#tooltip.hidden = true;
   }
 
-  /**
-   * The pointer (or a tap) wakes the sleeping toolbar. Docked left or right it grows away from its edge; centred, its
-   * left edge holds still while it wakes, shifting left only as far as staying in view needs, so the sleeping buttons
-   * stay under the pointer.
-   */
-  #holdPlace(on: boolean): void {
-    const dock = this.#dock;
-    if (!on) {
-      // A drag keeps the toolbar awake and held until it is dropped, wherever the pointer goes meanwhile.
-      if (this.#drag) return;
-      dock.removeAttribute("data-hovered");
-      dock.removeAttribute("data-held");
-      dock.removeAttribute("data-compact");
-      dock.style.removeProperty("--ib-held-left");
-      dock.style.removeProperty("--ib-held-room");
-      return;
-    }
-    if (dock.hasAttribute("data-hovered")) return;
-    if (dock.hasAttribute("data-awake") || dock.matches(":focus-within")) {
-      dock.toggleAttribute("data-hovered", true);
-      return;
-    }
-    // Measured before it wakes; the dock cancels any page zoom, so its CSS pixels are viewport pixels. The sleeping
-    // buttons stay under the pointer: the toolbar grows away from its edge, and controls that do not fit wrap onto a
-    // row above instead of moving them.
-    const viewport = this.#viewport();
-    const min = viewport.left + BAR_MARGIN_PX;
-    const maxRight = viewport.left + viewport.width - BAR_MARGIN_PX;
-    const pill = dock.getBoundingClientRect();
-    const before = this.#comment.getBoundingClientRect().left;
-    dock.style.setProperty("--ib-held-left", `${pill.left}px`);
-    dock.toggleAttribute("data-held", true);
-    dock.toggleAttribute("data-hovered", true);
-    if (dock.dataset.align === "end") {
-      // Right to left: the pill's right edge holds still and the woken controls (the grab handle last) go leftward.
-      dock.style.setProperty("--ib-held-room", `${Math.max(0, pill.right - min)}px`);
-      this.#compactIfWrapped(pill.height);
-      dock.style.setProperty("--ib-held-left", `${pill.right - dock.getBoundingClientRect().width}px`);
-      return;
-    }
-    // Left to right: the grab handle comes before the sleeping buttons (asleep, the toolbar keeps room for it from
-    // the margin), so the dock moves left by as much, and the rest grows rightward.
-    const offset = this.#comment.getBoundingClientRect().left - dock.getBoundingClientRect().left;
-    const left = Math.max(min, before - offset);
-    dock.style.setProperty("--ib-held-left", `${left}px`);
-    dock.style.setProperty("--ib-held-room", `${Math.max(0, maxRight - left)}px`);
-    this.#compactIfWrapped(pill.height);
-  }
-
-  /**
-   * Short of room, the woken toolbar wraps onto a row above. Then the status keeps to its dot (its label stays for
-   * assistive technology and in its tooltip), so it, like every sleeping control, stays on the bottom row.
-   */
-  #compactIfWrapped(rowHeight: number): void {
-    this.#dock.toggleAttribute("data-compact", this.#dock.getBoundingClientRect().height > rowHeight + 1);
-  }
-
-  /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */
+  /** The toolbar shows in full when expanded, with a panel or the composer open, or in comment mode. */
   #applyAwake(): void {
     const awake = this.#state.expanded || this.#state.panel !== null || this.#commentMode || this.#composer.open;
-    // A panel, the composer or comment mode needs the toolbar placed as usual: the place held for the pointer goes.
-    if (this.#state.panel !== null || this.#commentMode || this.#composer.open) this.#releaseHold();
     this.#dock.toggleAttribute("data-awake", awake);
+    this.#layout();
   }
 
-  /** Arrow keys (Shift for bigger steps), Home and End on the grab handle move the toolbar along the bottom edge. */
+  /** Arrow keys (Shift for bigger steps), Home and End on the logo move the toolbar along the bottom edge. */
   #moveWithKey(event: KeyboardEvent): void {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const x = positionForKey(this.#state.x, event.key, event.shiftKey);
     if (x === null) return;
     event.preventDefault();
-    this.#releaseHold();
-    if (x !== this.#state.x) this.#saveState({ ...this.#state, x });
+    if (x === this.#state.x) return;
+    this.#saveState({ ...this.#state, x });
+    this.#announce(`Toolbar moved to the ${describePosition(x)}.`);
   }
 }
 

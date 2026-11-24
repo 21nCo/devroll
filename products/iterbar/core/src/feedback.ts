@@ -17,8 +17,12 @@ export const EVIDENCE_WINDOW_AFTER_MS = 5_000;
 
 export const feedbackKindSchema = z.enum(["comment", "choose_variant"]);
 
-/** `open` until an agent picks it up; `resolved` closes the thread. */
-export const feedbackStatusSchema = z.enum(["open", "working", "needs-info", "done", "resolved"]);
+/**
+ * `open` until an agent picks it up. `done` closes the thread: the agent made the change or nothing more is needed.
+ * `resolved` is an older name for `done` that agents may still send; the bar shows both as Done. `archived` is set
+ * by the user in the bar, to put a thread away; agents never set it.
+ */
+export const feedbackStatusSchema = z.enum(["open", "working", "needs-info", "done", "resolved", "archived"]);
 
 /** Element bounds in CSS pixels, relative to the top-left corner of the document. */
 export const boundingBoxSchema = z.object({
