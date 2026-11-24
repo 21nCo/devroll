@@ -252,7 +252,8 @@ export class AgentHelp {
       h("h3", { class: "agent-step-title" }, h("span", { class: "agent-step-number", "aria-hidden": "true" }, number), title),
       ...snippets.flatMap((snippet) => [
         h("p", { class: "muted agent-caption" }, snippet.caption),
-        this.#snippet(snippet.text, role, title),
+        // Named after the step and its command, so each copy button of a step with several says which it copies.
+        this.#snippet(snippet.text, role, snippets.length > 1 ? `${title}, ${snippet.text.split("\n").at(-1)!}` : title),
       ]));
   }
 

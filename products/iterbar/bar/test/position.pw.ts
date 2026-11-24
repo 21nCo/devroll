@@ -179,6 +179,9 @@ test("explains every toolbar control in a tooltip; help opens the setup sheet wi
   ]);
   await inBar(page, "[data-role=agent-manual] summary").click();
   await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- npx -y iterbar mcp --root /work/shop");
+  // Each setup copy button names the command it copies.
+  await expect(inBar(page, "[data-step=init] [data-role=copy-init]").nth(1)).toHaveAttribute("aria-label", "Copy: Set up (one-time), pnpm add -D iterbar");
+  await expect(inBar(page, "[data-step=init] [data-role=copy-init]").nth(2)).toHaveAttribute("aria-label", "Copy: Set up (one-time), pnpm exec iterbar init --agent claude");
   // When the dev server says which CLI it runs, a third form runs that one, and the manual steps use it.
   await page.evaluate(() => {
     const bar = document.querySelector("iterbar-bar") as HTMLElement & { devServer: unknown };
