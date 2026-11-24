@@ -41,6 +41,14 @@ interface Pin {
  * The layer is a manual popover in the top layer, like the bar, so page stacking cannot hide it; only the pins take
  * pointer events.
  */
+/** Whether an element with `style` is the containing block of fixed elements inside it, as a transform makes it. */
+function holdsFixed(style: CSSStyleDeclaration): boolean {
+  return style.transform !== "none" || style.perspective !== "none" || style.filter !== "none"
+    || (style.backdropFilter !== undefined && style.backdropFilter !== "none" && style.backdropFilter !== "")
+    || /paint|layout|strict|content/.test(style.contain)
+    || /transform|perspective|filter/.test(style.willChange);
+}
+
 /**
  * The part of `element` its scrolling or clipping ancestors leave in view, as a viewport rectangle; `null` when none
  * of it is (scrolled out of an `overflow: auto` list, say).
@@ -51,10 +59,16 @@ function visibleRect(element: Element): DOMRect | null {
   let top = rect.top;
   let right = rect.right;
   let bottom = rect.bottom;
-  // A fixed element is laid out against the viewport, so the boxes it sits in do not clip it.
-  if (getComputedStyle(element).position === "fixed") return rect.width > 0 && rect.height > 0 ? rect : null;
+  // A fixed element is laid out against its containing block: the viewport, or the nearest ancestor with a transform,
+  // filter, perspective or paint containment. Boxes between it and that block do not clip it; that block and the boxes
+  // around it do.
+  let skipping = getComputedStyle(element).position === "fixed";
   for (let ancestor = element.parentElement; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
     const style = getComputedStyle(ancestor);
+    if (skipping) {
+      if (!holdsFixed(style)) continue;
+      skipping = false;
+    }
     const clipsX = style.overflowX !== "visible";
     const clipsY = style.overflowY !== "visible";
     if (clipsX || clipsY) {
@@ -70,9 +84,10 @@ function visibleRect(element: Element): DOMRect | null {
       }
       if (right <= left || bottom <= top) return null;
     }
-    // Past a fixed ancestor, the boxes further out do not clip what is inside it.
-    if (style.position === "fixed") break;
+    // Inside a fixed ancestor, the same rule holds for the boxes past it.
+    if (style.position === "fixed") skipping = true;
   }
+  if (right <= left || bottom <= top) return null;
   return new DOMRect(left, top, right - left, bottom - top);
 }
 

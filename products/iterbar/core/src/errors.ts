@@ -97,15 +97,26 @@ const V1_RENAMES: Readonly<Record<string, string>> = Object.freeze({
   version: "variant",
 });
 
-/** Each version 2 name and the version 1 field it replaces. */
-const LEGACY_NAMES: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(Object.entries(V1_RENAMES).map(([legacy, current]) => [current, legacy])),
-);
-
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value) as unknown;
   return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * `value` with the version 1 fields in `legacyKeys` renamed to their version 2 names, every other field kept. A version
+ * 2 name next to its version 1 field was an unknown, ignored field in version 1: the version 1 field decides, in any
+ * key order.
+ */
+function renameFields(value: unknown, legacyKeys: readonly string[]): unknown {
+  if (!isPlainRecord(value)) return value;
+  const renamed = new Set(legacyKeys.filter((key) => Object.hasOwn(value, key)).map((key) => V1_RENAMES[key]!));
+  const upgraded: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (renamed.has(key)) continue;
+    upgraded[legacyKeys.includes(key) ? V1_RENAMES[key]! : key] = item;
+  }
+  return upgraded;
 }
 
 /**
@@ -126,19 +137,13 @@ export const legacyUpgrade = Object.freeze({
     for (const [key, upgrade] of Object.entries(keys)) if (Object.hasOwn(copy, key)) copy[key] = upgrade(copy[key]);
     return copy;
   },
-  /**
-   * A slot state, active variant, choice or selection with its version 1 slot fields renamed. A version 2 name next
-   * to its version 1 field was an unknown, ignored field in version 1: the version 1 field decides, in any key order.
-   */
+  /** A slot state with its version 1 fields renamed (`versions`, `defaultVersion`, `activeVersion`); nothing else. */
   slotFields(value: unknown): unknown {
-    if (!isPlainRecord(value)) return value;
-    const upgraded: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      const legacy = LEGACY_NAMES[key];
-      if (legacy !== undefined && Object.hasOwn(value, legacy)) continue;
-      upgraded[Object.hasOwn(V1_RENAMES, key) ? V1_RENAMES[key]! : key] = item;
-    }
-    return upgraded;
+    return renameFields(value, ["versions", "defaultVersion", "activeVersion"]);
+  },
+  /** An active variant, choice or selection with its version 1 `version` renamed; nothing else. */
+  variantField(value: unknown): unknown {
+    return renameFields(value, ["version"]);
   },
   /** `upgrade` applied to each item of an array; anything else as it is. */
   each(upgrade: (item: unknown) => unknown): (value: unknown) => unknown {

@@ -227,8 +227,8 @@ export function parseSourceLocation(value: string | null | undefined): SourceLoc
 function upgradeLegacyFeedback(input: unknown): unknown {
   const kind = (input as { kind?: unknown } | null)?.kind;
   return legacyUpgrade.message(input, {
-    activeVariants: legacyUpgrade.each(legacyUpgrade.slotFields),
-    ...(kind === "choose_variant" ? { choice: legacyUpgrade.slotFields } : {}),
+    activeVariants: legacyUpgrade.each(legacyUpgrade.variantField),
+    ...(kind === "choose_variant" ? { choice: legacyUpgrade.variantField } : {}),
   });
 }
 

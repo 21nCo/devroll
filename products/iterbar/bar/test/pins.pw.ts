@@ -110,3 +110,18 @@ test("a pin hides while its element is scrolled out of a scrolling box, and surv
   await page.evaluate(() => { document.getElementById("row-30")!.style.height = "60px"; document.getElementById("row-30")!.scrollIntoView({ block: "center" }); });
   await expect.poll(async () => Math.round((await pins(page).boundingBox())!.y + 11)).toBe(Math.round((await page.locator("#row-30").boundingBox())!.y));
 });
+
+test("a fixed element is clipped only by the box it is fixed to", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  const free = comment("Free", { pageUrl: here, target: target("#free-fixed") });
+  const held = comment("Held", { pageUrl: here, target: target("#held-fixed") });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [free, held]);
+  await openFixture();
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("afterbegin", `
+    <div style="height: 40px; overflow: hidden"><p id="free-fixed" style="position: fixed; top: 200px; left: 40px; width: 120px; margin: 0">Free</p></div>
+    <div style="height: 40px; overflow: hidden; transform: translateZ(0)"><p id="held-fixed" style="position: fixed; top: 200px; left: 300px; width: 120px; margin: 0">Held</p></div>`));
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  // The untransformed box does not clip its fixed child; the transformed one holds it and clips it.
+  await expect(inBar(page, `[data-role=pin][data-feedback-ids="${free.id}"]:not([hidden])`)).toHaveCount(1);
+  await expect(inBar(page, `[data-role=pin][data-feedback-ids="${held.id}"]:not([hidden])`)).toHaveCount(0);
+});

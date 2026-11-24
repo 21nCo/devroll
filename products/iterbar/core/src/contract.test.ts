@@ -744,6 +744,9 @@ describe("protocol version 1 input", () => {
     // A feedback record's own extension fields named like a selection's, or like a listing's, stay as they are.
     const record = { schemaVersion: 1, kind: "comment", slot: "sidebar", version: "design-3", items: [{ slot: "x", version: "y" }] };
     expect(api.upgradeMessage(record, api.feedbackSchema)).toEqual({ ...record, schemaVersion: 2 });
+    // An active variant's or a choice's extension named like a slot state field keeps its name.
+    expect(api.upgradeMessage({ schemaVersion: 1, kind: "choose_variant", activeVariants: [{ slot: "pricing", version: "b", versions: ["m"] }], choice: { slot: "pricing", version: "b", activeVersion: "m" } }, api.feedbackSchema))
+      .toEqual({ schemaVersion: 2, kind: "choose_variant", activeVariants: [{ slot: "pricing", variant: "b", versions: ["m"] }], choice: { slot: "pricing", variant: "b", activeVersion: "m" } });
     // A comment's extension named `choice` is not a variant choice: its fields stay.
     expect(api.upgradeMessage({ schemaVersion: 1, kind: "comment", choice: { version: "design-3" } }, api.feedbackSchema))
       .toEqual({ schemaVersion: 2, kind: "comment", choice: { version: "design-3" } });
