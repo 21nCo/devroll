@@ -36,7 +36,7 @@ export const activeVariantsSchema = z.array(activeVariantSchema).max(256).refine
 );
 
 /** The longest variant description, in characters: a line or two under the name. */
-export const MAX_VARIANT_DESCRIPTION_LENGTH = 200;
+export const MAX_VARIANT_DESCRIPTION_LENGTH = 160;
 
 /** One slot as the page registry currently sees it. */
 export const slotStateSchema = z.object({

@@ -19,7 +19,7 @@ supported.
 ```
 
 `descriptions` (optional) gives some or all variants a short description,
-at most 200 characters each, that the bar shows under each name:
+at most 160 characters each, that the bar shows under each name:
 `descriptions={{ v1: "Current table", v2: "Cards, plan names first" }}`.
 
 A variant is either a component that takes no props (rendered as

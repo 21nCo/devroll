@@ -154,6 +154,9 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
   // The port is known once the server listens; no request is handled before then.
   const policy: { port: number; token: string; origins: OriginAllowList } = { port: 0, token, origins };
   let daemon: Daemon | undefined;
+  // Set before daemon.json is published: a request can arrive as soon as another process reads that file, before
+  // the daemon object exists.
+  let info: DaemonInfo | undefined;
 
   const handleRequest = async (request: IncomingMessage, response: ServerResponse) => {
     let cors = {};
@@ -176,7 +179,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
       }
       await handleRoute(route.name, {
         request, response, url: url as URL, params: route.params, headers: cors, store, origins, slots, events, statusChanges,
-        info: daemon!.info,
+        info: info!,
         shutdown: () => void daemon?.close(),
       });
     } catch (error) {
@@ -215,7 +218,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
     });
     server.on("error", onError);
     policy.port = (server.address() as AddressInfo).port;
-    const info = parseMessage(daemonInfoSchema, {
+    info = parseMessage(daemonInfoSchema, {
       schemaVersion: SCHEMA_VERSION,
       host: DAEMON_HOST,
       port: policy.port,

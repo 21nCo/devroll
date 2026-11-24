@@ -188,7 +188,7 @@ describe("feedback API", () => {
     });
     const cleared = await call(daemon, "/feedback", { method: "DELETE" });
     expect(cleared.status).toBe(200);
-    expect(await cleared.json()).toEqual({ schemaVersion: 2, deleted: 2 });
+    expect(await cleared.json()).toEqual({ schemaVersion: 2, deleted: 2, failed: 0 });
     expect(await storedItems()).toEqual([]);
     expect((await client.next()).type).toBe("feedback.created");
     expect((await client.next()).type).toBe("feedback.created");

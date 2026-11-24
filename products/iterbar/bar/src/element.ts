@@ -418,7 +418,10 @@ export class IterbarBarElement extends ElementBase {
       },
       deleteAll: () => this.#requireConnection().deleteAll(),
       clearDrafts: () => {
+        if (this.#sendingBatch) return 0;
+        const before = this.#drafts.length;
         for (const draft of [...this.#drafts]) this.#removeDraft(draft.id);
+        return before - this.#drafts.length;
       },
       openSetup: () => this.#openPanel("agent", true),
       copy: (text) => copyText(text, this.#root, this.#panel),
@@ -1199,6 +1202,7 @@ export class IterbarBarElement extends ElementBase {
       connectionLabel: STATUS_TEXT[this.#connectionKind],
       threadCount: this.#threads.threads.length,
       draftCount: this.#drafts.length,
+      sending: this.#sendingBatch,
       devServer: this.#devServer,
     }, refreshInfo);
   }
@@ -1221,7 +1225,7 @@ export class IterbarBarElement extends ElementBase {
     if (!dev) throw new Error("This page has no Iterbar dev-server plugin to start the daemon.");
     const config = await dev.reconnect();
     if (!config.daemonUrl || !config.token) throw new Error("The dev server could not start the daemon. Its terminal says why.");
-    if (config.about) this.#devServer = { ...dev, about: config.about };
+    if (config.about) this.devServer = { ...dev, about: config.about };
     this.daemonUrl = config.daemonUrl;
     this.token = config.token;
     const until = Date.now() + 5000;
@@ -1406,6 +1410,8 @@ export class IterbarBarElement extends ElementBase {
       this.#renderStatus(parsed.status);
       return;
     }
+    // Whatever the settings showed or were about to do concerned the earlier daemon.
+    this.#settings.resetForConnection();
     const connection = new DaemonConnection(parsed.config, {
       onStatus: (status) => {
         if (this.#connection !== connection) return;

@@ -289,10 +289,10 @@ export class DaemonConnection {
   }
 
   /** Deletes every item in the project's store (the settings' "Delete all Iterbar data"); resolves with how many went. */
-  async deleteAll(): Promise<number> {
+  async deleteAll(): Promise<{ deleted: number; failed: number }> {
     const parsed = safeParseMessage(deleteAllFeedbackResponseSchema, await this.#userRequest("deleteAllFeedback", {}), "delete all");
     if (!parsed.success) throw new DaemonRequestError("The daemon's answer did not match the contract.");
-    return parsed.data.deleted;
+    return { deleted: parsed.data.deleted, failed: parsed.data.failed };
   }
 
   /** The daemon's process, start time and store folder (`GET /info`). */
@@ -556,7 +556,8 @@ export class DaemonConnection {
         refusedStatus = response.status;
         throw await answerError(response);
       }
-      return response.status === 204 ? undefined : endpoint === "reportSlots" ? undefined : await response.json();
+      if (response.status === 204 || response.status === 202 || endpoint === "reportSlots") return undefined;
+      return await response.json();
     };
     try {
       return await Promise.race([exchange(), timeout]);

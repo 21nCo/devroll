@@ -97,8 +97,11 @@ export interface FeedbackStore {
   setStatus(feedbackId: string, status: FeedbackStatus): Promise<Feedback>;
   /** Deletes an item and its attachments; throws `not_found` when it does not exist. */
   delete(feedbackId: string): Promise<void>;
-  /** Deletes every item with its attachments; resolves with the deleted ids. */
-  deleteAll(): Promise<string[]>;
+  /**
+   * Deletes every item with its attachments, one at a time. Resolves with the ids deleted and those that could not be
+   * (an unreadable record, a failed write), so every delete that happened can be announced.
+   */
+  deleteAll(): Promise<{ deleted: string[]; failed: string[] }>;
   /** Waits for pending writes, then releases the lock. Idempotent. */
   close(): Promise<void>;
 }
@@ -466,11 +469,12 @@ class FileFeedbackStore implements FeedbackStore {
     return this.#exclusive(() => this.#delete(feedbackId, true));
   }
 
-  /** Deletes every item, one durable delete at a time. Resolves with the ids that were deleted. */
-  async deleteAll(): Promise<string[]> {
+  /** Deletes every item, one durable delete at a time, going on past one that fails. */
+  async deleteAll(): Promise<{ deleted: string[]; failed: string[] }> {
     this.#assertOpen();
     return this.#exclusive(async () => {
       const deleted: string[] = [];
+      const failed: string[] = [];
       for (const entry of await listDirectory(this.paths.feedbackDirectory)) {
         if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
         try {
@@ -478,10 +482,10 @@ class FileFeedbackStore implements FeedbackStore {
           await this.#delete(entry.name, false);
           deleted.push(entry.name);
         } catch (error) {
-          if (!(error instanceof IterbarStoreError && error.code === "not_found")) throw error;
+          if (!(error instanceof IterbarStoreError && error.code === "not_found")) failed.push(entry.name);
         }
       }
-      return deleted;
+      return { deleted, failed };
     });
   }
 

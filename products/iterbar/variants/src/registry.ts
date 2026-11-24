@@ -53,7 +53,7 @@ export interface SlotDefinition {
   /** Variant names in display order; unique, 1-64 of them. */
   readonly variants: readonly string[];
   readonly defaultVariant: string;
-  /** A short description of some or all variants, by name, shown under each name in the bar (at most 200 characters). */
+  /** A short description of some or all variants, by name, shown under each name in the bar (at most 160 characters). */
   readonly descriptions?: Readonly<Record<string, string>>;
 }
 

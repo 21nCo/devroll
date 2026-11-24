@@ -42,7 +42,7 @@ export type VariantsProps<VariantMap extends Readonly<Record<string, VariantCont
   readonly default: Extract<keyof VariantMap, string>;
   /**
    * A short description of some or all variants (what each one tries), by variant name, shown under each name in the
-   * bar's Variants popover; at most 200 characters each. Development only, like the rest.
+   * bar's Variants popover; at most 160 characters each. Development only, like the rest.
    */
   readonly descriptions?: Readonly<Partial<Record<Extract<keyof VariantMap, string>, string>>>;
 } & (

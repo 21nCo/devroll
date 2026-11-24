@@ -44,9 +44,10 @@ export interface SettingsOptions {
   /** Starts the daemon through the dev server (also after a stop); resolves once the bar has it again. */
   readonly startDaemon: () => Promise<void>;
   readonly restartDaemon: () => Promise<void>;
-  /** Deletes every item in the store; resolves with how many went. */
-  readonly deleteAll: () => Promise<number>;
-  readonly clearDrafts: () => void;
+  /** Deletes every item in the store; resolves with how many went and how many could not be deleted. */
+  readonly deleteAll: () => Promise<{ deleted: number; failed: number }>;
+  /** Removes every draft; resolves with how many went. */
+  readonly clearDrafts: () => number;
   readonly openSetup: () => void;
   /** Copies a command; resolves once it is on the clipboard. */
   readonly copy: (text: string) => Promise<void>;
@@ -59,6 +60,8 @@ export interface SettingsContext {
   readonly connectionLabel: string;
   readonly threadCount: number;
   readonly draftCount: number;
+  /** A batch of drafts is being sent: they can't be cleared meanwhile. */
+  readonly sending: boolean;
   readonly devServer: DevServerLink | null;
 }
 
@@ -100,6 +103,12 @@ export class SettingsPanel {
   #message: { text: string; error: boolean } | null = null;
   /** The confirmation open now, if any. */
   #confirming: "stop" | "drafts" | "data" | null = null;
+  /** The control that opened the confirmation open now, which takes focus back when it closes. */
+  #returnFocus: string | null = null;
+  /** A confirmation just opened: its Cancel takes focus on the next render. */
+  #focusCancel = false;
+  /** Counts daemon-info requests, so an answer from an earlier daemon is dropped. */
+  #infoRequest = 0;
   #updatesResult: readonly PackageUpdate[] | null = null;
   #updatesError: string | null = null;
   #checking = false;
@@ -118,30 +127,71 @@ export class SettingsPanel {
   render(context: SettingsContext, refreshInfo = false): void {
     this.#context = context;
     if (refreshInfo) void this.#loadInfo();
+    // The controls are built again: focus goes back to the same control (or the one that replaced it).
+    const focused = this.#focusKey();
     this.#renderDaemon();
     this.#renderUpdates();
     this.#renderToolbar();
     this.#renderData();
+    this.#restoreFocus(focused);
     this.#status.hidden = !this.#message;
     this.#status.textContent = this.#message?.text ?? "";
     this.#status.classList.toggle("composer-error", Boolean(this.#message?.error));
   }
 
+  /**
+   * The bar now talks to another daemon (or none): what the sheet showed about the earlier one goes, and so does an
+   * open confirmation, which described that daemon's store.
+   */
+  resetForConnection(): void {
+    this.#infoRequest += 1;
+    this.#info = null;
+    this.#infoError = null;
+    this.#confirming = null;
+    this.#returnFocus = null;
+    this.#message = null;
+  }
+
+  /** The focused control inside the sheet, as its role (and value, for a choice), so a re-render can focus it again. */
+  #focusKey(): { role: string; value: string | null } | null {
+    const active = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
+    if (!active || !this.element.contains(active)) return null;
+    const role = active.closest("[data-role]")?.getAttribute("data-role");
+    return role ? { role, value: active.getAttribute("data-value") } : null;
+  }
+
+  #restoreFocus(key: { role: string; value: string | null } | null): void {
+    if (this.#focusCancel) {
+      this.#focusCancel = false;
+      this.element.querySelector<HTMLElement>("[data-role=settings-cancel]")?.focus();
+      return;
+    }
+    const find = (role: string, value: string | null) => this.element.querySelector<HTMLElement>(
+      value === null ? `[data-role="${CSS.escape(role)}"]` : `[data-role="${CSS.escape(role)}"] [data-value="${CSS.escape(value)}"]`);
+    const active = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
+    if (active && this.element.contains(active)) return;
+    const target = (key ? find(key.role, key.value) : null) ?? (this.#returnFocus ? find(this.#returnFocus, null) : null);
+    if (key || this.#returnFocus) target?.focus();
+  }
+
   async #loadInfo(): Promise<void> {
+    const request = ++this.#infoRequest;
     if (!this.#context?.connected) {
       this.#info = null;
       this.#infoError = null;
       return;
     }
     try {
-      this.#info = await this.#options.daemonInfo();
+      const info = await this.#options.daemonInfo();
+      if (request !== this.#infoRequest) return;
+      this.#info = info;
       this.#infoError = null;
     } catch (error) {
+      if (request !== this.#infoRequest) return;
       this.#info = null;
       this.#infoError = (error as Error).message;
     }
-    this.#renderDaemon();
-    this.#renderData();
+    this.#renderAll();
   }
 
   /** Runs one of the sheet's actions, showing that it runs and then how it went. */
@@ -180,9 +230,6 @@ export class SettingsPanel {
       this.#confirming = null;
       this.#renderAll();
     });
-    queueMicrotask(() => {
-      if (cancel.isConnected) cancel.focus();
-    });
     return h("div", { class: "settings-confirm", role: "alertdialog", "aria-label": "Confirm" },
       h("p", {}, text), h("div", { class: "composer-actions" }, h("span", { class: "spacer" }), cancel, action));
   }
@@ -206,6 +253,8 @@ export class SettingsPanel {
       })));
       actions.append(this.#button("Stop…", "daemon-stop", () => {
         this.#confirming = "stop";
+        this.#returnFocus = "daemon-stop";
+        this.#focusCancel = true;
         this.#renderAll();
       }));
     } else if (dev) {
@@ -253,12 +302,17 @@ export class SettingsPanel {
     });
     const check = this.#button(this.#checking ? "Checking…" : "Check for updates", "updates-check", () => void this.#checkUpdates());
     check.disabled = this.#checking;
-    const command = `npm install -D ${about.packages.map((pkg) => `${pkg.name}@latest`).join(" ")}`;
-    const pnpm = `pnpm add -D ${about.packages.map((pkg) => `${pkg.name}@latest`).join(" ")}`;
     const children: Node[] = [h("ul", { class: "settings-packages" }, ...rows), h("div", { class: "settings-actions" }, check)];
     if (this.#updatesError) children.push(h("p", { class: "composer-error" }, this.#updatesError));
-    children.push(h("p", { class: "muted settings-line" }, "To update, run in the project's folder (then restart the dev server):"),
-      this.#snippet(command, "updates-npm"), this.#snippet(pnpm, "updates-pnpm"));
+    // Commands only for what the registry has a newer version of, so a copied command never names a missing package.
+    const newer = (this.#updatesResult ?? []).filter((each) => !each.error && each.latest !== null && each.latest !== each.installed);
+    if (newer.length > 0) {
+      const specs = newer.map((each) => `${each.name}@${each.latest}`).join(" ");
+      children.push(h("p", { class: "muted settings-line" }, "To update, run in the project's folder (then restart the dev server):"),
+        this.#snippet(`npm install -D ${specs}`, "updates-npm"), this.#snippet(`pnpm add -D ${specs}`, "updates-pnpm"));
+    } else if (this.#updatesResult) {
+      children.push(h("p", { class: "muted settings-line", "data-role": "updates-none" }, "Nothing newer is published."));
+    }
     this.#updates.replaceChildren(...children);
   }
 
@@ -299,13 +353,26 @@ export class SettingsPanel {
     const { values } = context;
     const choice = <T>(label: string, role: string, options: readonly { label: string; value: T }[], current: T, set: (value: T) => void) => {
       const group = h("div", { class: "segmented settings-choice", role: "radiogroup", "aria-label": label, "data-role": role });
-      for (const option of options) {
+      const index = options.findIndex((option) => option.value === current);
+      options.forEach((option, at) => {
         const button = h("button", {
-          type: "button", class: "segment", role: "radio", "aria-checked": String(option.value === current), "data-value": String(option.value),
+          type: "button", class: "segment", role: "radio", "aria-checked": String(at === index), "data-value": String(option.value),
         }, option.label);
+        button.tabIndex = at === Math.max(0, index) ? 0 : -1;
         button.addEventListener("click", () => set(option.value));
         group.append(button);
-      }
+      });
+      // Arrow keys move the choice, as in any radio group; the re-render keeps focus on the chosen one.
+      group.addEventListener("keydown", (event) => {
+        const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        event.preventDefault();
+        const next = options[(Math.max(0, index) + step + options.length) % options.length]!;
+        set(next.value);
+        queueMicrotask(() => group.isConnected
+          ? undefined
+          : this.element.querySelector<HTMLElement>(`[data-role="${role}"] [data-value="${String(next.value)}"]`)?.focus());
+      });
       return h("div", { class: "settings-row" }, h("span", { class: "settings-label" }, label), group);
     };
     const toggle = (label: string, detail: string, role: string, checked: boolean, set: (value: boolean) => void) => {
@@ -336,20 +403,26 @@ export class SettingsPanel {
     children.push(h("div", { class: "settings-actions" },
       this.#button("Clear drafts…", "drafts-clear", () => {
         this.#confirming = "drafts";
+        this.#returnFocus = "drafts-clear";
+        this.#focusCancel = true;
         this.#renderAll();
       }),
       this.#button("Delete all Iterbar data…", "data-delete", () => {
         this.#confirming = "data";
+        this.#returnFocus = "data-delete";
+        this.#focusCancel = true;
         this.#renderAll();
       }, { danger: true })));
-    (children[0] as HTMLElement).querySelector<HTMLButtonElement>("[data-role=drafts-clear]")!.disabled = this.#busy !== null || drafts === 0;
+    (children[0] as HTMLElement).querySelector<HTMLButtonElement>("[data-role=drafts-clear]")!.disabled = this.#busy !== null || drafts === 0 || context.sending;
     (children[0] as HTMLElement).querySelector<HTMLButtonElement>("[data-role=data-delete]")!.disabled = this.#busy !== null || !context.connected;
     if (this.#confirming === "drafts") {
       children.push(this.#confirm(`Remove ${plural(drafts, "draft")} from this tab? They were never sent, so they can't be brought back.`,
         this.#button("Clear drafts", "drafts-clear-confirm", () => {
           this.#confirming = null;
-          this.#options.clearDrafts();
-          this.#message = { text: `Cleared ${plural(drafts, "draft")}.`, error: false };
+          const removed = this.#options.clearDrafts();
+          this.#message = removed === drafts
+            ? { text: `Cleared ${plural(removed, "draft")}.`, error: false }
+            : { text: `Cleared ${plural(removed, "draft")}; the rest are being sent.`, error: true };
           this.#renderAll();
         }, { danger: true })));
     }
@@ -360,7 +433,8 @@ export class SettingsPanel {
           + `with their replies, screenshots and evidence: everything in ${where}. Your agent can't read them afterwards, and they can't be brought back. `
           + "It leaves your code, your agent's setup (skill and MCP config), the drafts in this tab and these settings alone.",
         this.#button("Delete everything", "data-delete-confirm", () => void this.#run("data", async () => {
-          const deleted = await this.#options.deleteAll();
+          const { deleted, failed } = await this.#options.deleteAll();
+          if (failed > 0) throw new Error(`Deleted ${plural(deleted, "item")}; ${failed} could not be deleted (see the daemon's log).`);
           return `Deleted ${plural(deleted, "item")}.`;
         }), { danger: true })));
     }

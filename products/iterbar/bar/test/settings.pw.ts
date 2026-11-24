@@ -109,11 +109,48 @@ test("shows the installed versions and checks for updates only when asked", asyn
   await openPanel(page, "settings");
   const updates = inBar(page, "[data-role=settings-updates]");
   await expect(updates).toContainText("@iterbar/vite");
-  await expect(updates).toContainText("npm install -D @iterbar/vite@latest @iterbar/cli@latest");
+  await expect(inBar(page, "[data-role=updates-npm]")).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { checks?: number }).checks ?? 0)).toBe(0);
   await inBar(page, "[data-role=updates-check]").click();
   await expect(updates).toContainText("0.2.0 available");
   await expect(updates).toContainText("not on npm yet");
+  // The command names only what the registry has a newer version of.
+  await expect(inBar(page, "[data-role=updates-npm] .snippet-text")).toHaveText("npm install -D @iterbar/vite@0.2.0");
   // With the dev server's link, the daemon can be restarted from here.
   await expect(inBar(page, "[data-role=daemon-restart]")).toBeVisible();
+});
+
+test("keeps keyboard focus on the control in use, and Restart stops the daemon and starts the next one", async ({ page, openFixture, fixtureServer }) => {
+  const first = await fakeDaemon(page, fixtureServer.origin);
+  const second = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(({ first, second }) => {
+    const bar = window.fixture.mountIterbarBar({
+      daemonUrl: first.url, token: first.token,
+      devServer: { about: null, reconnect: async () => ({ daemonUrl: second.url, token: second.token }), checkUpdates: async () => ({ packages: [] }) },
+    });
+    bar.expanded = true;
+  }, { first: { url: first.url, token: first.token }, second: { url: second.url, token: second.token } });
+  await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
+  await openPanel(page, "settings");
+  // Space on a toggle, and arrow keys in a choice, leave focus where it was.
+  await inBar(page, "[data-role=settings-screenshots]").focus();
+  await page.keyboard.press("Space");
+  await expect(inBar(page, "[data-role=settings-screenshots]")).toBeFocused();
+  await expect(inBar(page, "[data-role=settings-screenshots]")).not.toBeChecked();
+  await inBar(page, "[data-role=settings-theme] [data-value=auto]").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(inBar(page, "[data-role=settings-theme] [data-value=light]")).toBeFocused();
+  await expect(inBar(page, "[data-role=settings-theme] [data-value=light]")).toHaveAttribute("aria-checked", "true");
+  // A confirmation takes focus on Cancel, and Cancel gives it back to the button that opened it.
+  await inBar(page, "[data-role=daemon-stop]").click();
+  await expect(inBar(page, "[data-role=settings-cancel]")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(inBar(page, "[data-role=daemon-stop]")).toBeFocused();
+  // Restart: the first daemon is asked to stop, and the bar connects to the one the dev server hands it next.
+  await inBar(page, "[data-role=daemon-restart]").click();
+  await expect(inBar(page, "[data-role=settings-message]")).toHaveText("The daemon restarted.");
+  expect(first.shutdowns).toBe(1);
+  await expect.poll(() => page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe(second.url);
+  await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
 });

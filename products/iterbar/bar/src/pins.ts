@@ -285,8 +285,8 @@ export class PinLayer {
     for (const [element, pin] of pins) {
       if (groups.has(element)) continue;
       pin.button.remove();
-      if (!this.#pins.has(element) && !this.#draftPins.has(element)) this.#resizes?.unobserve(element);
       pins.delete(element);
+      if (!this.#pins.has(element) && !this.#draftPins.has(element)) this.#resizes?.unobserve(element);
     }
     for (const [element, ids] of groups) {
       let pin = pins.get(element);
@@ -371,9 +371,13 @@ export class PinLayer {
         pin.button.hidden = true;
         continue;
       }
-      // A draft pin on an element that also has a thread pin sits just left of it.
-      const shift = pin.kind === "draft" && this.#pins.has(element) ? PIN_SIZE_PX + 4 : 0;
-      const left = Math.min(width - PIN_SIZE_PX - 2, Math.max(2, rect.right - PIN_SIZE_PX / 2 - shift));
+      // A draft pin on an element that also has a thread pin sits just left of it, or just right of it when the left
+      // has no room (the element is at the viewport's left edge).
+      const corner = Math.min(width - PIN_SIZE_PX - 2, Math.max(2, rect.right - PIN_SIZE_PX / 2));
+      let left = corner;
+      if (pin.kind === "draft" && this.#pins.has(element)) {
+        left = corner - PIN_SIZE_PX - 4 >= 2 ? corner - PIN_SIZE_PX - 4 : corner + PIN_SIZE_PX + 4;
+      }
       const top = Math.min(height - PIN_SIZE_PX - 2, Math.max(2, rect.top - PIN_SIZE_PX / 2));
       const covered = avoid.some((area) => left < area.right && left + PIN_SIZE_PX > area.left
         && top < area.bottom && top + PIN_SIZE_PX > area.top);

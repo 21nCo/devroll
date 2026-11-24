@@ -387,8 +387,8 @@ button:disabled { cursor: default; opacity: 0.55; }
 .segmented { display: inline-flex; gap: 2px; margin-right: auto; padding: 2px; border-radius: 8px; background: var(--ib-surface); border: 1px solid var(--ib-border); }
 .segmented[hidden] { display: none; }
 .segment { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 6px; background: transparent; padding: 3px 10px; font-weight: 500; color: var(--ib-fg2); }
-.segment[aria-selected="true"] { background: var(--ib-bg); color: var(--ib-fg); box-shadow: 0 1px 2px rgba(15, 20, 30, 0.12); }
-button.segment[aria-selected="true"]:hover:not(:disabled) { background: var(--ib-bg); }
+.segment:is([aria-selected="true"], [aria-checked="true"]) { background: var(--ib-bg); color: var(--ib-fg); box-shadow: 0 0 0 1px var(--ib-border), 0 1px 2px rgba(15, 20, 30, 0.12); }
+button.segment:is([aria-selected="true"], [aria-checked="true"]):hover:not(:disabled) { background: var(--ib-bg); }
 .tab-count { min-width: 18px; padding: 0 5px; border-radius: 999px; font-size: var(--ib-text-2xs); line-height: 16px; text-align: center;
   background: color-mix(in srgb, var(--ib-fg) 11%, transparent); color: var(--ib-fg); font-variant-numeric: tabular-nums; }
 .panel-body {

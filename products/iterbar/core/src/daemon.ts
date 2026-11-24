@@ -132,10 +132,11 @@ export const slotListResponseSchema = z.object({
   ),
 });
 
-/** Response of `DELETE /feedback`: how many items were deleted. */
+/** Response of `DELETE /feedback`: how many items were deleted, and how many could not be (unreadable, a failed write). */
 export const deleteAllFeedbackResponseSchema = z.object({
   schemaVersion: schemaVersionSchema,
   deleted: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative().default(0),
 });
 
 /** Response of `GET /info`. */

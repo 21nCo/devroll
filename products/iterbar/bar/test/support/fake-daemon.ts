@@ -156,7 +156,7 @@ export async function fakeDaemon(
       const deleted = daemon.items.length;
       for (const item of daemon.items) daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: item.id });
       daemon.items = [];
-      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, deleted }) });
+      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, deleted, failed: 0 }) });
       return;
     }
     if (request.method() === "GET" && path === "/info") {
