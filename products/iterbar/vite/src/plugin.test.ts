@@ -224,7 +224,7 @@ describe("iterbar() in vite dev", () => {
     const registered = await fetch(`${daemonUrl}/origins`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ schemaVersion: 1, origins: ["https://tunnel.example"] }),
+      body: JSON.stringify({ schemaVersion: 2, origins: ["https://tunnel.example"] }),
     });
     expect(((await registered.json()) as { origins: string[] }).origins).toEqual(expect.arrayContaining([
       "https://tunnel.example", `http://127.0.0.1:${port}`, `http://localhost:${port}`, `http://[::1]:${port}`,

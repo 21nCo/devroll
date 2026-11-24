@@ -1,10 +1,16 @@
 import type { z } from "zod";
 
-/** The only protocol major version this package reads and writes. */
-export const SCHEMA_VERSION = 1 as const;
+/**
+ * The protocol major version this package writes. Version 2 renamed a slot's "versions" to "variants"
+ * (`variants`, `defaultVariant`, `activeVariant`, and `variant` in selections, choices and active variants).
+ */
+export const SCHEMA_VERSION = 2 as const;
+
+/** The previous major version, still read for one version: its messages are upgraded on input (see {@link upgradeMessage}). */
+export const LEGACY_SCHEMA_VERSION = 1 as const;
 
 /** Protocol major versions this package can read. */
-export const SUPPORTED_SCHEMA_VERSIONS: readonly number[] = Object.freeze([SCHEMA_VERSION]);
+export const SUPPORTED_SCHEMA_VERSIONS: readonly number[] = Object.freeze([LEGACY_SCHEMA_VERSION, SCHEMA_VERSION]);
 
 /** Stable machine-readable codes carried by every {@link IterbarContractError}. */
 export type IterbarContractErrorCode =
@@ -83,14 +89,60 @@ export function assertSupportedSchemaVersion(input: unknown, label = "message"):
   }
 }
 
+/** Version 1 field names and the version 2 names they became. */
+const V1_RENAMES: Readonly<Record<string, string>> = Object.freeze({
+  versions: "variants",
+  defaultVersion: "defaultVariant",
+  activeVersion: "activeVariant",
+  version: "variant",
+});
+
+/** Most levels of nesting {@link upgradeMessage} walks; protocol messages are far shallower. */
+const MAX_UPGRADE_DEPTH = 32;
+
+function upgradeV1(value: unknown, depth: number): unknown {
+  if (depth > MAX_UPGRADE_DEPTH) return value;
+  if (Array.isArray(value)) return value.map((item) => upgradeV1(item, depth + 1));
+  if (typeof value !== "object" || value === null) return value;
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  if (prototype !== Object.prototype && prototype !== null) return value;
+  const upgraded: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "schemaVersion" && item === LEGACY_SCHEMA_VERSION) {
+      upgraded[key] = SCHEMA_VERSION;
+    } else if (key === "code" && item === "unknown_version") {
+      upgraded[key] = "unknown_variant";
+    } else {
+      upgraded[Object.hasOwn(V1_RENAMES, key) ? V1_RENAMES[key]! : key] = upgradeV1(item, depth + 1);
+    }
+  }
+  return upgraded;
+}
+
 /**
- * Reads a versioned protocol message. Throws {@link UnsupportedSchemaVersionError} for another major
- * version and {@link InvalidMessageError} for anything else that does not match `schema`. Unknown
+ * A version 1 message rewritten as version 2: every `versions`, `defaultVersion`, `activeVersion` and `version`
+ * field takes its version 2 name, nested messages included, and `schemaVersion` becomes 2. Any other input is
+ * returned as it is. {@link parseMessage} applies it before checking the shape, so stored items and older bars and
+ * pages keep working for one version.
+ */
+export function upgradeMessage(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  if ((input as { schemaVersion?: unknown }).schemaVersion !== LEGACY_SCHEMA_VERSION) return input;
+  // Its own fields are copied (the schema reads the version even when inherited); nested messages are plain JSON.
+  const upgraded = upgradeV1({ ...input }, 0) as Record<string, unknown>;
+  upgraded.schemaVersion = SCHEMA_VERSION;
+  return upgraded;
+}
+
+/**
+ * Reads a versioned protocol message, upgrading a version 1 message first. Throws
+ * {@link UnsupportedSchemaVersionError} for any other major version and {@link InvalidMessageError} for anything else
+ * that does not match `schema`. Unknown
  * properties are dropped, so additive v1 fields from a newer writer are tolerated.
  */
 export function parseMessage<S extends z.ZodType>(schema: S, input: unknown, label = "message"): z.output<S> {
   assertSupportedSchemaVersion(input, label);
-  const result = schema.safeParse(input);
+  const result = schema.safeParse(upgradeMessage(input));
   if (!result.success) {
     throw new InvalidMessageError(label, result.error.issues.map((issue) =>
       `${[label, ...issue.path.map(String)].join(".")}: ${issue.message}`));

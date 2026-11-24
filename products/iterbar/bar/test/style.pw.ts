@@ -42,7 +42,7 @@ const PROPERTIES = [
 const SELECTORS = [
   ".dock", ".toolbar", "[data-role=status]", "[data-role=comment]", "[data-role=inbox-toggle]", "[data-role=open-count]",
   "[data-role=logo]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
-  "[data-version=v1]", "[data-version=v2]", ".thread", ".thread summary", ".badge", ".thread-text",
+  "[data-variant=v1]", "[data-variant=v2]", ".thread", ".thread summary", ".badge", ".thread-text",
 ];
 
 async function barStyles(page: Page) {
@@ -72,14 +72,14 @@ async function pageStyles(page: Page) {
   }, PROPERTIES);
 }
 
-/** Mounts the bar with a thread and a slot, pinned expanded with the versions panel open, the pointer off it. */
+/** Mounts the bar with a thread and a slot, pinned expanded with the variants panel open, the pointer off it. */
 async function mountWithContent(page: Page, daemonUrl: string, token: string) {
   await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ expanded: true, panel: "variants" })));
   await registerSlots(page, [PRICING]);
   await mountBar(page, { daemonUrl, token });
   await page.mouse.move(0, 0);
   await expect(inBar(page, ".thread")).toHaveCount(1);
-  await expect(inBar(page, "[data-version=v2]")).toBeVisible();
+  await expect(inBar(page, "[data-variant=v2]")).toBeVisible();
 }
 
 test("hostile page CSS does not change how the bar looks", async ({ page, openFixture, fixtureServer }) => {
@@ -101,10 +101,10 @@ test("hostile page CSS does not change how the bar looks", async ({ page, openFi
   expect(await barStyles(page)).toEqual(clean);
 
   // Focus rings survive a page rule that removes outlines.
-  await inBar(page, "[data-version=v2]").focus();
+  await inBar(page, "[data-variant=v2]").focus();
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Tab");
-  const outline = await inBar(page, "[data-version=v2]").evaluate((element) => getComputedStyle(element).outlineStyle);
+  const outline = await inBar(page, "[data-variant=v2]").evaluate((element) => getComputedStyle(element).outlineStyle);
   expect(outline).toBe("solid");
 });
 
@@ -145,11 +145,11 @@ test("hostile ancestor CSS cannot move, scale, hide or cover the bar", async ({ 
     expect(hostile.hit, css).toBe("iterbar-bar");
     expect(hostile.pixels.equals(clean.pixels), css).toBe(true);
     // Still operable where it is drawn.
-    await inBar(page, "[data-version=v2]").click();
-    await expect(inBar(page, "[data-version=v2]"), css).toHaveAttribute("aria-pressed", "true");
+    await inBar(page, "[data-variant=v2]").click();
+    await expect(inBar(page, "[data-variant=v2]"), css).toHaveAttribute("aria-pressed", "true");
     // The choice outlives the page load; switch back so the next case starts from the same pixels.
-    await inBar(page, "[data-version=v1]").click();
-    await expect(inBar(page, "[data-version=v1]"), css).toHaveAttribute("aria-pressed", "true");
+    await inBar(page, "[data-variant=v1]").click();
+    await expect(inBar(page, "[data-variant=v1]"), css).toHaveAttribute("aria-pressed", "true");
     await page.mouse.move(0, 0);
   }
 
@@ -168,7 +168,7 @@ test("the bar's styles do not leak into the page", async ({ page, openFixture, f
   await page.addStyleTag({ content: "button { padding: 1px 2px; } #page-text { color: rgb(1, 2, 3); }" });
   const before = await pageStyles(page);
   await mountWithContent(page, daemon.url, daemon.token);
-  await inBar(page, "[data-version=v2]").click();
+  await inBar(page, "[data-variant=v2]").click();
   expect(await pageStyles(page)).toEqual(before);
 });
 
@@ -194,7 +194,7 @@ test("loads nothing but the page and the daemon", async ({ page, openFixture, fi
   await openFixture();
   await mountWithContent(page, daemon.url, daemon.token);
   await page.emulateMedia({ colorScheme: "dark" });
-  await inBar(page, "[data-version=v2]").click();
+  await inBar(page, "[data-variant=v2]").click();
   await inBar(page, "[data-role=inbox-toggle]").click();
   await inBar(page, ".thread summary").click();
   const allowed = [fixtureServer.origin, daemon.url, daemon.url.replace("http:", "ws:")];

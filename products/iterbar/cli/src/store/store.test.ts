@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { crc32 } from "node:zlib";
-import { feedbackSchema, MAX_ATTACHMENT_BYTES, parseMessageJson, type AttachmentRef, type Feedback } from "iterbar";
-import { attachmentPath, feedbackRecordPath, iterbarPaths } from "iterbar/node";
+import { feedbackSchema, MAX_ATTACHMENT_BYTES, parseMessageJson, type AttachmentRef, type Feedback } from "@iterbar/core";
+import { attachmentPath, feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openFeedbackStore, type FeedbackStore, type OpenFeedbackStoreOptions } from "./store.js";
 import { chooseVariantDraft, commentDraft, EVIDENCE, PNG, temporaryProject } from "./test-support/helpers.js";
@@ -95,7 +95,7 @@ describe("records", () => {
     const choice = await store.create(chooseVariantDraft);
     expect(choice).toMatchObject({
       kind: "choose_variant",
-      choice: { slot: "pricing", version: "v2" },
+      choice: { slot: "pricing", variant: "v2" },
       screenshot: null,
       evidence: null,
       screenshotUnavailableReason: "Capture was blocked by the page",
@@ -309,7 +309,7 @@ describe("rejected requests", () => {
     const rejects = (promise: Promise<unknown>, code: string) => expect(promise).rejects.toMatchObject({ code });
 
     await rejects(store.create({ ...commentDraft, text: "  " }), "invalid_message");
-    await rejects(store.create({ ...commentDraft, schemaVersion: 2 } as never), "unsupported_schema_version");
+    await rejects(store.create({ ...commentDraft, schemaVersion: 3 } as never), "unsupported_schema_version");
     await rejects(store.create(commentDraft, { screenshot: PNG }), "invalid_request");
     await rejects(store.create(chooseVariantDraft, { evidence: EVIDENCE }), "invalid_request");
     await rejects(store.create(chooseVariantDraft, { screenshot: PNG }), "invalid_request");

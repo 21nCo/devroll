@@ -5,12 +5,13 @@ import {
   readPageApi,
   registrySnapshotSchema,
   safeParseMessage,
+  LEGACY_SCHEMA_VERSION,
   SCHEMA_VERSION,
   VARIANT_URL_PARAM,
   type IterbarPageApi,
   type RegistrySnapshot,
   type SlotState,
-} from "iterbar";
+} from "@iterbar/core";
 import { h } from "./dom.js";
 import { icon } from "./icons.js";
 
@@ -21,15 +22,15 @@ const PAGE_API_POLL_MS = 500;
 const MAX_SHOWN_WARNINGS = 5;
 
 /**
- * `search` with the `iterbar` parameter naming `version` for `slot`: an existing entry for the slot is replaced in
+ * `search` with the `iterbar` parameter naming `variant` for `slot`: an existing entry for the slot is replaced in
  * place, otherwise one is appended. Other entries and every other parameter are kept; malformed entries are dropped,
  * as the registry drops them. Returns `null` when the selections cannot be written (too many slots).
  */
-export function searchWithSelection(search: string, slot: string, version: string): string | null {
+export function searchWithSelection(search: string, slot: string, variant: string): string | null {
   const selections = parseVariantParam(readVariantParam(search)).selections;
   const updated = selections.some((entry) => entry.slot === slot)
-    ? selections.map((entry) => (entry.slot === slot ? { slot, version } : entry))
-    : [...selections, { slot, version }];
+    ? selections.map((entry) => (entry.slot === slot ? { slot, variant } : entry))
+    : [...selections, { slot, variant }];
   try {
     return withVariantParam(search, formatVariantParam(updated));
   } catch {
@@ -68,9 +69,9 @@ export function reportPageUrl(href: string): string | null {
   return query ? `${serialized.slice(0, start)}?${query}` : serialized.slice(0, start);
 }
 
-function writeSelectionToUrl(slot: string, version: string): void {
+function writeSelectionToUrl(slot: string, variant: string): void {
   try {
-    const search = searchWithSelection(location.search, slot, version);
+    const search = searchWithSelection(location.search, slot, variant);
     if (search === null || search === location.search) return;
     history.replaceState(history.state, "", `${location.pathname}${search}${location.hash}`);
   } catch {
@@ -86,7 +87,7 @@ export interface SlotsPanelOptions {
 /**
  * The page's slots and their variants, read from and switched through the `window.__ITERBAR__` page API. With more
  * than one slot a dropdown chooses which slot's variants are shown. (The page API and the protocol name a slot's
- * variants its "versions".)
+ * variants its "versions" in protocol version 1.)
  */
 export class SlotsPanel {
   readonly element: HTMLElement;
@@ -95,7 +96,7 @@ export class SlotsPanel {
   readonly #single = h("p", { class: "slot-name", "data-role": "slot-name", hidden: true });
   readonly #select = h("select", { id: "iterbar-slot-select", "data-role": "slot-select", "aria-label": "Slot" });
   readonly #picker = h("div", { class: "field slot-picker", hidden: true }, this.#select, icon("caret"));
-  readonly #versions = h("div", { class: "variants", role: "group", "data-role": "variants", hidden: true });
+  readonly #variants = h("div", { class: "variants", role: "group", "data-role": "variants", hidden: true });
   readonly #warnings = h("ul", { class: "warnings", "data-role": "warnings", hidden: true });
   #api: IterbarPageApi | null = null;
   #unsubscribe: (() => void) | null = null;
@@ -108,7 +109,7 @@ export class SlotsPanel {
   constructor(options: SlotsPanelOptions) {
     this.#options = options;
     this.element = h("section", { class: "section", "data-section": "slots", "aria-label": "Variants" },
-      this.#message, this.#single, this.#picker, this.#versions, this.#warnings);
+      this.#message, this.#single, this.#picker, this.#variants, this.#warnings);
     this.#select.addEventListener("change", () => {
       this.#selectedSlot = this.#select.value;
       this.#render();
@@ -183,7 +184,7 @@ export class SlotsPanel {
     this.#message.hidden = false;
     this.#single.hidden = true;
     this.#picker.hidden = true;
-    this.#versions.hidden = true;
+    this.#variants.hidden = true;
   }
 
   #render(): void {
@@ -212,22 +213,22 @@ export class SlotsPanel {
   }
 
   #renderVersions(slot: SlotState): void {
-    this.#versions.hidden = false;
-    this.#versions.setAttribute("aria-label", `Variants of ${slot.slot}`);
-    const key = JSON.stringify([slot.slot, slot.versions, slot.defaultVersion]);
+    this.#variants.hidden = false;
+    this.#variants.setAttribute("aria-label", `Variants of ${slot.slot}`);
+    const key = JSON.stringify([slot.slot, slot.variants, slot.defaultVariant]);
     if (key !== this.#versionsKey) {
       this.#versionsKey = key;
-      this.#versions.replaceChildren(...slot.versions.map((version) => {
-        const button = h("button", { type: "button", class: "variant", "data-version": version },
-          h("span", { class: "variant-name" }, version),
-          version === slot.defaultVersion ? h("span", { class: "variant-tag" }, "default") : null,
+      this.#variants.replaceChildren(...slot.variants.map((variant) => {
+        const button = h("button", { type: "button", class: "variant", "data-variant": variant },
+          h("span", { class: "variant-name" }, variant),
+          variant === slot.defaultVariant ? h("span", { class: "variant-tag" }, "default") : null,
           h("span", { class: "variant-check", "aria-hidden": "true" }, icon("check")));
-        button.addEventListener("click", () => this.#choose(slot.slot, version));
+        button.addEventListener("click", () => this.#choose(slot.slot, variant));
         return button;
       }));
     }
-    for (const button of this.#versions.querySelectorAll<HTMLButtonElement>("button[data-version]")) {
-      button.setAttribute("aria-pressed", String(button.dataset.version === slot.activeVersion));
+    for (const button of this.#variants.querySelectorAll<HTMLButtonElement>("button[data-variant]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.variant === slot.activeVariant));
     }
   }
 
@@ -241,14 +242,17 @@ export class SlotsPanel {
     );
   }
 
-  /** Switches through the page API and, once the registry shows the version, records it in the `iterbar` URL parameter. */
-  #choose(slot: string, version: string): void {
+  /** Switches through the page API and, once the registry shows the variant, records it in the `iterbar` URL parameter. */
+  #choose(slot: string, variant: string): void {
     const api = this.#api;
     if (!api) return;
     try {
-      api.select({ schemaVersion: SCHEMA_VERSION, slot, version });
-      const applied = api.getSnapshot().slots.find((entry) => entry.slot === slot)?.activeVersion === version;
-      if (applied) writeSelectionToUrl(slot, version);
+      // A registry from the previous protocol version takes the selection under its earlier names.
+      api.select(api.schemaVersion === LEGACY_SCHEMA_VERSION
+        ? { schemaVersion: LEGACY_SCHEMA_VERSION, slot, version: variant } as never
+        : { schemaVersion: SCHEMA_VERSION, slot, variant });
+      const applied = api.getSnapshot().slots.find((entry) => entry.slot === slot)?.activeVariant === variant;
+      if (applied) writeSelectionToUrl(slot, variant);
     } catch (error) {
       this.#showMessage(`The page's Iterbar registry failed: ${(error as Error).message}`);
     }

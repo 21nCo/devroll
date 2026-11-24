@@ -69,8 +69,8 @@ try {
     import { captureReview } from "@diffpanel/git";
     import { chapterLabels } from "@diffpanel/presentation";
     import { DiffpanelStore } from "@diffpanel/storage";
-    import { feedbackSchema, parseMessage, statusRequestSchema, UnsupportedSchemaVersionError } from "iterbar";
-    import { feedbackRecordPath, iterbarPaths } from "iterbar/node";
+    import { feedbackSchema, parseMessage, statusRequestSchema, UnsupportedSchemaVersionError } from "@iterbar/core";
+    import { feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
 
     const repository = process.argv[2];
     const home = process.argv[3];

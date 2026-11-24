@@ -7,13 +7,14 @@ import {
   SCHEMA_VERSION,
   slotStateSchema,
   VARIANT_STORAGE_KEY,
+  upgradeMessage,
   variantSelectionSchema,
   type ActiveVariant,
   type IterbarPageApi,
   type ParsedVariantParam,
   type RegistrySnapshot,
   type RegistryWarning,
-} from "iterbar";
+} from "@iterbar/core";
 import {
   browserEnvironment,
   readVariantParam,
@@ -47,9 +48,9 @@ function withinSelectionLimit(selections: readonly ActiveVariant[], slot: string
 /** One slot as a component declares it. */
 export interface SlotDefinition {
   readonly slot: string;
-  /** Version names in display order; unique, 1-64 of them. */
-  readonly versions: readonly string[];
-  readonly defaultVersion: string;
+  /** Variant names in display order; unique, 1-64 of them. */
+  readonly variants: readonly string[];
+  readonly defaultVariant: string;
 }
 
 interface SlotInstance {
@@ -59,10 +60,10 @@ interface SlotInstance {
 interface SlotRecord {
   /** One entry per mounted instance, earliest first. The earliest one's definition defines the slot. */
   readonly instances: SlotInstance[];
-  activeVersion: string;
-  /** Whether `select()` chose the active version in this page, as opposed to the URL, storage or default. */
+  activeVariant: string;
+  /** Whether `select()` chose the active variant in this page, as opposed to the URL, storage or default. */
   selectedInPage: boolean;
-  /** Why the active version is the default even though the URL or storage named another one. */
+  /** Why the active variant is the default even though the URL or storage named another one. */
   warnings: RegistryWarning[];
 }
 
@@ -74,28 +75,28 @@ export interface VariantsRegistryOptions {
 }
 
 /**
- * Throws `invalid_message` unless `definition` names a valid slot with 1-64 unique valid versions that
+ * Throws `invalid_message` unless `definition` names a valid slot with 1-64 unique valid variants that
  * include the default. Returns a copy that later changes to the caller's arrays cannot affect.
  */
 export function validateSlotDefinition(definition: SlotDefinition): SlotDefinition {
   const state = parseMessage(slotStateSchema, {
     slot: definition?.slot,
-    versions: definition?.versions,
-    defaultVersion: definition?.defaultVersion,
-    activeVersion: definition?.defaultVersion,
+    variants: definition?.variants,
+    defaultVariant: definition?.defaultVariant,
+    activeVariant: definition?.defaultVariant,
     mounts: 1,
   }, "slot definition");
   return Object.freeze({
     slot: state.slot,
-    versions: Object.freeze([...state.versions]),
-    defaultVersion: state.defaultVersion,
+    variants: Object.freeze([...state.variants]),
+    defaultVariant: state.defaultVariant,
   });
 }
 
 function sameDefinition(left: SlotDefinition, right: SlotDefinition): boolean {
-  return left.defaultVersion === right.defaultVersion
-    && left.versions.length === right.versions.length
-    && left.versions.every((version, index) => right.versions[index] === version);
+  return left.defaultVariant === right.defaultVariant
+    && left.variants.length === right.variants.length
+    && left.variants.every((variant, index) => right.variants[index] === variant);
 }
 
 function definitionOf(record: SlotRecord): SlotDefinition {
@@ -132,9 +133,9 @@ function reportListenerError(error: unknown): void {
 }
 
 /**
- * The slots rendered on one page and the version each one shows. A slot's version is chosen when its first
+ * The slots rendered on one page and the variant each one shows. A slot's variant is chosen when its first
  * instance registers: the `iterbar` URL parameter wins, then the stored selection, then the default. A URL
- * or stored version the slot does not have falls back to the default and is reported as a warning.
+ * or stored variant the slot does not have falls back to the default and is reported as a warning.
  */
 export class VariantsRegistry {
   readonly #environment: VariantsEnvironment;
@@ -161,10 +162,10 @@ export class VariantsRegistry {
 
   /**
    * Counts one mounted instance of `definition.slot` and returns its idempotent unregister function. The
-   * earliest mounted instance decides the slot's versions and default; a later instance that declares
+   * earliest mounted instance decides the slot's variants and default; a later instance that declares
    * different ones is logged and shares that state. When the earliest instance unregisters, the next one's
-   * definition applies, so a slot whose instances all re-register with new versions (for example after a hot
-   * update) ends up with the new versions. Throws `invalid_message` for an invalid definition or when the
+   * definition applies, so a slot whose instances all re-register with new variants (for example after a hot
+   * update) ends up with the new variants. Throws `invalid_message` for an invalid definition or when the
    * page already has {@link MAX_SLOTS} slots.
    */
   register(definition: SlotDefinition): () => void {
@@ -175,7 +176,7 @@ export class VariantsRegistry {
       record.instances.push(instance);
       if (!sameDefinition(definitionOf(record), valid)) {
         console.warn(
-          `Iterbar slot "${valid.slot}" is mounted with different versions or default; `
+          `Iterbar slot "${valid.slot}" is mounted with different variants or default; `
           + "every instance follows the earliest mounted one's selection.",
         );
       }
@@ -185,7 +186,7 @@ export class VariantsRegistry {
       }
       const resolved = this.#resolve(valid);
       record = {
-        instances: [instance], activeVersion: resolved.version, selectedInPage: false, warnings: resolved.warnings,
+        instances: [instance], activeVariant: resolved.variant, selectedInPage: false, warnings: resolved.warnings,
       };
       this.#slots.set(valid.slot, record);
     }
@@ -207,63 +208,64 @@ export class VariantsRegistry {
   }
 
   /**
-   * The version an instance declaring `definition` should render now, without registering it: the slot's
-   * active version when it is registered and `definition` has that version, its own default when it does
+   * The variant an instance declaring `definition` should render now, without registering it: the slot's
+   * active variant when it is registered and `definition` has that variant, its own default when it does
    * not, and otherwise what registering would choose.
    */
-  activeVersion(definition: SlotDefinition): string {
+  activeVariant(definition: SlotDefinition): string {
     const record = this.#slots.get(definition.slot);
-    if (!record) return this.#resolve(definition).version;
-    return definition.versions.includes(record.activeVersion) ? record.activeVersion : definition.defaultVersion;
+    if (!record) return this.#resolve(definition).variant;
+    return definition.variants.includes(record.activeVariant) ? record.activeVariant : definition.defaultVariant;
   }
 
   /**
-   * After the defining instance unregisters, keeps a version chosen with `select()` while the next definition
+   * After the defining instance unregisters, keeps a variant chosen with `select()` while the next definition
    * has it, even if remembering it failed. Otherwise the slot chooses again as a first registration would:
-   * the URL, then storage (an unknown version there shows the default and is reported), then the default.
+   * the URL, then storage (an unknown variant there shows the default and is reported), then the default.
    */
   #refreshDefinition(record: SlotRecord, previous: SlotDefinition): void {
     const definition = definitionOf(record);
     if (sameDefinition(definition, previous)) return;
-    if (record.selectedInPage && definition.versions.includes(record.activeVersion)) return;
+    if (record.selectedInPage && definition.variants.includes(record.activeVariant)) return;
     const resolved = this.#resolve(definition);
-    record.activeVersion = resolved.version;
+    record.activeVariant = resolved.variant;
     record.selectedInPage = false;
     record.warnings = resolved.warnings;
   }
 
   /**
-   * Switches a registered slot to one of its versions and remembers the choice in local storage and, when
-   * the URL already names the slot, in the URL. Unknown slots or versions and malformed selections are
+   * Switches a registered slot to one of its variants and remembers the choice in local storage and, when
+   * the URL already names the slot, in the URL. Unknown slots or variants and malformed selections are
    * recorded as `source: "api"` warnings and leave every slot unchanged. Never throws.
    */
   select(selection: unknown): void {
-    const parsed = variantSelectionSchema.safeParse(selection);
+    // A bar from the previous protocol version selects with `{ schemaVersion: 1, slot, version }`.
+    const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection));
     if (!parsed.success) {
       this.#rejectSelection(warning(
         "invalid_selection", "api", describe(selection),
-        "select() needs { schemaVersion: 1, slot, version } with valid names.",
+        "select() needs { schemaVersion: 2, slot, variant } with valid names.",
       ));
       return;
     }
-    const { slot, version } = parsed.data;
+    const { slot, variant } = parsed.data;
     const record = this.#slots.get(slot);
     if (!record) {
-      this.#rejectSelection(warning("unknown_slot", "api", `${slot}:${version}`, `No slot named "${slot}" is mounted.`));
+      this.#rejectSelection(warning("unknown_slot", "api", `${slot}:${variant}`, `No slot named "${slot}" is mounted.`));
       return;
     }
     const definition = definitionOf(record);
-    if (!definition.versions.includes(version)) {
+    if (!definition.variants.includes(variant)) {
       this.#rejectSelection(warning(
-        "unknown_version", "api", `${slot}:${version}`, `Slot "${slot}" has no version "${version}".`,
+        "unknown_variant", "api", `${slot}:${variant}`, `Slot "${slot}" has no variant "${variant}".`,
       ));
       return;
     }
     // Remembering the choice can also drop malformed URL or stored entries, which changes the warnings; so
     // compare whole snapshots rather than only the slot's own state.
     const before = JSON.stringify(this.getSnapshot());
-    this.#remember(definition, version);
-    record.activeVersion = version;
+    this.#remember(definition, variant);
+    record.activeVariant = variant;
     record.selectedInPage = true;
     record.warnings = [];
     if (JSON.stringify(this.getSnapshot()) !== before) this.#notify();
@@ -285,9 +287,9 @@ export class VariantsRegistry {
     for (const entry of url.invalid) {
       warnings.push(warning("invalid_selection", "url", entry, "Ignored a malformed entry in the iterbar URL parameter."));
     }
-    for (const { slot, version } of url.selections) {
+    for (const { slot, variant } of url.selections) {
       if (!this.#slots.has(slot)) {
-        warnings.push(warning("unknown_slot", "url", `${slot}:${version}`, `No slot named "${slot}" is mounted.`));
+        warnings.push(warning("unknown_slot", "url", `${slot}:${variant}`, `No slot named "${slot}" is mounted.`));
       }
     }
     for (const record of this.#slots.values()) warnings.push(...record.warnings);
@@ -301,9 +303,9 @@ export class VariantsRegistry {
         const definition = definitionOf(record);
         return {
           slot: definition.slot,
-          versions: [...definition.versions],
-          defaultVersion: definition.defaultVersion,
-          activeVersion: record.activeVersion,
+          variants: [...definition.variants],
+          defaultVariant: definition.defaultVariant,
+          activeVariant: record.activeVariant,
           mounts: record.instances.length,
         };
       }),
@@ -311,21 +313,21 @@ export class VariantsRegistry {
     };
   }
 
-  #resolve(definition: SlotDefinition): { version: string; warnings: RegistryWarning[] } {
+  #resolve(definition: SlotDefinition): { variant: string; warnings: RegistryWarning[] } {
     for (const source of ["url", "storage"] as const) {
       const selection = this.#read(source).selections.find((entry) => entry.slot === definition.slot);
       if (!selection) continue;
-      if (definition.versions.includes(selection.version)) return { version: selection.version, warnings: [] };
+      if (definition.variants.includes(selection.variant)) return { variant: selection.variant, warnings: [] };
       return {
-        version: definition.defaultVersion,
+        variant: definition.defaultVariant,
         warnings: [warning(
-          "unknown_version", source, `${selection.slot}:${selection.version}`,
-          `Slot "${selection.slot}" has no version "${selection.version}" (from ${SOURCE_LABEL[source]}); `
-          + `showing "${definition.defaultVersion}".`,
+          "unknown_variant", source, `${selection.slot}:${selection.variant}`,
+          `Slot "${selection.slot}" has no variant "${selection.variant}" (from ${SOURCE_LABEL[source]}); `
+          + `showing "${definition.defaultVariant}".`,
         )],
       };
     }
-    return { version: definition.defaultVersion, warnings: [] };
+    return { variant: definition.defaultVariant, warnings: [] };
   }
 
   #read(source: SelectionSource): ParsedVariantParam {
@@ -349,17 +351,17 @@ export class VariantsRegistry {
   }
 
   /**
-   * Stores `version` (or forgets the slot when it is the default) and rewrites the URL entry for the slot
-   * when there is one, so a reload keeps showing the selected version. Failures are ignored: the switch
+   * Stores `variant` (or forgets the slot when it is the default) and rewrites the URL entry for the slot
+   * when there is one, so a reload keeps showing the selected variant. Failures are ignored: the switch
    * still applies to this page.
    */
-  #remember(definition: SlotDefinition, version: string): void {
+  #remember(definition: SlotDefinition, variant: string): void {
     const { slot } = definition;
     try {
       const storage = this.#environment.storage();
       if (storage) {
         const others = this.#read("storage").selections.filter((entry) => entry.slot !== slot);
-        const kept = version === definition.defaultVersion ? others : [...others, { slot, version }];
+        const kept = variant === definition.defaultVariant ? others : [...others, { slot, variant }];
         const stored = formatVariantParam(withinSelectionLimit(kept, slot));
         if (stored) storage.setItem(VARIANT_STORAGE_KEY, stored);
         else storage.removeItem(VARIANT_STORAGE_KEY);
@@ -370,7 +372,7 @@ export class VariantsRegistry {
     try {
       const url = this.#read("url").selections;
       if (this.#environment.replaceSearch && url.some((entry) => entry.slot === slot)) {
-        const updated = url.map((entry) => entry.slot === slot ? { ...entry, version } : entry);
+        const updated = url.map((entry) => entry.slot === slot ? { ...entry, variant } : entry);
         const value = formatVariantParam(withinSelectionLimit(updated, slot));
         this.#environment.replaceSearch(withVariantParam(this.#environment.readSearch(), value));
       }
@@ -442,6 +444,6 @@ export function getVariantsRegistry(): VariantsRegistry {
 function isRegistryLike(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<Record<keyof VariantsRegistry, unknown>>;
-  return typeof candidate.register === "function" && typeof candidate.activeVersion === "function"
+  return typeof candidate.register === "function" && typeof candidate.activeVariant === "function"
     && typeof candidate.subscribe === "function" && typeof candidate.pageApi === "object";
 }

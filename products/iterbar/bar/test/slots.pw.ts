@@ -29,11 +29,11 @@ test.describe("slot dropdown", () => {
     await expect(inBar(page, "[data-role=slot-name]")).toHaveText("Slot pricing");
     await expect(inBar(page, "[data-role=slot-select]")).toBeHidden();
     await expect(inBar(page, "[data-role=variants] button")).toHaveText(["v1default", "v2", "v3"]);
-    await expect(inBar(page, "[data-version=v1]")).toHaveAttribute("aria-pressed", "true");
-    await expect(inBar(page, "[data-version=v2]")).toHaveAttribute("aria-pressed", "false");
+    await expect(inBar(page, "[data-variant=v1]")).toHaveAttribute("aria-pressed", "true");
+    await expect(inBar(page, "[data-variant=v2]")).toHaveAttribute("aria-pressed", "false");
   });
 
-  test("offers a dropdown with two slots and shows the chosen slot's versions", async ({ page, openFixture }) => {
+  test("offers a dropdown with two slots and shows the chosen slot's variants", async ({ page, openFixture }) => {
     await openFixture("/?iterbar=hero:b");
     await registerSlots(page, [PRICING, HERO]);
     await mountBar(page);
@@ -45,7 +45,7 @@ test.describe("slot dropdown", () => {
     await expect(inBar(page, "[data-role=variants] button")).toHaveText(["v1default", "v2", "v3"]);
     await select.selectOption("hero");
     await expect(inBar(page, "[data-role=variants] button")).toHaveText(["adefault", "b"]);
-    await expect(inBar(page, "[data-version=b]")).toHaveAttribute("aria-pressed", "true");
+    await expect(inBar(page, "[data-variant=b]")).toHaveAttribute("aria-pressed", "true");
   });
 
   test("follows slots that mount and unmount while it is open", async ({ page, openFixture }) => {
@@ -54,7 +54,7 @@ test.describe("slot dropdown", () => {
     await mountBar(page);
     await openPanel(page, "variants");
     await expect(inBar(page, "[data-role=slot-select]")).toBeHidden();
-    const unregister = await page.evaluateHandle(() => window.fixture.getVariantsRegistry().register({ slot: "hero", versions: ["a", "b"], defaultVersion: "a" }));
+    const unregister = await page.evaluateHandle(() => window.fixture.getVariantsRegistry().register({ slot: "hero", variants: ["a", "b"], defaultVariant: "a" }));
     await expect(inBar(page, "[data-role=slot-select] option")).toHaveText(["pricing", "hero"]);
     await unregister.evaluate((dispose) => dispose());
     await expect(inBar(page, "[data-role=slot-select]")).toBeHidden();
@@ -62,16 +62,16 @@ test.describe("slot dropdown", () => {
   });
 });
 
-test.describe("switching a version", () => {
+test.describe("switching a variant", () => {
   test("updates the registry and adds the slot to the iterbar URL parameter", async ({ page, openFixture }) => {
     await openFixture("/products?q=a%20b#plans");
     await registerSlots(page, [PRICING, HERO]);
     await page.evaluate(() => {
       // The page renders whatever the registry selects, as a Variants component would.
       const registry = window.fixture.getVariantsRegistry();
-      const definition = { slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1" };
+      const definition = { slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1" };
       const view = document.getElementById("pricing-view")!;
-      const render = () => { view.textContent = `pricing ${registry.activeVersion(definition)}`; };
+      const render = () => { view.textContent = `pricing ${registry.activeVariant(definition)}`; };
       registry.subscribe(render);
       render();
     });
@@ -79,12 +79,12 @@ test.describe("switching a version", () => {
     await openPanel(page, "variants");
     await expect(page.locator("#pricing-view")).toHaveText("pricing v1");
 
-    await inBar(page, "[data-version=v2]").click();
+    await inBar(page, "[data-variant=v2]").click();
 
-    await expect(inBar(page, "[data-version=v2]")).toHaveAttribute("aria-pressed", "true");
+    await expect(inBar(page, "[data-variant=v2]")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("#pricing-view")).toHaveText("pricing v2");
     const state = await page.evaluate(() => ({
-      active: window.__ITERBAR__!.getSnapshot().slots.find((slot) => slot.slot === "pricing")?.activeVersion,
+      active: window.__ITERBAR__!.getSnapshot().slots.find((slot) => slot.slot === "pricing")?.activeVariant,
       search: location.search,
       hash: location.hash,
       pathname: location.pathname,
@@ -94,7 +94,7 @@ test.describe("switching a version", () => {
 
     // A second switch replaces the slot's entry and keeps the other slot's.
     await page.evaluate(() => history.replaceState(null, "", `${location.pathname}?iterbar=hero:b,pricing:v2${location.hash}`));
-    await inBar(page, "[data-version=v3]").click();
+    await inBar(page, "[data-variant=v3]").click();
     await expect.poll(() => page.evaluate(() => location.search)).toBe("?iterbar=hero:b,pricing:v3");
     expect(await page.evaluate(() => history.length)).toBe(state.historyLength);
 
@@ -104,15 +104,15 @@ test.describe("switching a version", () => {
     await registerSlots(page, [PRICING, HERO]);
     await mountBar(page);
     await openPanel(page, "variants");
-    await expect(inBar(page, "[data-version=v3]")).toHaveAttribute("aria-pressed", "true");
+    await expect(inBar(page, "[data-variant=v3]")).toHaveAttribute("aria-pressed", "true");
   });
 
   test("leaves the URL alone when the registry refuses the switch", async ({ page, openFixture }) => {
     await openFixture("/?q=1");
     await page.evaluate(() => {
-      // A registry whose select() ignores every request, like one whose slot changed versions under the bar.
+      // A registry whose select() ignores every request, like one whose slot changed variants under the bar.
       const real = window.fixture.createVariantsRegistry();
-      real.register({ slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1" });
+      real.register({ slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1" });
       Object.defineProperty(window, "__ITERBAR__", {
         configurable: true,
         value: { ...real.pageApi, select: () => undefined },
@@ -120,15 +120,15 @@ test.describe("switching a version", () => {
     });
     await mountBar(page);
     await openPanel(page, "variants");
-    await inBar(page, "[data-version=v2]").click();
-    await expect(inBar(page, "[data-version=v1]")).toHaveAttribute("aria-pressed", "true");
+    await inBar(page, "[data-variant=v2]").click();
+    await expect(inBar(page, "[data-variant=v1]")).toHaveAttribute("aria-pressed", "true");
     expect(await page.evaluate(() => location.search)).toBe("?q=1");
   });
 
   test("reports an incompatible page API instead of using it", async ({ page, openFixture }) => {
     await openFixture();
     await page.evaluate(() => {
-      Object.defineProperty(window, "__ITERBAR__", { configurable: true, value: { schemaVersion: 2 } });
+      Object.defineProperty(window, "__ITERBAR__", { configurable: true, value: { schemaVersion: 3 } });
     });
     await mountBar(page);
     await openPanel(page, "variants");
@@ -138,10 +138,10 @@ test.describe("switching a version", () => {
   test("reports a malformed snapshot instead of rendering it", async ({ page, openFixture }) => {
     await openFixture();
     await page.evaluate(() => {
-      const snapshot = { schemaVersion: 1, slots: [{ slot: "pricing", versions: [], activeVersion: "x" }], warnings: [] };
+      const snapshot = { schemaVersion: 2, slots: [{ slot: "pricing", variants: [], activeVariant: "x" }], warnings: [] };
       Object.defineProperty(window, "__ITERBAR__", {
         configurable: true,
-        value: { schemaVersion: 1, getSnapshot: () => snapshot, select: () => undefined, subscribe: () => () => undefined },
+        value: { schemaVersion: 2, getSnapshot: () => snapshot, select: () => undefined, subscribe: () => () => undefined },
       });
     });
     await mountBar(page);

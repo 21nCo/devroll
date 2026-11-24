@@ -1,4 +1,4 @@
-<!-- A version that logs when it mounts and unmounts. -->
+<!-- A variant that logs when it mounts and unmounts. -->
 <script lang="ts">
   import { onDestroy } from "svelte";
 

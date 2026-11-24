@@ -240,12 +240,12 @@ importers:
 
   products/iterbar/bar:
     dependencies:
+      '@iterbar/core':
+        specifier: workspace:*
+        version: link:../core
       '@iterbar/variants':
         specifier: workspace:*
         version: link:../variants
-      iterbar:
-        specifier: workspace:*
-        version: link:../core
     devDependencies:
       '@21n/fonts':
         specifier: 1.0.1
@@ -253,9 +253,6 @@ importers:
       '@iconify-json/ph':
         specifier: 1.2.2
         version: 1.2.2
-      '@iterbar/cli':
-        specifier: workspace:*
-        version: link:../cli
       '@playwright/test':
         specifier: 1.64.1
         version: 1.64.1
@@ -265,6 +262,9 @@ importers:
       esbuild:
         specifier: ^0.27.0
         version: 0.27.7
+      iterbar:
+        specifier: workspace:*
+        version: link:../cli
       modern-screenshot:
         specifier: 4.7.0
         version: 4.7.0(patch_hash=0dbcd8d2c1e960ad22c0bf056e8b497020f5efe0ddea2074f21c8f6cae667575)
@@ -280,12 +280,12 @@ importers:
 
   products/iterbar/cli:
     dependencies:
+      '@iterbar/core':
+        specifier: workspace:*
+        version: link:../core
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(supports-color@7.2.0)(zod@4.6.7)
-      iterbar:
-        specifier: workspace:*
-        version: link:../core
       ws:
         specifier: ^8.22.1
         version: 8.22.1
@@ -330,9 +330,9 @@ importers:
 
   products/iterbar/examples/e2e:
     devDependencies:
-      '@iterbar/cli':
+      '@iterbar/core':
         specifier: workspace:*
-        version: link:../../cli
+        version: link:../../core
       '@playwright/test':
         specifier: 1.64.1
         version: 1.64.1
@@ -341,7 +341,7 @@ importers:
         version: 22.20.1
       iterbar:
         specifier: workspace:*
-        version: link:../../core
+        version: link:../../cli
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -414,6 +414,9 @@ importers:
         specifier: workspace:*
         version: link:../variants
     devDependencies:
+      '@iterbar/core':
+        specifier: workspace:*
+        version: link:../core
       '@iterbar/react-18-test-harness':
         specifier: file:./test-support/react-18
         version: file:products/iterbar/react/test-support/react-18(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)
@@ -435,9 +438,6 @@ importers:
       esbuild:
         specifier: ^0.27.0
         version: 0.27.7
-      iterbar:
-        specifier: workspace:*
-        version: link:../core
       jsdom:
         specifier: ^27.4.0
         version: 27.4.0(supports-color@7.2.0)
@@ -463,6 +463,9 @@ importers:
         specifier: workspace:*
         version: link:../variants
     devDependencies:
+      '@iterbar/core':
+        specifier: workspace:*
+        version: link:../core
       '@sveltejs/package':
         specifier: ^2.5.8
         version: 2.5.8(svelte@5.57.3(@typescript-eslint/types@8.70.1))(typescript@5.9.3)
@@ -481,9 +484,6 @@ importers:
       esbuild:
         specifier: ^0.27.7
         version: 0.27.7
-      iterbar:
-        specifier: workspace:*
-        version: link:../core
       jsdom:
         specifier: ^27.4.0
         version: 27.4.0(supports-color@7.2.0)
@@ -505,7 +505,7 @@ importers:
 
   products/iterbar/variants:
     dependencies:
-      iterbar:
+      '@iterbar/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -524,12 +524,12 @@ importers:
       '@iterbar/bar':
         specifier: workspace:*
         version: link:../bar
-      '@iterbar/cli':
-        specifier: workspace:*
-        version: link:../cli
-      iterbar:
+      '@iterbar/core':
         specifier: workspace:*
         version: link:../core
+      iterbar:
+        specifier: workspace:*
+        version: link:../cli
       magic-string:
         specifier: ^0.30.21
         version: 0.30.21

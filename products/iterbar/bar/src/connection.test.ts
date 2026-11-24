@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, type Feedback, type FeedbackDraft, type SlotReport, type SlotState } from "iterbar";
+import { SCHEMA_VERSION, type Feedback, type FeedbackDraft, type SlotReport, type SlotState } from "@iterbar/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonConnection, parseDaemonConfig, REQUEST_TIMEOUT_MS } from "./connection.js";
 import { ThreadsState } from "./threads-state.js";
@@ -72,8 +72,8 @@ function feedback(id: string, status: Feedback["status"], updatedAt = "2026-01-0
   } as Feedback;
 }
 
-const slot = (activeVersion: string): SlotState => ({
-  slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion, mounts: 1,
+const slot = (activeVariant: string): SlotState => ({
+  slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant, mounts: 1,
 });
 
 describe("DaemonConnection", () => {
@@ -120,7 +120,7 @@ describe("DaemonConnection", () => {
   const pending = (path: string) => requests.filter((request) => request.path === path);
   const list = (items: Feedback[]) => ({ schemaVersion: SCHEMA_VERSION, items });
   const settle = () => vi.advanceTimersByTimeAsync(0);
-  const versions = () => pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVersion);
+  const variants = () => pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVariant);
 
   it("says a comment may already be stored when the daemon misses the deadline, and that an unreadable success was stored", async () => {
     const connection = connect();
@@ -360,7 +360,7 @@ describe("DaemonConnection", () => {
     pending("/feedback")[1]!.respond(200, list([]));
     await settle();
     // The pending report goes out again, and this time it is accepted.
-    expect(versions()).toEqual(["v1", "v1"]);
+    expect(variants()).toEqual(["v1", "v1"]);
     pending("/slots")[1]!.respond(204);
     await settle();
 
@@ -371,7 +371,7 @@ describe("DaemonConnection", () => {
     const before = FakeSocket.instances.length;
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS + 2000);
     expect(FakeSocket.instances.length).toBeGreaterThan(before);
-    expect(versions()).toEqual(["v1", "v1"]);
+    expect(variants()).toEqual(["v1", "v1"]);
   });
 
   it("drops threads that a new listing no longer includes", async () => {
@@ -404,7 +404,7 @@ describe("DaemonConnection", () => {
     await vi.advanceTimersByTimeAsync(1000);
     socket().open();
     await settle();
-    expect(pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVersion)).toEqual(["v1", "v2"]);
+    expect(pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVariant)).toEqual(["v1", "v2"]);
   });
 
   it("retries the latest slot report after it fails", async () => {
@@ -417,7 +417,7 @@ describe("DaemonConnection", () => {
     await vi.advanceTimersByTimeAsync(1000);
     socket().open();
     await settle();
-    expect(pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVersion)).toEqual(["v2", "v2"]);
+    expect(pending("/slots").map((request) => (request.body as SlotReport).slots[0]?.activeVariant)).toEqual(["v2", "v2"]);
   });
 
   it("resends the latest slot report with backoff while the socket stays open", async () => {
@@ -433,20 +433,20 @@ describe("DaemonConnection", () => {
     await settle();
 
     await vi.advanceTimersByTimeAsync(999);
-    expect(versions()).toEqual(["v1", "v2"]);
+    expect(variants()).toEqual(["v1", "v2"]);
     await vi.advanceTimersByTimeAsync(1);
-    expect(versions()).toEqual(["v1", "v2", "v2"]);
+    expect(variants()).toEqual(["v1", "v2", "v2"]);
     pending("/slots")[2]!.respond(500);
     await settle();
     await vi.advanceTimersByTimeAsync(1999);
-    expect(versions()).toHaveLength(3);
+    expect(variants()).toHaveLength(3);
     await vi.advanceTimersByTimeAsync(1);
-    expect(versions()).toEqual(["v1", "v2", "v2", "v2"]);
+    expect(variants()).toEqual(["v1", "v2", "v2", "v2"]);
     pending("/slots")[3]!.respond(204);
     await settle();
 
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(versions()).toEqual(["v1", "v2", "v2", "v2"]);
+    expect(variants()).toEqual(["v1", "v2", "v2", "v2"]);
     expect(FakeSocket.instances).toHaveLength(1);
   });
 
@@ -463,18 +463,18 @@ describe("DaemonConnection", () => {
     pending("/feedback")[1]!.respond(200, list([]));
     await settle();
     // Both reports were already sent, so the reconnect had nothing to flush.
-    expect(versions()).toEqual(["v1", "v2"]);
+    expect(variants()).toEqual(["v1", "v2"]);
 
     latest!.respond(503);
     await settle();
     superseded!.respond(500);
     await settle();
     await vi.advanceTimersByTimeAsync(1000);
-    expect(versions()).toEqual(["v1", "v2", "v2"]);
+    expect(variants()).toEqual(["v1", "v2", "v2"]);
     pending("/slots")[2]!.respond(204);
     await settle();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(versions()).toEqual(["v1", "v2", "v2"]);
+    expect(variants()).toEqual(["v1", "v2", "v2"]);
   });
 
   it("gives a resend and a newer report made in the same millisecond strictly increasing reportedAt", async () => {
@@ -489,7 +489,7 @@ describe("DaemonConnection", () => {
     await vi.advanceTimersByTimeAsync(1000);
     connection.reportSlots("http://localhost:5173/", [slot("v2")]);
     const [, resend, newer] = pending("/slots") as [PendingRequest, PendingRequest, PendingRequest];
-    expect(versions()).toEqual(["v1", "v1", "v2"]);
+    expect(variants()).toEqual(["v1", "v1", "v2"]);
     const stamp = (request: PendingRequest) => Date.parse((request.body as SlotReport).reportedAt);
     expect(stamp(newer)).toBeGreaterThan(stamp(resend));
 
@@ -499,7 +499,7 @@ describe("DaemonConnection", () => {
       const held = current.get(report.pageUrl);
       if (!held || Date.parse(held.reportedAt) <= Date.parse(report.reportedAt)) current.set(report.pageUrl, report);
     }
-    expect(current.get("http://localhost:5173/")?.slots[0]?.activeVersion).toBe("v2");
+    expect(current.get("http://localhost:5173/")?.slots[0]?.activeVariant).toBe("v2");
 
     // A connection that replaces this one for the same daemon, still in the same millisecond, stays later too.
     connection.stop();
@@ -519,7 +519,7 @@ describe("DaemonConnection", () => {
     await settle();
     connection.stop();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(versions()).toEqual(["v1"]);
+    expect(variants()).toEqual(["v1"]);
 
     const rejected = connect();
     socket().open();
@@ -528,7 +528,7 @@ describe("DaemonConnection", () => {
     pending("/slots")[1]!.respond(401);
     await settle();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(versions()).toEqual(["v1", "v2"]);
+    expect(variants()).toEqual(["v1", "v2"]);
     expect(statuses.at(-1)).toBe("unauthorized");
   });
 

@@ -26,19 +26,45 @@ import {
 export type { VariantsRegistry } from "@iterbar/variants";
 
 /**
- * One version of a slot: a component that takes no props (`PricingV2`), rendered as `<PricingV2 />`, or any
+ * One variant of a slot: a component that takes no props (`PricingV2`), rendered as `<PricingV2 />`, or any
  * React node (`<PricingV2 compact />`, text, `null`).
  */
-export type VersionContent = ComponentType | ReactNode;
+export type VariantContent = ComponentType | ReactNode;
+
+/** @deprecated Use {@link VariantContent}. */
+export type VersionContent = VariantContent;
 
 /** Props for {@link Variants}. */
-export interface VariantsProps<Versions extends Readonly<Record<string, VersionContent>>> {
+export type VariantsProps<VariantMap extends Readonly<Record<string, VariantContent>>> = {
   /** The slot name shown in the bar and used in the `iterbar` URL parameter, such as `pricing`. */
   readonly slot: string;
-  /** Each version, keyed by version name (1-64 letters, digits, `_`, `.` or `-`). */
-  readonly versions: Versions;
-  /** The version to render when nothing selects another, and the only one rendered in production. */
-  readonly default: Extract<keyof Versions, string>;
+  /** The variant to render when nothing selects another, and the only one rendered in production. */
+  readonly default: Extract<keyof VariantMap, string>;
+} & (
+  | {
+    /** Each variant, keyed by variant name (1-64 letters, digits, `_`, `.` or `-`). */
+    readonly variants: VariantMap;
+    readonly versions?: undefined;
+  }
+  | {
+    /** @deprecated Use `variants`. The earlier name, still accepted for one version. */
+    readonly versions: VariantMap;
+    readonly variants?: undefined;
+  }
+);
+
+/** {@link VariantsProps} with the variants under their current name, as the implementations take them. */
+interface ResolvedVariantsProps<VariantMap extends Readonly<Record<string, VariantContent>>> {
+  readonly slot: string;
+  readonly variants: VariantMap;
+  readonly default: Extract<keyof VariantMap, string>;
+}
+
+/** The variants from `variants`, or from the earlier `versions`. */
+function resolveVariantsProps<VariantMap extends Readonly<Record<string, VariantContent>>>(
+  props: VariantsProps<VariantMap>,
+): ResolvedVariantsProps<VariantMap> {
+  return { slot: props.slot, default: props.default, variants: (props.variants ?? props.versions)! };
 }
 
 const RegistryContext = /* @__PURE__ */ createContext<VariantsRegistry | null>(null);
@@ -61,24 +87,24 @@ const COMPONENT_OBJECT_TYPES = new Set<unknown>([
   Symbol.for("react.lazy"),
 ]);
 
-function isComponentType(content: VersionContent): content is ComponentType {
+function isComponentType(content: VariantContent): content is ComponentType {
   if (typeof content === "function") return true;
   return typeof content === "object" && content !== null
     && COMPONENT_OBJECT_TYPES.has((content as { $$typeof?: unknown }).$$typeof);
 }
 
-function renderVersion(versions: Readonly<Record<string, VersionContent>>, version: string): ReactNode {
-  if (!Object.hasOwn(versions, version)) return null;
-  const content = versions[version];
+function renderVariant(variants: Readonly<Record<string, VariantContent>>, variant: string): ReactNode {
+  if (!Object.hasOwn(variants, variant)) return null;
+  const content = variants[variant];
   return isComponentType(content) ? createElement(content) : content;
 }
 
 /**
- * Renders one version of a slot. In development the version comes from the `iterbar` URL parameter
+ * Renders one variant of a slot. In development the variant comes from the `iterbar` URL parameter
  * (`?iterbar=pricing:v2`), then local storage, then `default`, and the bar can switch it in place through
- * `window.__ITERBAR__`. The version's top-level elements are marked with `data-iterbar-slot`; empty
+ * `window.__ITERBAR__`. The variant's top-level elements are marked with `data-iterbar-slot`; empty
  * `<template>` elements before and after it delimit the slot, so it adds no wrapper and stays valid inside
- * `<p>`, `<ul>` and `<tbody>`. A slot rendered at the top level of another slot's version keeps its own marks:
+ * `<p>`, `<ul>` and `<tbody>`. A slot rendered at the top level of another slot's variant keeps its own marks:
  * each element is marked with the innermost slot that renders it.
  *
  * Development means `process.env.NODE_ENV === "development"`; any other value, or none, renders `default`
@@ -86,45 +112,45 @@ function renderVersion(versions: Readonly<Record<string, VersionContent>>, versi
  * `process.env.NODE_ENV`. The condition is written inline, so a bundler that replaces it needs no `process`
  * global and drops the development code from other builds.
  */
-export function Variants<Versions extends Readonly<Record<string, VersionContent>>>(
-  props: VariantsProps<Versions>,
+export function Variants<VariantMap extends Readonly<Record<string, VariantContent>>>(
+  props: VariantsProps<VariantMap>,
 ): JSX.Element {
   // The bare check folds to a literal once a bundler replaces `process.env.NODE_ENV`, even inside `try`, so
   // other builds drop DevelopmentVariants and a development build needs no `process` global. Without that
   // replacement, a page with no `process` (or no `process.env`) is not development.
   try {
-    if (process.env.NODE_ENV === "development") return <DevelopmentVariants {...props} />;
+    if (process.env.NODE_ENV === "development") return <DevelopmentVariants {...resolveVariantsProps(props)} />;
   } catch {
     // Not development.
   }
-  return <>{renderVersion(props.versions, props.default)}</>;
+  return <>{renderVariant(resolveVariantsProps(props).variants, props.default)}</>;
 }
 
-function DevelopmentVariants<Versions extends Readonly<Record<string, VersionContent>>>({
+function DevelopmentVariants<VariantMap extends Readonly<Record<string, VariantContent>>>({
   slot,
-  versions,
-  default: defaultVersion,
-}: VariantsProps<Versions>): JSX.Element {
+  variants,
+  default: defaultVariant,
+}: ResolvedVariantsProps<VariantMap>): JSX.Element {
   const providedRegistry = useContext(RegistryContext);
-  const versionNames = JSON.stringify(Object.keys(versions));
-  // Throws `invalid_message` during render for an invalid slot, version name or default.
+  const variantNames = JSON.stringify(Object.keys(variants));
+  // Throws `invalid_message` during render for an invalid slot, variant name or default.
   const definition = useMemo(
-    () => validateSlotDefinition({ slot, versions: JSON.parse(versionNames) as string[], defaultVersion }),
-    [slot, versionNames, defaultVersion],
+    () => validateSlotDefinition({ slot, variants: JSON.parse(variantNames) as string[], defaultVariant }),
+    [slot, variantNames, defaultVariant],
   );
   const registry = useCallback(() => providedRegistry ?? getVariantsRegistry(), [providedRegistry]);
   const subscribe = useCallback((onChange: () => void) => registry().subscribe(onChange), [registry]);
-  const getSnapshot = useCallback(() => registry().activeVersion(definition), [registry, definition]);
-  const getServerSnapshot = useCallback(() => definition.defaultVersion, [definition]);
-  const activeVersion = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const getSnapshot = useCallback(() => registry().activeVariant(definition), [registry, definition]);
+  const getServerSnapshot = useCallback(() => definition.defaultVariant, [definition]);
+  const activeVariant = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const start = useRef<HTMLTemplateElement>(null);
   const end = useRef<HTMLTemplateElement>(null);
   const range = useRef<SlotRange | null>(null);
 
   useEffect(() => registry().register(definition), [registry, definition]);
 
-  // Re-run on every switch so the new version's elements are marked as soon as it commits; between
-  // switches, the range observer follows elements the version itself adds or replaces.
+  // Re-run on every switch so the new variant's elements are marked as soon as it commits; between
+  // switches, the range observer follows elements the variant itself adds or replaces.
   useEffect(() => {
     if (!start.current || !end.current) return undefined;
     const handle = markSlotRange(start.current, end.current, definition.slot);
@@ -133,7 +159,7 @@ function DevelopmentVariants<Versions extends Readonly<Record<string, VersionCon
       handle();
       if (range.current === handle) range.current = null;
     };
-  }, [definition.slot, activeVersion]);
+  }, [definition.slot, activeVariant]);
 
   // After every commit, mark the range again where it lives now, which covers a move no observer can see.
   useEffect(() => {
@@ -143,7 +169,7 @@ function DevelopmentVariants<Versions extends Readonly<Record<string, VersionCon
   return (
     <>
       <template ref={start} {...{ [SLOT_BOUNDARY_ATTRIBUTE]: "start" }} />
-      <Fragment key={activeVersion}>{renderVersion(versions, activeVersion)}</Fragment>
+      <Fragment key={activeVariant}>{renderVariant(variants, activeVariant)}</Fragment>
       <template ref={end} {...{ [SLOT_BOUNDARY_ATTRIBUTE]: "end" }} />
     </>
   );

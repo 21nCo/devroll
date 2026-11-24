@@ -7,7 +7,7 @@ import {
   SCHEMA_VERSION,
   type DaemonErrorCode,
   type DaemonErrorResponse,
-} from "iterbar";
+} from "@iterbar/core";
 import { isIterbarStoreError } from "../store/index.js";
 
 /** Largest JSON request body (origins, replies, status changes and slot reports), in bytes. */

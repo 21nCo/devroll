@@ -3,9 +3,9 @@ import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } 
 import { createServer as createNetServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startDaemon, type RunningDaemon } from "@iterbar/cli/daemon";
-import { bearerAuthorization, SCHEMA_VERSION } from "iterbar";
-import { iterbarPaths } from "iterbar/node";
+import { startDaemon, type RunningDaemon } from "iterbar/daemon";
+import { bearerAuthorization, SCHEMA_VERSION } from "@iterbar/core";
+import { iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonLink, readMatchingDaemonFile } from "./daemon.js";
 

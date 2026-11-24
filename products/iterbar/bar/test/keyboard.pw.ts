@@ -9,7 +9,7 @@ function focusedControl(page: Page) {
     if (!active) return null;
     const style = getComputedStyle(active);
     return {
-      id: active.dataset.role ?? active.dataset.version ?? active.dataset.filter ?? (active.tagName === "SUMMARY" ? "summary" : active.tagName),
+      id: active.dataset.role ?? active.dataset.variant ?? active.dataset.filter ?? (active.tagName === "SUMMARY" ? "summary" : active.tagName),
       outline: `${style.outlineStyle} ${style.outlineWidth}`,
     };
   });
@@ -56,7 +56,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   await expect(inBar(page, "[data-role=tooltip]")).toContainText("Comment");
   await expect(inBar(page, "[data-role=tooltip] kbd")).toHaveText("C");
 
-  // The versions panel: choose the second slot by typing, then switch its version with Enter.
+  // The variants panel: choose the second slot by typing, then switch its variant with Enter.
   await inBar(page, "[data-role=variants-toggle]").focus();
   await page.keyboard.press("Enter");
   await expect(inBar(page, "[data-role=variants-toggle]")).toHaveAttribute("aria-expanded", "true");
@@ -67,7 +67,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   await page.keyboard.press("Tab");
   expect(await focusedControl(page)).toMatchObject({ id: "b" });
   await page.keyboard.press("Enter");
-  await expect(inBar(page, "[data-version=b]")).toHaveAttribute("aria-pressed", "true");
+  await expect(inBar(page, "[data-variant=b]")).toHaveAttribute("aria-pressed", "true");
   expect(await page.evaluate(() => location.search)).toBe("?iterbar=hero:b");
   // Escape closes the panel and returns focus to its button.
   await page.keyboard.press("Escape");

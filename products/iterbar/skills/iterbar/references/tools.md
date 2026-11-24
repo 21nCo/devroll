@@ -28,8 +28,8 @@ Every tool that returns feedback returns full items:
 - `id`, `kind` (`comment` or `choose_variant`), `status` (`open`, `working`, `needs-info`, `done`, `resolved`,
   `archived`), `createdAt`, `updatedAt`. `resolved` is an older name for `done`; `archived` means the user put the
   thread away in the bar. A thread the user deletes in the bar is gone: `get_feedback` then fails with `not_found`;
-- `text`: the comment, or the optional note of a variant choice; `choice: { slot, version }` for `choose_variant`;
-- `pageUrl` and `activeVariants` (`[{ slot, version }]`, the versions shown when it was sent);
+- `text`: the comment, or the optional note of a variant choice; `choice: { slot, variant }` for `choose_variant`;
+- `pageUrl` and `activeVariants` (`[{ slot, variant }]`, the variants shown when it was sent);
 - `target`: `null`, or the element: `selector`, `textExcerpt`, `boundingBox` and `sourceLocation`
   (`{ path, line, column }`, project relative, or `null`);
 - `screenshot` and `evidence` attachment references (or `null`), and `screenshotUnavailableReason`;
@@ -114,7 +114,7 @@ Result: `{ feedback }`. Setting the current status again changes nothing.
 ## `list_slots`
 
 No inputs. Result: `{ pages }`, one entry per page URL that reported its slots, most recently reported last:
-`{ pageUrl, reportedAt, slots: [{ slot, versions, defaultVersion, activeVersion, mounts }] }`. Pages report while
+`{ pageUrl, reportedAt, slots: [{ slot, variants, defaultVariant, activeVariant, mounts }] }`. Pages report while
 they are open in a browser with the bar; the list is kept in the daemon's memory and starts empty when it restarts.
 
 ## `wait_for_feedback`

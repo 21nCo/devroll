@@ -6,8 +6,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Feedback, FeedbackDraft } from "iterbar";
-import { attachmentPath, iterbarPaths } from "iterbar/node";
+import type { Feedback, FeedbackDraft } from "@iterbar/core";
+import { attachmentPath, iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startDaemon, type RunningDaemon } from "../daemon/index.js";
 import { bearer, json, multipart, send } from "../daemon/test-support/client.js";
@@ -84,7 +84,7 @@ async function userReply(daemon: RunningDaemon, feedbackId: string, text: string
     method: "POST",
     path: `/feedback/${feedbackId}/replies`,
     headers: { ...bearer(daemon.info.token), ...json },
-    body: JSON.stringify({ schemaVersion: 1, author: { kind: "user", name: null }, text }),
+    body: JSON.stringify({ schemaVersion: 2, author: { kind: "user", name: null }, text }),
   });
   expect(response.status, response.text).toBe(200);
   return JSON.parse(response.text) as Feedback;
@@ -127,7 +127,7 @@ describe("iterbar mcp", { timeout: 60_000 }, () => {
     expect(all.items.map((item) => item.id)).toEqual([comment.id, choice.id]);
     expect(all.cursor).toEqual(expect.any(String));
     const choices = await ok<{ items: Feedback[] }>(client, "list_feedback", { kind: "choose_variant" });
-    expect(choices.items).toMatchObject([{ id: choice.id, choice: { slot: "pricing", version: "v2" } }]);
+    expect(choices.items).toMatchObject([{ id: choice.id, choice: { slot: "pricing", variant: "v2" } }]);
 
     const read = await call(client, "get_feedback", { feedbackId: comment.id });
     expect(read.isError).toBeFalsy();
@@ -196,15 +196,15 @@ describe("iterbar mcp", { timeout: 60_000 }, () => {
     expect(errorOf(await call(client, "get_batch", { batchId: "batch-none" })).code).toBe("not_found");
   });
 
-  it("lists the slots and versions that pages reported", async () => {
+  it("lists the slots and variants that pages reported", async () => {
     const daemon = await start();
     const { client } = await connect();
     expect(await ok(client, "list_slots")).toEqual({ pages: [] });
     const report = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       pageUrl: "http://localhost:5173/pricing",
       reportedAt: "2026-11-05T10:00:00.000Z",
-      slots: [{ slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 }],
+      slots: [{ slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1", activeVariant: "v2", mounts: 1 }],
     };
     const posted = await send(daemon.info, {
       method: "POST", path: "/slots", headers: { ...bearer(daemon.info.token), ...json }, body: JSON.stringify(report),
@@ -272,7 +272,7 @@ describe("daemon_unavailable", { timeout: 60_000 }, () => {
     const freePort = (closed.address() as AddressInfo).port;
     await new Promise((resolve) => closed.close(resolve));
     const leftover = {
-      schemaVersion: 1, host: "127.0.0.1", port: freePort, token: "f".repeat(64), pid: await deadPid(), projectRoot: root,
+      schemaVersion: 2, host: "127.0.0.1", port: freePort, token: "f".repeat(64), pid: await deadPid(), projectRoot: root,
       startedAt: "2026-11-01T00:00:00.000Z",
     };
     const cases: Array<[Record<string, unknown> | string, string]> = [
@@ -668,7 +668,7 @@ describe("wait_for_feedback", { timeout: 60_000 }, () => {
         method: "POST",
         path: `/feedback/${feedback.id}/status`,
         headers: { ...bearer(daemon.info.token), ...json },
-        body: JSON.stringify({ schemaVersion: 1, status }),
+        body: JSON.stringify({ schemaVersion: 2, status }),
       });
       expect(response.status, response.text).toBe(200);
     }

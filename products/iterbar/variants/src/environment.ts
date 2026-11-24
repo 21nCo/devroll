@@ -1,4 +1,4 @@
-import { VARIANT_URL_PARAM } from "iterbar";
+import { VARIANT_URL_PARAM } from "@iterbar/core";
 
 /** The subset of the Web Storage API the registry uses. */
 export interface VariantStorage {
@@ -56,7 +56,7 @@ function decodeKey(part: string): string | null {
 
 /**
  * Returns `search` with the first `iterbar` parameter set to `value`, appending it when absent. Every other
- * parameter keeps its exact original text. `value` must already be URL-safe: slot and version names and
+ * parameter keeps its exact original text. `value` must already be URL-safe: slot and variant names and
  * the `:` and `,` separators are.
  */
 export function withVariantParam(search: string, value: string): string {

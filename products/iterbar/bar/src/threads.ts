@@ -1,4 +1,4 @@
-import type { Feedback, FeedbackStatus } from "iterbar";
+import type { Feedback, FeedbackStatus } from "@iterbar/core";
 import { h } from "./dom.js";
 import { icon, type IconName } from "./icons.js";
 import { formatLabel, labelTarget, labelTooltip } from "./pick/target.js";
@@ -29,7 +29,7 @@ const STATUS_LABELS: Readonly<Record<FeedbackStatus, string>> = {
 
 function summaryText(feedback: Feedback): string {
   if (feedback.kind === "choose_variant") {
-    const choice = `Chose ${feedback.choice.slot}: ${feedback.choice.version}`;
+    const choice = `Chose ${feedback.choice.slot}: ${feedback.choice.variant}`;
     return feedback.text.trim() ? `${choice}. ${feedback.text}` : choice;
   }
   return feedback.text;

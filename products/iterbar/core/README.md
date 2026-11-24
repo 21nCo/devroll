@@ -5,7 +5,7 @@ TypeScript types for feedback, the page variants registry, the local daemon's
 HTTP and WebSocket messages, and the `.iterbar/` directory layout.
 
 ```ts
-import { feedbackSchema, parseMessage } from "iterbar";
+import { feedbackSchema, parseMessage } from "@iterbar/core";
 
 const feedback = parseMessage(feedbackSchema, JSON.parse(text), "feedback");
 ```
@@ -14,13 +14,13 @@ The root export is browser-safe. Node.js path helpers for `.iterbar/` are
 available from `iterbar/node`:
 
 ```ts
-import { feedbackRecordPath, iterbarPaths } from "iterbar/node";
+import { feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
 ```
 
 ## Versioning
 
 Every top-level protocol message and schema-backed JSON file (`daemon.json`,
-`store.lock`, `feedback.json`) carries `schemaVersion: 1`; `.gitignore`,
+`store.lock`, `feedback.json`) carries `schemaVersion: 2`; `.gitignore`,
 temporary files and attachment contents are not versioned. `parseMessage`
 rejects any other major version with `UnsupportedSchemaVersionError`
 (`code: "unsupported_schema_version"`) before checking the shape, and reports

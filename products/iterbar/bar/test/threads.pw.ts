@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION } from "iterbar";
+import { SCHEMA_VERSION } from "@iterbar/core";
 import { comment, fakeDaemon } from "./support/fake-daemon.js";
 import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 
@@ -86,7 +86,7 @@ test.describe("threads from the daemon", () => {
     await expect(inBar(page, ".thread .badge")).toHaveText("In progress");
 
     daemon.send("not json");
-    daemon.send({ schemaVersion: 2, type: "feedback.updated", feedback: { ...item, status: "done" } } as never);
+    daemon.send({ schemaVersion: 3, type: "feedback.updated", feedback: { ...item, status: "done" } } as never);
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: { ...item, status: "bogus" } } as never);
     daemon.send({
       schemaVersion: SCHEMA_VERSION, type: "feedback.updated",
@@ -174,13 +174,13 @@ test.describe("threads from the daemon", () => {
     await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
     await expect.poll(() => daemon.slotReports.length).toBe(1);
     expect(daemon.slotReports[0]).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       pageUrl: `${fixtureServer.origin}/shop`,
-      slots: [{ slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 }],
+      slots: [{ slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1", activeVariant: "v2", mounts: 1 }],
     });
     await openPanel(page, "variants");
-    await inBar(page, "[data-version=v3]").click();
-    await expect.poll(() => daemon.slotReports.at(-1)?.slots[0]?.activeVersion).toBe("v3");
+    await inBar(page, "[data-variant=v3]").click();
+    await expect.poll(() => daemon.slotReports.at(-1)?.slots[0]?.activeVariant).toBe("v3");
     expect(daemon.slotReports.at(-1)?.pageUrl).toBe(`${fixtureServer.origin}/shop`);
   });
 
@@ -210,8 +210,8 @@ test.describe("threads from the daemon", () => {
     await page.evaluate(() => {
       // A page API the test drives by hand.
       const valid = {
-        schemaVersion: 1,
-        slots: [{ slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v1", mounts: 1 }],
+        schemaVersion: 2,
+        slots: [{ slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v1", mounts: 1 }],
         warnings: [{ code: "unknown_slot", source: "url", value: "hero:b", message: "Unknown slot hero in the URL." }],
       };
       let current: unknown = valid;
@@ -224,7 +224,7 @@ test.describe("threads from the daemon", () => {
       Object.defineProperty(window, "__ITERBAR__", {
         configurable: true,
         value: {
-          schemaVersion: 1, getSnapshot: () => current, select: () => undefined,
+          schemaVersion: 2, getSnapshot: () => current, select: () => undefined,
           subscribe: (listener: (snapshot: unknown) => void) => {
             listeners.add(listener);
             return () => listeners.delete(listener);
@@ -237,7 +237,7 @@ test.describe("threads from the daemon", () => {
     await expect(warnings).toHaveText("Unknown slot hero in the URL.");
     await expect.poll(() => daemon.slotReports.at(-1)?.slots.length).toBe(1);
 
-    await page.evaluate(() => (window as unknown as { emitSnapshot(value: unknown): void }).emitSnapshot({ schemaVersion: 1, slots: "bad" }));
+    await page.evaluate(() => (window as unknown as { emitSnapshot(value: unknown): void }).emitSnapshot({ schemaVersion: 2, slots: "bad" }));
     await expect(inBar(page, "[data-role=slots-message]")).toContainText("invalid snapshot");
     await expect(warnings).toBeHidden();
     await expect(warnings.locator("li")).toHaveCount(0);

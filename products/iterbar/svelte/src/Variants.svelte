@@ -1,15 +1,18 @@
 <!--
-  Renders one version of a slot. In development the version comes from the `iterbar` URL parameter
+  Renders one variant of a slot. In development the variant comes from the `iterbar` URL parameter
   (`?iterbar=pricing:v2`), then local storage, then `default`, and the bar can switch it in place through
   `window.__ITERBAR__`. Development means `process.env.NODE_ENV === "development"`; anything else renders
   `default` only, with no markers and no registry.
 -->
-<script lang="ts" generics="Versions extends Readonly<Record<string, VersionContent>>">
+<script lang="ts" generics="VariantMap extends Readonly<Record<string, VariantContent>>">
   import DevelopmentVariants from "./DevelopmentVariants.svelte";
   import ProductionVariants from "./ProductionVariants.svelte";
-  import type { VariantsProps, VersionContent } from "./types.js";
+  import { resolveVariantsProps } from "./content.js";
+  import type { VariantsProps, VariantContent } from "./types.js";
 
-  let props: VariantsProps<Versions> = $props();
+  let props: VariantsProps<VariantMap> = $props();
+  // The variants under their current name, from `variants` or the earlier `versions`.
+  const resolved = $derived(resolveVariantsProps(props));
 
   // Without a bundler's replacement, reading `process.env.NODE_ENV` throws in a page with no `process` (or no
   // `process.env`), which is not development; so it is read inside `try` first.
@@ -27,4 +30,4 @@
     readable && process.env.NODE_ENV === "development" ? DevelopmentVariants : ProductionVariants;
 </script>
 
-<Implementation {...props} />
+<Implementation {...resolved} />

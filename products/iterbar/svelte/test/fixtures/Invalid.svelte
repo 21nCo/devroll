@@ -6,6 +6,6 @@
 </script>
 
 <svelte:boundary {onerror}>
-  <Variants slot="bad slot" versions={{ v1: PlanOne }} default="v1" />
+  <Variants slot="bad slot" variants={{ v1: PlanOne }} default="v1" />
   {#snippet failed()}<p>failed</p>{/snippet}
 </svelte:boundary>

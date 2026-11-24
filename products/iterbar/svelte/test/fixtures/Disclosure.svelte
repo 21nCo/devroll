@@ -1,4 +1,4 @@
-<!-- A version that replaces its own root element. -->
+<!-- A variant that replaces its own root element. -->
 <script lang="ts">
   let open = $state(false);
 </script>

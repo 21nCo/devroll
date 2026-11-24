@@ -1,4 +1,4 @@
-import type { Feedback } from "iterbar";
+import type { Feedback } from "@iterbar/core";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +6,7 @@ import { ThreadsState } from "./threads-state.js";
 
 function feedback(id: string, createdAt: string, updatedAt: string, status: Feedback["status"] = "open"): Feedback {
   return {
-    schemaVersion: 1, id, kind: "comment", text: id, pageUrl: "http://localhost:5173/", target: null, activeVariants: [],
+    schemaVersion: 2, id, kind: "comment", text: id, pageUrl: "http://localhost:5173/", target: null, activeVariants: [],
     screenshotUnavailableReason: null, screenshot: null, evidence: null, replies: [], status, createdAt, updatedAt,
   };
 }

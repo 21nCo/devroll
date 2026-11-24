@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import type { FeedbackDraft } from "iterbar";
+import type { FeedbackDraft } from "@iterbar/core";
 import { fakeDaemon, type FakeDaemon } from "./support/fake-daemon.js";
 import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
 import { darkPixels, pngPixels, pngSize, quadrantColourCounts } from "./support/png.js";
@@ -258,7 +258,7 @@ test("sends a comment with the excerpt, document box, source, active variants an
     kind: "comment",
     text: "  Make this calmer\nplease ",
     pageUrl: `${fixtureServer.origin}/shop`,
-    activeVariants: [{ slot: "pricing", version: "v2" }],
+    activeVariants: [{ slot: "pricing", variant: "v2" }],
     screenshotUnavailableReason: null,
     evidenceWindow: null,
   } satisfies Partial<FeedbackDraft>);

@@ -28,12 +28,12 @@ function PricingCards() {
   );
 }
 
-/** One page, two slots. In `vite dev` the Iterbar bar switches between their versions. */
+/** One page, two slots. In `vite dev` the Iterbar bar switches between their variants. */
 export function App() {
   return (
     <main>
-      <Variants slot="hero" versions={{ calm: CalmHero, bold: BoldHero }} default="calm" />
-      <Variants slot="pricing" versions={{ table: PricingTable, cards: PricingCards }} default="table" />
+      <Variants slot="hero" variants={{ calm: CalmHero, bold: BoldHero }} default="calm" />
+      <Variants slot="pricing" variants={{ table: PricingTable, cards: PricingCards }} default="table" />
     </main>
   );
 }

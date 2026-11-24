@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { VersionContent } from "./types.js";
+  import type { VariantContent } from "./types.js";
 
-  let { content }: { content: VersionContent | undefined } = $props();
+  let { content }: { content: VariantContent | undefined } = $props();
 </script>
 
 {#if typeof content === "function"}

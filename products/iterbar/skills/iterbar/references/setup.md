@@ -5,19 +5,19 @@ These steps are for the user (or for you, when the user asks you to set it up).
 
 ## The quick way: `iterbar init`
 
-The `@iterbar/cli` package carries the `iterbar` command, the MCP server and this skill. In the project's root:
+The `iterbar` package carries the `iterbar` command, the MCP server and this skill. In the project's root:
 
 ```bash
-npx @iterbar/cli init --agent claude     # or codex, cursor, all
+npx iterbar init --agent claude     # or codex, cursor, all
 ```
 
 It copies this skill into the agent's skills folder (`--scope project` puts it in the project instead), registers the
 MCP server (Claude Code: `.mcp.json`; Cursor: `.cursor/mcp.json`; for Codex it prints the `config.toml` lines to add),
 and prints the prompt to paste. It never replaces an existing iterbar skill or server entry that differs unless you
 pass `--force`, and `--dry-run` shows what it would change. Projects that use the Vite plugin (`@iterbar/vite`)
-already have `@iterbar/cli` installed, so `npx` runs that copy.
+already have `iterbar` installed, so `npx` runs that copy.
 
-The MCP configs it writes run `npx -y @iterbar/cli mcp`, so nothing has to be on `PATH`.
+The MCP configs it writes run `npx -y iterbar mcp`, so nothing has to be on `PATH`.
 
 ## From a Devroll checkout (contributors)
 
@@ -25,7 +25,7 @@ To run the command from a checkout instead of the package:
 
 ```bash
 pnpm install
-pnpm --filter @iterbar/cli... build
+pnpm --filter iterbar... build
 mkdir -p "$HOME/.local/bin"
 ln -s "$PWD/products/iterbar/cli/dist/cli.js" "$HOME/.local/bin/iterbar"
 iterbar --help
@@ -43,7 +43,7 @@ tools report `daemon_unavailable` until one does.
 
 ## Registering the server by hand
 
-`iterbar init` does this for you. By hand, the command is `npx -y @iterbar/cli mcp` (or `iterbar mcp` when the
+`iterbar init` does this for you. By hand, the command is `npx -y iterbar mcp` (or `iterbar mcp` when the
 command is on `PATH`, as in the examples below). Pass `--root` with the project's absolute path whenever the agent might start the server from another directory.
 
 Claude Code, from the project root, registering it only for you:

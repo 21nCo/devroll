@@ -9,8 +9,8 @@ import {
   type AttachmentRef,
   type Feedback,
   type ReplyAuthor,
-} from "iterbar";
-import { attachmentPath } from "iterbar/node";
+} from "@iterbar/core";
+import { attachmentPath } from "@iterbar/core/node";
 import { z } from "zod";
 import { cursorProvenBy, decodeCursor, encodeCursor, observe, type FeedbackEvent } from "./cursor.js";
 import type { DaemonClient } from "./daemon-client.js";
@@ -309,8 +309,8 @@ export function registerTools(context: ToolContext): void {
   server.registerTool("list_slots", {
     title: "List Iterbar slots",
     description:
-      "List the variant slots that dev-bar pages reported, per page URL: each slot's versions, default version, the " +
-      "version currently shown and how many times it is mounted.",
+      "List the variant slots that dev-bar pages reported, per page URL: each slot's variants, default variant, the " +
+      "variant currently shown and how many times it is mounted.",
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, () => run(context, async () => success({ pages: await client.listSlots() })));
 

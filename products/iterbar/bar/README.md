@@ -37,8 +37,8 @@ slot list) stop at the bar, so the page's keyboard shortcuts never see them.
   registry, it waits until the registry appears. With one slot the bar shows
   its name; with more than one, a dropdown chooses which slot's variants to
   show, one row each. Choosing a variant calls `select()` (the page API and
-  the protocol call a slot's variants its "versions"). Once the registry shows that
-  version, the bar writes `slot:version` into the `iterbar` URL parameter with
+  the protocol call a slot's variants its "variants"). Once the registry shows that
+  variant, the bar writes `slot:variant` into the `iterbar` URL parameter with
   `history.replaceState`, keeping every other parameter and the fragment. The
   bar also reports the page's slots to the daemon (`POST /slots`) under the
   page URL without its fragment or `iterbar` parameter.
@@ -131,7 +131,7 @@ described when it is picked:
 - **Bounding box**: the border box in CSS pixels from the top-left corner of
   the document.
 - **Source location**: the nearest well-formed `data-iterbar-src`, or `null`.
-- **Active variants**: the version each slot on the page shows.
+- **Active variants**: the variant each slot on the page shows.
 - **Screenshot**: a PNG of the element rendered in the page with
   `modern-screenshot` from the pick, at the device pixel ratio, scaled down
   to stay within 4 MP. Every element is drawn alone at the image origin,
@@ -305,5 +305,5 @@ Removing the element closes the stream and cancels every timer.
   excerpts and screenshot scaling.
 - `pnpm test:browser`: Playwright tests in Chromium, against a fake daemon
   built from Playwright routes and against the real daemon from
-  `@iterbar/cli`. Install the browser once with
+  `iterbar`. Install the browser once with
   `pnpm exec playwright install chromium`.

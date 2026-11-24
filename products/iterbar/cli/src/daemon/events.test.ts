@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { WEBSOCKET_SUBPROTOCOL, type DaemonEvent } from "iterbar";
+import { WEBSOCKET_SUBPROTOCOL, type DaemonEvent } from "@iterbar/core";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { EventHub } from "./events.js";
@@ -49,9 +49,9 @@ async function connect(port: number): Promise<Client> {
 function event(sequence: number, bytes: number): DaemonEvent {
   const pageUrl = `http://localhost:5173/${sequence}?pad=`;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: "slots.reported",
-    report: { schemaVersion: 1, pageUrl: pageUrl + "x".repeat(Math.max(0, bytes - 150)), reportedAt: "2026-11-03T10:00:00.000Z", slots: [] },
+    report: { schemaVersion: 2, pageUrl: pageUrl + "x".repeat(Math.max(0, bytes - 150)), reportedAt: "2026-11-03T10:00:00.000Z", slots: [] },
   };
 }
 

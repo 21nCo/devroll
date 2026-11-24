@@ -46,13 +46,13 @@ const boundingBox = { x: 16, y: -40, width: 320, height: 48 };
 const target = { selector: "[data-testid=\"buy\"]", textExcerpt: "Buy now", boundingBox, sourceLocation };
 const reply = { id: "rp_0001", author: { kind: "agent", name: "Claude Code" }, text: "Working on it.", createdAt: updatedAt };
 const comment = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "fb_0001",
   kind: "comment",
   text: "Make the button larger.",
   pageUrl: "http://localhost:5173/pricing?iterbar=pricing:v2",
   target,
-  activeVariants: [{ slot: "pricing", version: "v2" }],
+  activeVariants: [{ slot: "pricing", variant: "v2" }],
   screenshot,
   screenshotUnavailableReason: null,
   evidence: { window: evidenceWindow, attachment: evidenceAttachment },
@@ -66,7 +66,7 @@ const chooseVariant = {
   id: "fb_0002",
   kind: "choose_variant",
   text: "",
-  choice: { slot: "pricing", version: "v2" },
+  choice: { slot: "pricing", variant: "v2" },
   target: null,
   screenshot: null,
   evidence: null,
@@ -75,7 +75,7 @@ const chooseVariant = {
   updatedAt: createdAt,
 };
 const draft = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: "comment",
   text: "Too much padding.",
   pageUrl: "http://localhost:5173/",
@@ -84,15 +84,15 @@ const draft = {
   screenshotUnavailableReason: "Screenshot exceeded 4 MP",
   evidenceWindow,
 };
-const slotState = { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v2", mounts: 2 };
+const slotState = { slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v2", mounts: 2 };
 const snapshot = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   slots: [slotState],
-  warnings: [{ code: "unknown_version", source: "url", value: "pricing:v9", message: "pricing has no version v9; using v1" }],
+  warnings: [{ code: "unknown_variant", source: "url", value: "pricing:v9", message: "pricing has no variant v9; using v1" }],
 };
-const slotReport = { schemaVersion: 1, pageUrl: "http://localhost:5173/pricing", reportedAt: createdAt, slots: [slotState] };
+const slotReport = { schemaVersion: 2, pageUrl: "http://localhost:5173/pricing", reportedAt: createdAt, slots: [slotState] };
 const daemonInfo = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   host: "127.0.0.1",
   port: 47_123,
   token,
@@ -102,7 +102,7 @@ const daemonInfo = {
 };
 
 const warning = snapshot.warnings[0];
-const draftChoice = { ...draft, kind: "choose_variant", text: "", choice: { slot: "pricing", version: "v2" } };
+const draftChoice = { ...draft, kind: "choose_variant", text: "", choice: { slot: "pricing", variant: "v2" } };
 
 type SchemaName = Extract<keyof typeof api, `${string}Schema`>;
 
@@ -121,9 +121,10 @@ interface Case {
 
 const cases: Case[] = [
   // primitives
-  { schema: "schemaVersionSchema", valid: 1, invalid: "1", path: "" },
+  { schema: "schemaVersionSchema", valid: 2, invalid: "2", path: "" },
   { schema: "idSchema", valid: "fb_0001", invalid: "_fb_0001", path: "", message: /starting with a letter or digit/ },
   { schema: "slotNameSchema", valid: "pricing.hero", invalid: "pricing:v2", path: "", message: /1-64 letters/ },
+  { schema: "variantNameSchema", valid: "v2-b", invalid: "v,2", path: "", message: /1-64 letters/ },
   { schema: "versionNameSchema", valid: "v2-b", invalid: "v,2", path: "", message: /1-64 letters/ },
   { schema: "timestampSchema", valid: "2026-11-03T10:00:30+02:00", invalid: "2026-11-03 10:00:30", path: "" },
   { schema: "pageUrlSchema", valid: "https://app.localhost/pricing", invalid: "javascript:alert(1)", path: "" },
@@ -135,15 +136,15 @@ const cases: Case[] = [
   { schema: "absolutePathSchema", variant: "NUL", valid: "/Users/dev/app", invalid: "/Users/dev\0app", path: "", message: /absolute path/ },
   { schema: "absolutePathSchema", variant: "UNC", valid: "\\\\server\\share\\app", invalid: "\\\\server", path: "", message: /absolute path/ },
   // registry
-  { schema: "activeVariantSchema", valid: { slot: "pricing", version: "v2" }, invalid: { slot: "pricing", version: "" }, path: "version" },
+  { schema: "activeVariantSchema", valid: { slot: "pricing", variant: "v2" }, invalid: { slot: "pricing", variant: "" }, path: "variant" },
   {
     schema: "activeVariantsSchema",
     valid: comment.activeVariants,
-    invalid: [{ slot: "pricing", version: "v1" }, { slot: "pricing", version: "v2" }],
+    invalid: [{ slot: "pricing", variant: "v1" }, { slot: "pricing", variant: "v2" }],
     path: "",
     message: /each slot may appear only once/,
   },
-  { schema: "slotStateSchema", valid: slotState, invalid: { ...slotState, activeVersion: "v3" }, path: "activeVersion" },
+  { schema: "slotStateSchema", valid: slotState, invalid: { ...slotState, activeVariant: "v3" }, path: "activeVariant" },
   { schema: "registryWarningSchema", valid: warning, invalid: { ...warning, source: "cookie" }, path: "source" },
   {
     schema: "registryWarningSchema",
@@ -161,8 +162,8 @@ const cases: Case[] = [
   },
   {
     schema: "variantSelectionSchema",
-    valid: { schemaVersion: 1, slot: "pricing", version: "v2" },
-    invalid: { schemaVersion: 1, slot: "pricing:v2", version: "v2" },
+    valid: { schemaVersion: 2, slot: "pricing", variant: "v2" },
+    invalid: { schemaVersion: 2, slot: "pricing:v2", variant: "v2" },
     path: "slot",
   },
   { schema: "slotReportSchema", valid: slotReport, invalid: { ...slotReport, pageUrl: "javascript:alert(1)" }, path: "pageUrl" },
@@ -242,7 +243,7 @@ const cases: Case[] = [
     variant: "choose_variant",
     valid: draftChoice,
     invalid: { ...draftChoice, choice: { slot: "pricing" } },
-    path: "choice.version",
+    path: "choice.variant",
   },
   {
     schema: "feedbackSchema",
@@ -271,20 +272,20 @@ const cases: Case[] = [
   { schema: "daemonInfoSchema", valid: daemonInfo, invalid: { ...daemonInfo, host: "0.0.0.0" }, path: "host" },
   {
     schema: "storeLockSchema",
-    valid: { schemaVersion: 1, pid: 4242, startedAt: createdAt },
-    invalid: { schemaVersion: 1, pid: 0, startedAt: createdAt },
+    valid: { schemaVersion: 2, pid: 4242, startedAt: createdAt },
+    invalid: { schemaVersion: 2, pid: 0, startedAt: createdAt },
     path: "pid",
   },
   {
     schema: "registerOriginsRequestSchema",
-    valid: { schemaVersion: 1, origins: ["http://localhost:5173", "http://127.0.0.1:5173"] },
-    invalid: { schemaVersion: 1, origins: ["http://localhost:5173", "http://localhost:5173/"] },
+    valid: { schemaVersion: 2, origins: ["http://localhost:5173", "http://127.0.0.1:5173"] },
+    invalid: { schemaVersion: 2, origins: ["http://localhost:5173", "http://localhost:5173/"] },
     path: "origins.1",
   },
   {
     schema: "registerOriginsResponseSchema",
-    valid: { schemaVersion: 1, origins: ["https://app.localhost"] },
-    invalid: { schemaVersion: 1, origins: ["file:///tmp"] },
+    valid: { schemaVersion: 2, origins: ["https://app.localhost"] },
+    invalid: { schemaVersion: 2, origins: ["file:///tmp"] },
     path: "origins.0",
   },
   {
@@ -295,70 +296,70 @@ const cases: Case[] = [
   },
   {
     schema: "feedbackListResponseSchema",
-    valid: { schemaVersion: 1, items: [comment, chooseVariant] },
-    invalid: { schemaVersion: 1, items: [comment, { ...chooseVariant, status: "pending" }] },
+    valid: { schemaVersion: 2, items: [comment, chooseVariant] },
+    invalid: { schemaVersion: 2, items: [comment, { ...chooseVariant, status: "pending" }] },
     path: "items.1.status",
   },
   {
     schema: "replyRequestSchema",
-    valid: { schemaVersion: 1, author: { kind: "user", name: null }, text: "Try v3." },
-    invalid: { schemaVersion: 1, author: { kind: "user", name: null }, text: "\n" },
+    valid: { schemaVersion: 2, author: { kind: "user", name: null }, text: "Try v3." },
+    invalid: { schemaVersion: 2, author: { kind: "user", name: null }, text: "\n" },
     path: "text",
     message: /must not be blank/,
   },
   {
     schema: "statusRequestSchema",
-    valid: { schemaVersion: 1, status: "resolved" },
-    invalid: { schemaVersion: 1, status: "closed" },
+    valid: { schemaVersion: 2, status: "resolved" },
+    invalid: { schemaVersion: 2, status: "closed" },
     path: "status",
   },
   {
     schema: "slotListResponseSchema",
-    valid: { schemaVersion: 1, pages: [slotReport] },
-    invalid: { schemaVersion: 1, pages: [{ ...slotReport, reportedAt: undefined }] },
+    valid: { schemaVersion: 2, pages: [slotReport] },
+    invalid: { schemaVersion: 2, pages: [{ ...slotReport, reportedAt: undefined }] },
     path: "pages.0.reportedAt",
   },
   {
     schema: "slotListResponseSchema",
     variant: "one report per page URL",
-    valid: { schemaVersion: 1, pages: [slotReport, { ...slotReport, pageUrl: "http://localhost:5173/" }] },
-    invalid: { schemaVersion: 1, pages: [slotReport, { ...slotReport, reportedAt: updatedAt }] },
+    valid: { schemaVersion: 2, pages: [slotReport, { ...slotReport, pageUrl: "http://localhost:5173/" }] },
+    invalid: { schemaVersion: 2, pages: [slotReport, { ...slotReport, reportedAt: updatedAt }] },
     path: "pages",
     message: /page URLs must be unique/,
   },
   { schema: "daemonErrorCodeSchema", valid: "store_locked", invalid: "teapot", path: "" },
   {
     schema: "daemonErrorResponseSchema",
-    valid: { schemaVersion: 1, error: { code: "forbidden_origin", message: "Origin not allowed" } },
-    invalid: { schemaVersion: 1, error: { code: "teapot", message: "Origin not allowed" } },
+    valid: { schemaVersion: 2, error: { code: "forbidden_origin", message: "Origin not allowed" } },
+    invalid: { schemaVersion: 2, error: { code: "teapot", message: "Origin not allowed" } },
     path: "error.code",
   },
   {
     schema: "daemonEventSchema",
     variant: "feedback.created",
-    valid: { schemaVersion: 1, type: "feedback.created", feedback: chooseVariant },
-    invalid: { schemaVersion: 1, type: "feedback.created", feedback: { ...chooseVariant, kind: "vote" } },
+    valid: { schemaVersion: 2, type: "feedback.created", feedback: chooseVariant },
+    invalid: { schemaVersion: 2, type: "feedback.created", feedback: { ...chooseVariant, kind: "vote" } },
     path: "feedback.kind",
   },
   {
     schema: "daemonEventSchema",
     variant: "feedback.updated",
-    valid: { schemaVersion: 1, type: "feedback.updated", feedback: comment },
-    invalid: { schemaVersion: 1, type: "feedback.updated", report: slotReport },
+    valid: { schemaVersion: 2, type: "feedback.updated", feedback: comment },
+    invalid: { schemaVersion: 2, type: "feedback.updated", report: slotReport },
     path: "feedback",
   },
   {
     schema: "daemonEventSchema",
     variant: "feedback.deleted",
-    valid: { schemaVersion: 1, type: "feedback.deleted", feedbackId: comment.id },
-    invalid: { schemaVersion: 1, type: "feedback.deleted", feedbackId: "../x" },
+    valid: { schemaVersion: 2, type: "feedback.deleted", feedbackId: comment.id },
+    invalid: { schemaVersion: 2, type: "feedback.deleted", feedbackId: "../x" },
     path: "feedbackId",
   },
   {
     schema: "daemonEventSchema",
     variant: "slots.reported",
-    valid: { schemaVersion: 1, type: "slots.reported", report: slotReport },
-    invalid: { schemaVersion: 1, type: "slots.reported", report: { ...slotReport, slots: [{ ...slotState, mounts: 0 }] } },
+    valid: { schemaVersion: 2, type: "slots.reported", report: slotReport },
+    invalid: { schemaVersion: 2, type: "slots.reported", report: { ...slotReport, slots: [{ ...slotState, mounts: 0 }] } },
     path: "report.slots.0.mounts",
   },
 ];
@@ -392,13 +393,13 @@ describe.each(cases.map((testCase) => ({ ...testCase, name: caseName(testCase) }
   });
 
   it.runIf(isVersioned(testCase.valid))("rejects an unknown major version before reading the shape", () => {
-    for (const input of [{ ...(testCase.valid as object), schemaVersion: 2 }, { schemaVersion: 2, renamedEverything: true }]) {
+    for (const input of [{ ...(testCase.valid as object), schemaVersion: 3 }, { schemaVersion: 3, renamedEverything: true }]) {
       const result = safeParseMessage(schema, input, label);
       expect(result.success).toBe(false);
       if (result.success) continue;
       expect(result.error).toBeInstanceOf(UnsupportedSchemaVersionError);
       expect(result.error.code).toBe("unsupported_schema_version");
-      expect((result.error as UnsupportedSchemaVersionError).receivedVersion).toBe(2);
+      expect((result.error as UnsupportedSchemaVersionError).receivedVersion).toBe(3);
     }
   });
 });
@@ -433,8 +434,8 @@ describe("fixture coverage", () => {
 
 describe("nested records", () => {
   it("rejects a v1 envelope holding a record from another major version as an invalid message", () => {
-    const event = { schemaVersion: 1, type: "feedback.created", feedback: { ...comment, schemaVersion: 2 } };
-    const list = { schemaVersion: 1, items: [comment, { ...chooseVariant, schemaVersion: 2 }] };
+    const event = { schemaVersion: 2, type: "feedback.created", feedback: { ...comment, schemaVersion: 3 } };
+    const list = { schemaVersion: 2, items: [comment, { ...chooseVariant, schemaVersion: 3 }] };
     for (const [schema, input, path] of [
       [daemonEventSchema, event, "feedback.schemaVersion"],
       [feedbackListResponseSchema, list, "items.1.schemaVersion"],
@@ -451,7 +452,7 @@ describe("nested records", () => {
   });
 
   it("rejects an unknown daemon event type on the discriminator", () => {
-    const result = safeParseMessage(daemonEventSchema, { schemaVersion: 1, type: "feedback.removed", feedback: comment }, label);
+    const result = safeParseMessage(daemonEventSchema, { schemaVersion: 2, type: "feedback.removed", feedback: comment }, label);
     expect(result.success).toBe(false);
     if (!result.success) {
       for (const issue of (result.error as InvalidMessageError).issues) expect(issueOnPath(issue, "type"), issue).toBe(true);
@@ -470,20 +471,22 @@ describe("schema versions", () => {
 
   it("reads an inherited schemaVersion the same way the schema does", () => {
     const inheriting = (schemaVersion: unknown) => Object.assign(Object.create({ schemaVersion }), { status: "open" });
-    const future = safeParseMessage(statusRequestSchema, inheriting(2), label);
+    const future = safeParseMessage(statusRequestSchema, inheriting(3), label);
     expect(future.success || future.error.code).toBe("unsupported_schema_version");
-    expect(parseMessage(statusRequestSchema, inheriting(1))).toEqual({ schemaVersion: 1, status: "open" });
+    expect(parseMessage(statusRequestSchema, inheriting(2))).toEqual({ schemaVersion: 2, status: "open" });
+    // An inherited version 1 is upgraded like an own one.
+    expect(parseMessage(statusRequestSchema, inheriting(1))).toEqual({ schemaVersion: 2, status: "open" });
     const malformed = safeParseMessage(statusRequestSchema, inheriting("1"), label);
     expect(malformed.success || malformed.error.code).toBe("invalid_message");
     class FutureRegistry {
-      get schemaVersion() { return 2; }
+      get schemaVersion() { return 3; }
     }
     expect(() => readPageApi({ [PAGE_API_GLOBAL]: new FutureRegistry() })).toThrow(UnsupportedSchemaVersionError);
   });
 
   it("drops unknown v1 properties so additive fields are tolerated", () => {
-    const parsed = parseMessage(statusRequestSchema, { schemaVersion: 1, status: "done", note: "later field" });
-    expect(parsed).toEqual({ schemaVersion: 1, status: "done" });
+    const parsed = parseMessage(statusRequestSchema, { schemaVersion: 2, status: "done", note: "later field" });
+    expect(parsed).toEqual({ schemaVersion: 2, status: "done" });
   });
 
   it("reports malformed JSON as an invalid message", () => {
@@ -554,7 +557,7 @@ describe("feedback invariants", () => {
 describe("variant URL parameter", () => {
   it("parses selections, lets a later entry win and keeps malformed entries aside", () => {
     expect(parseVariantParam(" pricing:v1,hero:b,,pricing:v2,bad,x:y:z,:v1")).toEqual({
-      selections: [{ slot: "hero", version: "b" }, { slot: "pricing", version: "v2" }],
+      selections: [{ slot: "hero", variant: "b" }, { slot: "pricing", variant: "v2" }],
       invalid: ["bad", "x:y:z", ":v1"],
     });
     expect(parseVariantParam(null)).toEqual({ selections: [], invalid: [] });
@@ -562,20 +565,20 @@ describe("variant URL parameter", () => {
 
   it("keeps malformed entries verbatim and ignores blank ones", () => {
     expect(parseVariantParam(" bad , \t,hero: b ,pricing:v2 ")).toEqual({
-      selections: [{ slot: "pricing", version: "v2" }],
+      selections: [{ slot: "pricing", variant: "v2" }],
       invalid: [" bad ", "hero: b "],
     });
   });
 
   it("formats selections and refuses names that would break the format", () => {
-    expect(formatVariantParam([{ slot: "hero", version: "b" }, { slot: "pricing", version: "v2" }])).toBe("hero:b,pricing:v2");
-    expect(() => formatVariantParam([{ slot: "a,b", version: "v1" }])).toThrow(InvalidMessageError);
-    expect(() => formatVariantParam([{ slot: "a", version: "v1" }, { slot: "a", version: "v2" }])).toThrow(InvalidMessageError);
+    expect(formatVariantParam([{ slot: "hero", variant: "b" }, { slot: "pricing", variant: "v2" }])).toBe("hero:b,pricing:v2");
+    expect(() => formatVariantParam([{ slot: "a,b", variant: "v1" }])).toThrow(InvalidMessageError);
+    expect(() => formatVariantParam([{ slot: "a", variant: "v1" }, { slot: "a", variant: "v2" }])).toThrow(InvalidMessageError);
   });
 });
 
 describe("page API", () => {
-  const api = { schemaVersion: 1, getSnapshot: () => snapshot, select: () => undefined, subscribe: () => () => undefined };
+  const api = { schemaVersion: 2, getSnapshot: () => snapshot, select: () => undefined, subscribe: () => () => undefined };
 
   it("returns null without a registry and the API when one is installed", () => {
     expect(readPageApi({})).toBeNull();
@@ -583,7 +586,7 @@ describe("page API", () => {
   });
 
   it("rejects a registry from another major version or without the v1 methods", () => {
-    expect(() => readPageApi({ [PAGE_API_GLOBAL]: { ...api, schemaVersion: 2 } })).toThrow(UnsupportedSchemaVersionError);
+    expect(() => readPageApi({ [PAGE_API_GLOBAL]: { ...api, schemaVersion: 3 } })).toThrow(UnsupportedSchemaVersionError);
     expect(() => readPageApi({ [PAGE_API_GLOBAL]: { ...api, subscribe: undefined } })).toThrow(/subscribe/);
   });
 });
@@ -695,5 +698,39 @@ describe("daemon transport", () => {
     expect(tokenFromWebSocketProtocols(protocols[1])).toBeNull();
     expect(tokenFromWebSocketProtocols(`${protocols.join(",")},${webSocketProtocols("1".repeat(64))[1]}`)).toBeNull();
     expect(tokenFromWebSocketProtocols(`${WEBSOCKET_SUBPROTOCOL}, iterbar.token.nothex`)).toBeNull();
+  });
+});
+
+describe("protocol version 1 input", () => {
+  it("upgrades a version 1 slot report, snapshot, selection and stored choice to the version 2 names", () => {
+    const slot = { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 };
+    expect(api.parseMessage(api.slotReportSchema, {
+      schemaVersion: 1, pageUrl: "http://localhost:5173/", reportedAt: "2026-01-01T00:00:00Z", slots: [slot],
+    }, "report")).toEqual({
+      schemaVersion: 2, pageUrl: "http://localhost:5173/", reportedAt: "2026-01-01T00:00:00Z",
+      slots: [{ slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v2", mounts: 1 }],
+    });
+    const snapshot = api.parseMessage(api.registrySnapshotSchema, {
+      schemaVersion: 1, slots: [slot], warnings: [{ code: "unknown_version", source: "url", value: "pricing:v9", message: "No v9" }],
+    }, "snapshot");
+    expect(snapshot.warnings[0]?.code).toBe("unknown_variant");
+    expect(api.parseMessage(api.variantSelectionSchema, { schemaVersion: 1, slot: "pricing", version: "v2" }, "selection"))
+      .toEqual({ schemaVersion: 2, slot: "pricing", variant: "v2" });
+    const stored = {
+      schemaVersion: 1, id: "feedback-1", kind: "choose_variant", text: "", pageUrl: "http://localhost:5173/", target: null,
+      activeVariants: [{ slot: "pricing", version: "v2" }], screenshotUnavailableReason: null, choice: { slot: "pricing", version: "v2" },
+      screenshot: null, evidence: null, replies: [], status: "open", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    };
+    const feedback = api.parseMessage(api.feedbackSchema, stored, "feedback");
+    expect(feedback).toMatchObject({ schemaVersion: 2, activeVariants: [{ slot: "pricing", variant: "v2" }], choice: { slot: "pricing", variant: "v2" } });
+  });
+
+  it("leaves version 2 input as it is and still refuses a later major version", () => {
+    const input = { schemaVersion: 2, slot: "pricing", variant: "v2" };
+    expect(api.upgradeMessage(input)).toBe(input);
+    // Version 2 messages use only the new names.
+    expect(api.safeParseMessage(api.variantSelectionSchema, { schemaVersion: 2, slot: "pricing", version: "v2" }, "selection").success).toBe(false);
+    expect(() => api.parseMessage(api.variantSelectionSchema, { schemaVersion: 3, slot: "pricing", variant: "v2" }, "selection"))
+      .toThrow(api.UnsupportedSchemaVersionError);
   });
 });

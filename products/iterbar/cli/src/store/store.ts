@@ -25,7 +25,7 @@ import {
   type FeedbackStatus,
   type ReplyAuthor,
   type ScreenshotAttachment,
-} from "iterbar";
+} from "@iterbar/core";
 import {
   attachmentPath,
   attachmentsDirectoryPath,
@@ -33,7 +33,7 @@ import {
   feedbackRecordPath,
   iterbarPaths,
   type IterbarPaths,
-} from "iterbar/node";
+} from "@iterbar/core/node";
 import { errnoCode, IterbarStoreError } from "./errors.js";
 import { createFileAtomic, syncDirectory, writeFileAtomic } from "./files.js";
 import { formatId, formatTimestamp, StoreClock } from "./ids.js";
@@ -55,7 +55,7 @@ export interface ReplyInput {
 
 /**
  * A record as read: the feedback, and the JSON object it was parsed from, which also holds any fields this
- * version does not know (additive v1 fields from a newer writer), so that rewriting the record keeps them.
+ * variant does not know (additive v1 fields from a newer writer), so that rewriting the record keeps them.
  */
 interface StoredRecord {
   readonly feedback: Feedback;

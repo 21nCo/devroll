@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { Feedback, FeedbackListQuery } from "iterbar";
+import type { Feedback, FeedbackListQuery } from "@iterbar/core";
 import type WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { baselineCursor, cursorAfter, decodeCursor, encodeCursor, MAX_CURSOR_SEEN, type FeedbackCursor } from "./cursor.js";
@@ -13,7 +13,7 @@ import { MIN_WAIT_REQUEST_MS, waitForFeedback, type WaitOptions, type WaitResult
 class FakeSocket extends EventEmitter {
   terminated = false;
   push(feedback: Feedback): void {
-    this.emit("message", Buffer.from(JSON.stringify({ schemaVersion: 1, type: "feedback.updated", feedback })));
+    this.emit("message", Buffer.from(JSON.stringify({ schemaVersion: 2, type: "feedback.updated", feedback })));
   }
   terminate(): void {
     this.terminated = true;

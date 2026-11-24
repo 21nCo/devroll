@@ -1,4 +1,4 @@
-<!-- An outer slot whose version mounts and unmounts an inner slot. -->
+<!-- An outer slot whose variant mounts and unmounts an inner slot. -->
 <script lang="ts">
   import Inner from "./Inner.svelte";
 

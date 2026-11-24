@@ -18,7 +18,7 @@ import {
   type RegisterOriginsResponse,
   type SlotListResponse,
   type SlotReport,
-} from "iterbar";
+} from "@iterbar/core";
 import type { FeedbackFiles, FeedbackStore } from "../store/index.js";
 import type { OriginAllowList } from "./access.js";
 import type { EventHub } from "./events.js";

@@ -1,4 +1,4 @@
-<!-- An inner slot at the top level of the outer slot's version: a component version or a snippet with a sibling. -->
+<!-- An inner slot at the top level of the outer slot's variant: a component variant or a snippet with a sibling. -->
 <script lang="ts">
   import { Variants } from "../../src/index.js";
   import Inner from "./Inner.svelte";
@@ -10,5 +10,5 @@
 {#snippet two()}<p>Outer two</p>{/snippet}
 
 <div>
-  <Variants slot="outer" versions={{ v1: form === "component" ? Inner : { snippet: withSibling }, v2: { snippet: two } }} default="v1" />
+  <Variants slot="outer" variants={{ v1: form === "component" ? Inner : { snippet: withSibling }, v2: { snippet: two } }} default="v1" />
 </div>

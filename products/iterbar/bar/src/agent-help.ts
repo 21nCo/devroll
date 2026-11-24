@@ -30,12 +30,12 @@ function shellWord(path: string): string {
   return /^[\w@%+=:,./-]+$/u.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
 }
 
-/** The skill as the installed `@iterbar/cli` package carries it, relative to the project root. */
-const PACKAGED_SKILL = "node_modules/@iterbar/cli/skills/iterbar";
+/** The skill as the installed `iterbar` package carries it, relative to the project root. */
+const PACKAGED_SKILL = "node_modules/iterbar/skills/iterbar";
 
 /**
  * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md gives them: `iterbar init`
- * (from the `@iterbar/cli` package, which carries the skill) does both in one go; the manual steps register the MCP
+ * (from the `iterbar` package, which carries the skill) does both in one go; the manual steps register the MCP
  * server and copy the skill out of the installed package. `root` is the project's absolute path when the bar knows
  * it; otherwise the snippets keep the references' placeholders.
  */
@@ -43,7 +43,7 @@ export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
   const where = root ? `cd ${shellWord(root)}\n` : "";
   const init = (name: string): Snippet => ({
     caption: "Run in the project's folder. It installs the iterbar skill and registers the MCP server:",
-    text: `${where}npx @iterbar/cli init --agent ${name}`,
+    text: `${where}npx iterbar init --agent ${name}`,
   });
   const copySkill = (folder: string): Snippet => ({
     caption: "Copy the skill out of the installed package, in the project's folder:",
@@ -55,7 +55,7 @@ export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
         init: init("claude"),
         connect: [{
           caption: "Register the server, in the project's folder:",
-          text: `claude mcp add iterbar -- npx -y @iterbar/cli mcp --root ${root ? shellWord(root) : '"$PWD"'}`,
+          text: `claude mcp add iterbar -- npx -y iterbar mcp --root ${root ? shellWord(root) : '"$PWD"'}`,
         }],
         skill: [copySkill('"$HOME/.claude/skills"')],
       };
@@ -64,7 +64,7 @@ export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
         init: init("codex"),
         connect: [{
           caption: "Add to ~/.codex/config.toml:",
-          text: `[mcp_servers.iterbar]\ncommand = "npx"\nargs = ["-y", "@iterbar/cli", "mcp", "--root", ${JSON.stringify(root ?? "/absolute/path/to/project")}]\n`
+          text: `[mcp_servers.iterbar]\ncommand = "npx"\nargs = ["-y", "iterbar", "mcp", "--root", ${JSON.stringify(root ?? "/absolute/path/to/project")}]\n`
             + "# Long enough for the longest wait_for_feedback you use (at most 1,800 seconds).\ntool_timeout_sec = 1900",
         }],
         skill: [copySkill('"${CODEX_HOME:-$HOME/.codex}/skills"')],
@@ -76,7 +76,7 @@ export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
           caption: "Add to the project's .cursor/mcp.json:",
           // The project's own path when the bar knows it, so the server serves the daemon the bar talks to even when
           // Cursor's workspace folder is another one; otherwise the reference's ${workspaceFolder}.
-          text: `{\n  "mcpServers": {\n    "iterbar": { "command": "npx", "args": ["-y", "@iterbar/cli", "mcp", "--root", ${JSON.stringify(root ?? "${workspaceFolder}")}] }\n  }\n}`,
+          text: `{\n  "mcpServers": {\n    "iterbar": { "command": "npx", "args": ["-y", "iterbar", "mcp", "--root", ${JSON.stringify(root ?? "${workspaceFolder}")}] }\n  }\n}`,
         }],
         skill: [copySkill('"$HOME/.cursor/skills"')],
       };
@@ -84,7 +84,7 @@ export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
       return {
         init: {
           caption: "Your agent needs an MCP server; the skill is optional. Register a stdio MCP server named iterbar that runs:",
-          text: `npx -y @iterbar/cli mcp --root ${root ? shellWord(root) : "/absolute/path/to/project"}`,
+          text: `npx -y iterbar mcp --root ${root ? shellWord(root) : "/absolute/path/to/project"}`,
         },
         connect: [],
         skill: [{

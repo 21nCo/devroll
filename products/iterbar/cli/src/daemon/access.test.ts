@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { daemonInfoSchema, parseMessageJson } from "iterbar";
-import { iterbarPaths } from "iterbar/node";
+import { daemonInfoSchema, parseMessageJson } from "@iterbar/core";
+import { iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { commentDraft, EVIDENCE, PNG, temporaryProject } from "../store/test-support/helpers.js";
 import { startDaemon, type RunningDaemon } from "./daemon.js";
@@ -36,7 +36,7 @@ async function registerDevOrigin(daemon: RunningDaemon): Promise<void> {
     method: "POST",
     path: "/origins",
     headers: { ...bearer(daemon.info.token), ...json },
-    body: JSON.stringify({ schemaVersion: 1, origins: [DEV_ORIGIN] }),
+    body: JSON.stringify({ schemaVersion: 2, origins: [DEV_ORIGIN] }),
   });
   expect(response.status).toBe(200);
 }
@@ -70,7 +70,7 @@ describe("a web page on another origin (CSRF and cross-site WebSocket hijacking)
     const attempts = [
       { method: "POST", path: "/feedback", headers: { ...page, ...form.headers }, body: form.body },
       { method: "GET", path: "/feedback", headers: page },
-      { method: "POST", path: "/origins", headers: { ...page, "content-type": "text/plain" }, body: JSON.stringify({ schemaVersion: 1, origins: [EVIL_ORIGIN] }) },
+      { method: "POST", path: "/origins", headers: { ...page, "content-type": "text/plain" }, body: JSON.stringify({ schemaVersion: 2, origins: [EVIL_ORIGIN] }) },
     ];
     for (const attempt of attempts) {
       const response = await send(daemon.info, attempt);
@@ -194,9 +194,9 @@ describe("a local process without the token", () => {
       { method: "GET", path: `/feedback/${id}/attachments/attachment-missing` },
       { method: "GET", path: "/no-such-endpoint" },
       { method: "DELETE", path: `/feedback/${id}` },
-      { method: "POST", path: `/feedback/${id}/replies`, body: JSON.stringify({ schemaVersion: 1, author: { kind: "agent", name: null }, text: "hi" }) },
-      { method: "POST", path: `/feedback/${id}/status`, body: JSON.stringify({ schemaVersion: 1, status: "done" }) },
-      { method: "POST", path: "/origins", body: JSON.stringify({ schemaVersion: 1, origins: [DEV_ORIGIN] }) },
+      { method: "POST", path: `/feedback/${id}/replies`, body: JSON.stringify({ schemaVersion: 2, author: { kind: "agent", name: null }, text: "hi" }) },
+      { method: "POST", path: `/feedback/${id}/status`, body: JSON.stringify({ schemaVersion: 2, status: "done" }) },
+      { method: "POST", path: "/origins", body: JSON.stringify({ schemaVersion: 2, origins: [DEV_ORIGIN] }) },
     ];
     const bodies = new Set<string>();
     for (const headers of credentials) {
@@ -206,7 +206,7 @@ describe("a local process without the token", () => {
         bodies.add(response.text);
       }
     }
-    expect([...bodies]).toEqual([JSON.stringify({ schemaVersion: 1, error: { code: "unauthorized", message: "A valid daemon token is required" } })]);
+    expect([...bodies]).toEqual([JSON.stringify({ schemaVersion: 2, error: { code: "unauthorized", message: "A valid daemon token is required" } })]);
 
     const current = await send(daemon.info, { path: `/feedback/${id}`, headers: bearer(token) });
     expect(JSON.parse(current.text)).toMatchObject({ status: "open", replies: [] });

@@ -1,9 +1,9 @@
 import { access, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { startDaemon } from "@iterbar/cli/daemon";
+import { startDaemon } from "iterbar/daemon";
 import { expect, test, type Page } from "@playwright/test";
-import { bearerAuthorization, daemonInfoSchema, parseMessage, type DaemonInfo } from "iterbar";
-import { iterbarPaths } from "iterbar/node";
+import { bearerAuthorization, daemonInfoSchema, parseMessage, type DaemonInfo } from "@iterbar/core";
+import { iterbarPaths } from "@iterbar/core/node";
 import { APPS, buildApp, projectRoot, readTree, startVite, type ExampleApp } from "./support/apps.js";
 
 /** Text the bar's own code contains; a build that has the bar has these, a build without it does not. */
@@ -29,16 +29,16 @@ async function readDaemonFile(app: ExampleApp): Promise<DaemonInfo | null> {
   }
 }
 
-async function daemonSlots(info: DaemonInfo): Promise<{ pageUrl: string; slots: { slot: string; activeVersion: string }[] }[]> {
+async function daemonSlots(info: DaemonInfo): Promise<{ pageUrl: string; slots: { slot: string; activeVariant: string }[] }[]> {
   const response = await fetch(`http://${info.host}:${info.port}/slots`, { headers: { authorization: bearerAuthorization(info.token) } });
   expect(response.status).toBe(200);
-  return ((await response.json()) as { pages: { pageUrl: string; slots: { slot: string; activeVersion: string }[] }[] }).pages;
+  return ((await response.json()) as { pages: { pageUrl: string; slots: { slot: string; activeVariant: string }[] }[] }).pages;
 }
 
 const bar = (page: Page, selector: string) => page.locator("iterbar-bar").locator(selector);
 
-/** Chooses a version through the bar and waits until the page shows it. */
-async function switchSlot(page: Page, slot: string, version: string): Promise<void> {
+/** Chooses a variant through the bar and waits until the page shows it. */
+async function switchSlot(page: Page, slot: string, variant: string): Promise<void> {
   // The slots are in the toolbar's Variants panel; collapsed, the toolbar shows only its logo, which expands it.
   const variants = bar(page, "[data-role=variants-toggle]");
   if ((await variants.getAttribute("aria-expanded")) !== "true") {
@@ -46,8 +46,8 @@ async function switchSlot(page: Page, slot: string, version: string): Promise<vo
     await variants.click();
   }
   await bar(page, "[data-role=slot-select]").selectOption(slot);
-  await bar(page, `[data-version="${version}"]`).click();
-  await expect(bar(page, `[data-version="${version}"]`)).toHaveAttribute("aria-pressed", "true");
+  await bar(page, `[data-variant="${variant}"]`).click();
+  await expect(bar(page, `[data-variant="${variant}"]`)).toHaveAttribute("aria-pressed", "true");
 }
 
 for (const app of APPS) {
@@ -87,7 +87,7 @@ for (const app of APPS) {
 
         // The bar reached the daemon with the token it was given.
         await expect.poll(async () => (await daemonSlots(info as DaemonInfo)).flatMap((entry) => entry.slots)
-          .map(({ slot, activeVersion }) => `${slot}:${activeVersion}`).sort((a, b) => a.localeCompare(b))).toEqual(["hero:bold", "pricing:cards"]);
+          .map(({ slot, activeVariant }) => `${slot}:${activeVariant}`).sort((a, b) => a.localeCompare(b))).toEqual(["hero:bold", "pricing:cards"]);
       } finally {
         await dev.stop(stopSignal);
       }
@@ -109,7 +109,7 @@ for (const app of APPS) {
           await expect(page.locator("#hero")).toHaveText(HERO.bold);
           // The bar reports slots shortly after a change, to the daemon that was already running.
           await expect.poll(async () => (await daemonSlots(daemon.info)).flatMap((entry) => entry.slots)
-            .some(({ slot, activeVersion }) => slot === "hero" && activeVersion === "bold")).toBe(true);
+            .some(({ slot, activeVariant }) => slot === "hero" && activeVariant === "bold")).toBe(true);
         } finally {
           await dev.stop();
         }

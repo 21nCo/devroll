@@ -1,6 +1,6 @@
-import { SLOT_ATTRIBUTE } from "iterbar";
+import { SLOT_ATTRIBUTE } from "@iterbar/core";
 
-/** Attributes for the element that wraps a slot's rendered version, such as `{ "data-iterbar-slot": "pricing" }`. */
+/** Attributes for the element that wraps a slot's rendered variant, such as `{ "data-iterbar-slot": "pricing" }`. */
 export function slotRootAttributes(slot: string): { readonly [SLOT_ATTRIBUTE]: string } {
   return { [SLOT_ATTRIBUTE]: slot };
 }

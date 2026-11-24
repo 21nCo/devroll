@@ -140,7 +140,7 @@ const contentFields = {
 };
 
 const commentFields = { kind: z.literal("comment"), text: nonBlankText };
-/** `choice` is the winning version; `text` is an optional note. */
+/** `choice` is the winning variant; `text` is an optional note. */
 const chooseVariantFields = {
   kind: z.literal("choose_variant"),
   text: z.string().max(20_000),

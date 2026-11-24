@@ -1,6 +1,6 @@
 import { createVariantsRegistry, markSlotRange, SLOT_BOUNDARY_ATTRIBUTE, type VariantsRegistry } from "@iterbar/variants";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { PAGE_API_GLOBAL, readPageApi, registrySnapshotSchema, VARIANT_STORAGE_KEY } from "iterbar";
+import { PAGE_API_GLOBAL, readPageApi, registrySnapshotSchema, VARIANT_STORAGE_KEY } from "@iterbar/core";
 import {
   Component,
   forwardRef,
@@ -19,7 +19,7 @@ import { Variants, VariantsProvider } from "./index.js";
 const SHARED_REGISTRY = Symbol.for("iterbar.variants.registry.v1");
 
 function Pricing() {
-  return <Variants slot="pricing" versions={{ v1: <p>Plan one</p>, v2: <p>Plan two</p> }} default="v1" />;
+  return <Variants slot="pricing" variants={{ v1: <p>Plan one</p>, v2: <p>Plan two</p> }} default="v1" />;
 }
 
 function PlanOne() {
@@ -78,8 +78,8 @@ function slots(registry?: VariantsRegistry) {
   return registrySnapshotSchema.parse((registry ?? pageApi()).getSnapshot()).slots;
 }
 
-function select(slot: string, version: string) {
-  act(() => pageApi().select({ schemaVersion: 1, slot, version }));
+function select(slot: string, variant: string) {
+  act(() => pageApi().select({ schemaVersion: 2, slot, variant }));
 }
 
 beforeEach(() => {
@@ -110,7 +110,7 @@ it(`runs against React ${process.env.ITERBAR_TEST_REACT_MAJOR}`, () => {
 });
 
 describe("in development", () => {
-  it("picks the URL version, then the stored one, then the default", () => {
+  it("picks the URL variant, then the stored one, then the default", () => {
     window.localStorage.setItem(VARIANT_STORAGE_KEY, "pricing:v1");
     visit("/plans?iterbar=pricing:v2");
     const first = render(<Pricing />);
@@ -146,13 +146,13 @@ describe("in development", () => {
     expect(window.localStorage.getItem(VARIANT_STORAGE_KEY)).toBe("pricing:v2");
   });
 
-  it("renders the default for an unknown URL version and reports a registry warning", () => {
+  it("renders the default for an unknown URL variant and reports a registry warning", () => {
     visit("/plans?iterbar=pricing:v9,checkout:b");
     render(<Pricing />);
     expect(screen.getByText("Plan one")).toBeDefined();
     expect(pageApi().getSnapshot().warnings).toEqual([
       expect.objectContaining({ code: "unknown_slot", source: "url", value: "checkout:b" }),
-      expect.objectContaining({ code: "unknown_version", source: "url", value: "pricing:v9" }),
+      expect.objectContaining({ code: "unknown_variant", source: "url", value: "pricing:v9" }),
     ]);
   });
 
@@ -161,7 +161,7 @@ describe("in development", () => {
     const { unmount } = render(<StrictMode><Pricing /></StrictMode>);
     expect(screen.getByText("Plan two")).toBeDefined();
     expect(slots()).toEqual([
-      { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 },
+      { slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v2", mounts: 1 },
     ]);
     select("pricing", "v1");
     expect(screen.getByText("Plan one")).toBeDefined();
@@ -180,31 +180,31 @@ describe("in development", () => {
     expect(screen.getAllByText("Plan two")).toHaveLength(2);
 
     rerender(<Page both={false} />);
-    expect(slots()[0]).toMatchObject({ mounts: 1, activeVersion: "v2" });
+    expect(slots()[0]).toMatchObject({ mounts: 1, activeVariant: "v2" });
     expect(screen.getAllByText("Plan two")).toHaveLength(1);
     unmount();
     expect(slots()).toEqual([]);
   });
 
-  it("re-registers when the versions change", () => {
+  it("re-registers when the variants change", () => {
     const registry = createVariantsRegistry();
     const { rerender } = render(
       <VariantsProvider registry={registry}>
-        <Variants slot="hero" versions={{ a: "A" }} default="a" />
+        <Variants slot="hero" variants={{ a: "A" }} default="a" />
       </VariantsProvider>,
     );
     rerender(
       <VariantsProvider registry={registry}>
-        <Variants slot="hero" versions={{ a: "A", b: "B" }} default="a" />
+        <Variants slot="hero" variants={{ a: "A", b: "B" }} default="a" />
       </VariantsProvider>,
     );
     expect(slots(registry)).toEqual([
-      { slot: "hero", versions: ["a", "b"], defaultVersion: "a", activeVersion: "a", mounts: 1 },
+      { slot: "hero", variants: ["a", "b"], defaultVariant: "a", activeVariant: "a", mounts: 1 },
     ]);
     expect(readPageApi(window)).toBeNull();
   });
 
-  it("hydrates server-rendered default content, then shows the selected version", () => {
+  it("hydrates server-rendered default content, then shows the selected variant", () => {
     visit("/plans?iterbar=pricing:v2");
     const html = renderToString(<Pricing />);
     expect(html).toContain("Plan one");
@@ -217,21 +217,21 @@ describe("in development", () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
-  it("offers new versions once every instance of a repeated slot has re-rendered with them", () => {
+  it("offers new variants once every instance of a repeated slot has re-rendered with them", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const before = { v1: <p>Plan one</p>, v2: <p>Plan two</p> };
     const after = { ...before, v3: PlanThree };
     const page = (first: typeof before, second: typeof before) => (
       <StrictMode>
-        <Variants slot="pricing" versions={first} default="v1" />
-        <Variants slot="pricing" versions={second} default="v1" />
+        <Variants slot="pricing" variants={first} default="v1" />
+        <Variants slot="pricing" variants={second} default="v1" />
       </StrictMode>
     );
     const { container, rerender, unmount } = render(page(before, before));
     rerender(page(after, before));
-    expect(slots()).toMatchObject([{ slot: "pricing", versions: ["v1", "v2"], mounts: 2 }]);
+    expect(slots()).toMatchObject([{ slot: "pricing", variants: ["v1", "v2"], mounts: 2 }]);
     rerender(page(after, after));
-    expect(slots()).toMatchObject([{ slot: "pricing", versions: ["v1", "v2", "v3"], mounts: 2 }]);
+    expect(slots()).toMatchObject([{ slot: "pricing", variants: ["v1", "v2", "v3"], mounts: 2 }]);
     select("pricing", "v3");
     expect(roots(container, "pricing")).toEqual(["Plan three", "Plan three"]);
     unmount();
@@ -256,34 +256,34 @@ describe("in development", () => {
         return this.state.failed ? null : this.props.children;
       }
     }
-    render(<Boundary><Variants slot="bad slot" versions={{ v1: "one" }} default="v1" /></Boundary>);
+    render(<Boundary><Variants slot="bad slot" variants={{ v1: "one" }} default="v1" /></Boundary>);
     window.removeEventListener("error", silence);
     expect(caught).toEqual([expect.objectContaining({ code: "invalid_message" })]);
   });
 });
 
-describe("version content", () => {
+describe("variant content", () => {
   it("renders and switches between component types and elements", () => {
     const { container } = render(
       <Variants
         slot="pricing"
-        versions={{ v1: PlanOne, v2: PlanTwo, v3: PlanThree, v4: PlanFour, v5: <p>Plan five</p> }}
+        variants={{ v1: PlanOne, v2: PlanTwo, v3: PlanThree, v4: PlanFour, v5: <p>Plan five</p> }}
         default="v1"
       />,
     );
     expect(roots(container, "pricing")).toEqual(["Plan one"]);
-    for (const [version, text] of [["v2", "Plan two"], ["v3", "Plan three"], ["v4", "Plan four"], ["v5", "Plan five"]]) {
-      select("pricing", version!);
+    for (const [variant, text] of [["v2", "Plan two"], ["v3", "Plan three"], ["v4", "Plan four"], ["v5", "Plan five"]]) {
+      select("pricing", variant!);
       expect(roots(container, "pricing")).toEqual([text]);
     }
   });
 
-  it("keeps marking a version that replaces its own root element", async () => {
+  it("keeps marking a variant that replaces its own root element", async () => {
     function Disclosure() {
       const [open, setOpen] = useState(false);
       return open ? <section>Details</section> : <button type="button" onClick={() => setOpen(true)}>More</button>;
     }
-    const { container } = render(<Variants slot="faq" versions={{ closed: Disclosure }} default="closed" />);
+    const { container } = render(<Variants slot="faq" variants={{ closed: Disclosure }} default="closed" />);
     expect(roots(container, "faq")).toEqual(["More"]);
     act(() => screen.getByRole("button").click());
     await waitFor(() => expect(roots(container, "faq")).toEqual(["Details"]));
@@ -294,43 +294,43 @@ describe("markup in development", () => {
   const contexts: {
     name: string;
     page: (slot: ReactElement) => ReactElement;
-    versions: Record<string, ReactNode>;
+    variants: Record<string, ReactNode>;
     text: { a: string; b: string };
   }[] = [
     {
       name: "inline text in a <p>",
       page: (slot) => <p>Price: {slot} per month</p>,
-      versions: { a: <strong>ten</strong>, b: <em>twelve</em> },
+      variants: { a: <strong>ten</strong>, b: <em>twelve</em> },
       text: { a: "ten", b: "twelve" },
     },
     {
-      name: "<tr> versions in a <tbody>",
+      name: "<tr> variants in a <tbody>",
       page: (slot) => <table><tbody>{slot}</tbody></table>,
-      versions: { a: <tr><td>Row A</td></tr>, b: <tr><td>Row B</td></tr> },
+      variants: { a: <tr><td>Row A</td></tr>, b: <tr><td>Row B</td></tr> },
       text: { a: "Row A", b: "Row B" },
     },
     {
-      name: "<li> versions in a <ul>",
+      name: "<li> variants in a <ul>",
       page: (slot) => <ul>{slot}</ul>,
-      versions: { a: <li>Item A</li>, b: <li>Item B</li> },
+      variants: { a: <li>Item A</li>, b: <li>Item B</li> },
       text: { a: "Item A", b: "Item B" },
     },
   ];
 
   // Runs before the hydration cases: React reports each invalid nesting only once per page.
-  it.each(contexts)("renders $name on the client without nesting errors", ({ page, versions, text }) => {
+  it.each(contexts)("renders $name on the client without nesting errors", ({ page, variants, text }) => {
     const errors = collectErrors();
-    const { container } = render(page(<Variants slot="demo" versions={versions} default="a" />));
+    const { container } = render(page(<Variants slot="demo" variants={variants} default="a" />));
     expect(roots(container, "demo")).toEqual([text.a]);
     select("demo", "b");
     expect(roots(container, "demo")).toEqual([text.b]);
     expect(errors).toEqual([]);
   });
 
-  it.each(contexts)("hydrates $name without nesting or hydration errors and marks the version", ({ page, versions, text }) => {
+  it.each(contexts)("hydrates $name without nesting or hydration errors and marks the variant", ({ page, variants, text }) => {
     const errors = collectErrors();
     visit("/plans?iterbar=demo:b");
-    const tree = () => page(<Variants slot="demo" versions={versions} default="a" />);
+    const tree = () => page(<Variants slot="demo" variants={variants} default="a" />);
     const container = document.createElement("div");
     container.innerHTML = renderToString(tree());
     const serverMarkup = container.innerHTML;
@@ -347,7 +347,7 @@ describe("markup in development", () => {
   });
 
   it("adds no wrapper element and removes the marks it set on unmount", () => {
-    const { container, unmount } = render(<ul><Variants slot="list" versions={{ a: <li>One</li> }} default="a" /></ul>);
+    const { container, unmount } = render(<ul><Variants slot="list" variants={{ a: <li>One</li> }} default="a" /></ul>);
     const list = container.querySelector("ul");
     expect([...(list?.children ?? [])].map((element) => element.localName)).toEqual(["template", "li", "template"]);
     const item = list?.querySelector("li");
@@ -359,26 +359,26 @@ describe("markup in development", () => {
 
 describe("nested slots", () => {
   function Inner() {
-    return <Variants slot="inner" versions={{ a: <p>Inner A</p>, b: <p>Inner B</p> }} default="a" />;
+    return <Variants slot="inner" variants={{ a: <p>Inner A</p>, b: <p>Inner B</p> }} default="a" />;
   }
 
   function marks(container: ParentNode) {
     return { inner: roots(container, "inner"), outer: roots(container, "outer") };
   }
 
-  const nestings: { name: string; versions: Record<string, ReactNode | typeof Inner>; own: string[] }[] = [
-    { name: "a component-type version", versions: { v1: Inner, v2: <p>Outer two</p> }, own: [] },
+  const nestings: { name: string; variants: Record<string, ReactNode | typeof Inner>; own: string[] }[] = [
+    { name: "a component-type variant", variants: { v1: Inner, v2: <p>Outer two</p> }, own: [] },
     {
-      name: "a fragment version",
-      versions: { v1: <><Inner /><p>Outer one</p></>, v2: <p>Outer two</p> },
+      name: "a fragment variant",
+      variants: { v1: <><Inner /><p>Outer one</p></>, v2: <p>Outer two</p> },
       own: ["Outer one"],
     },
   ];
 
-  it.each(nestings)("keeps each slot's marks when an inner slot is the top level of $name", async ({ versions, own }) => {
+  it.each(nestings)("keeps each slot's marks when an inner slot is the top level of $name", async ({ variants, own }) => {
     const errors = collectErrors();
     const { container, unmount } = render(
-      <StrictMode><div><Variants slot="outer" versions={versions} default="v1" /></div></StrictMode>,
+      <StrictMode><div><Variants slot="outer" variants={variants} default="v1" /></div></StrictMode>,
     );
     await settle();
     expect(marks(container)).toEqual({ inner: ["Inner A"], outer: own });
@@ -403,7 +403,7 @@ describe("nested slots", () => {
     expect(errors).toEqual([]);
   });
 
-  it("keeps the outer slot's marks while an inner slot mounts and unmounts inside the same version", async () => {
+  it("keeps the outer slot's marks while an inner slot mounts and unmounts inside the same variant", async () => {
     function Toggle() {
       const [shown, setShown] = useState(false);
       return (
@@ -413,7 +413,7 @@ describe("nested slots", () => {
         </>
       );
     }
-    const { container } = render(<div><Variants slot="outer" versions={{ v1: Toggle }} default="v1" /></div>);
+    const { container } = render(<div><Variants slot="outer" variants={{ v1: Toggle }} default="v1" /></div>);
     await settle();
     expect(marks(container)).toEqual({ inner: [], outer: ["toggle"] });
 
@@ -447,7 +447,7 @@ describe("in production", () => {
   });
 
   it("renders a component-type default without markers", () => {
-    const { container } = render(<Variants slot="pricing" versions={{ v1: PlanTwo, v2: PlanOne }} default="v1" />);
+    const { container } = render(<Variants slot="pricing" variants={{ v1: PlanTwo, v2: PlanOne }} default="v1" />);
     expect(container.innerHTML).toBe("<p>Plan two</p>");
   });
 
@@ -803,7 +803,7 @@ describe("slot ranges", () => {
     expect(counts.disconnected).toBe(3);
   });
 
-  it("marks Variants rendered into a shadow root and follows a version that replaces its own root", async () => {
+  it("marks Variants rendered into a shadow root and follows a variant that replaces its own root", async () => {
     const errors = collectErrors();
     function Expanding() {
       const [open, setOpen] = useState(false);
@@ -817,7 +817,7 @@ describe("slot ranges", () => {
     const container = document.createElement("div");
     shadow.append(container);
     const { unmount } = render(
-      <StrictMode><Variants slot="pricing" versions={{ v1: Expanding, v2: <p>Plan two</p> }} default="v1" /></StrictMode>,
+      <StrictMode><Variants slot="pricing" variants={{ v1: Expanding, v2: <p>Plan two</p> }} default="v1" /></StrictMode>,
       { container },
     );
     await settle();

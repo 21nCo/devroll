@@ -40,8 +40,8 @@ async function bundleFixture(): Promise<string> {
 
 export interface SlotDefinitionInput {
   readonly slot: string;
-  readonly versions: readonly string[];
-  readonly defaultVersion: string;
+  readonly variants: readonly string[];
+  readonly defaultVariant: string;
 }
 
 export const test = base.extend<{ openFixture: (path?: string) => Promise<void> }, { fixtureServer: FixtureServer }>({
@@ -116,5 +116,5 @@ export function inBar(page: Page, selector: string) {
   return page.locator(`iterbar-bar ${selector}`);
 }
 
-export const PRICING = { slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1" } as const;
-export const HERO = { slot: "hero", versions: ["a", "b"], defaultVersion: "a" } as const;
+export const PRICING = { slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1" } as const;
+export const HERO = { slot: "hero", variants: ["a", "b"], defaultVariant: "a" } as const;

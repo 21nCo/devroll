@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import type { FeedbackDraft } from "iterbar";
+import type { FeedbackDraft } from "@iterbar/core";
 
 const script = fileURLToPath(new URL("./store-process.mjs", import.meta.url));
 
@@ -97,9 +97,9 @@ export const PNG = Buffer.from(PNG_BASE64, "base64");
 export const EVIDENCE = Buffer.from(JSON.stringify({ events: [{ type: "console", level: "warn", text: "slow" }] }));
 
 const content = {
-  schemaVersion: 1 as const,
+  schemaVersion: 2 as const,
   pageUrl: "http://localhost:5173/pricing?iterbar=pricing:v2",
-  activeVariants: [{ slot: "pricing", version: "v2" }],
+  activeVariants: [{ slot: "pricing", variant: "v2" }],
   screenshotUnavailableReason: null,
 };
 
@@ -120,7 +120,7 @@ export const chooseVariantDraft: FeedbackDraft = {
   ...content,
   kind: "choose_variant",
   text: "",
-  choice: { slot: "pricing", version: "v2" },
+  choice: { slot: "pricing", variant: "v2" },
   target: null,
   screenshotUnavailableReason: "Capture was blocked by the page",
   evidenceWindow: null,

@@ -1,4 +1,4 @@
-import { PAGE_API_GLOBAL, VARIANT_STORAGE_KEY } from "iterbar";
+import { PAGE_API_GLOBAL, VARIANT_STORAGE_KEY } from "@iterbar/core";
 import { render } from "svelte/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Variants } from "../src/index.js";
@@ -58,7 +58,7 @@ describe("server rendering in development", () => {
     const invalid = expect.objectContaining({ code: "invalid_message" });
     // Rendering runs when the body is read; a server-side boundary does not catch it.
     expect(() => render(Invalid, { props: { onerror: () => {} } }).body).toThrow(invalid);
-    expect(() => render(Variants, { props: { slot: "pricing", versions: { v1: PlanOne }, default: "v2" as "v1" } }).body)
+    expect(() => render(Variants, { props: { slot: "pricing", variants: { v1: PlanOne }, default: "v2" as "v1" } }).body)
       .toThrow(invalid);
   });
 });
@@ -66,7 +66,7 @@ describe("server rendering in development", () => {
 describe("server rendering outside development", () => {
   it.each([undefined, "test", "production"])("renders only the default when NODE_ENV is %s", (value) => {
     vi.stubEnv("NODE_ENV", value);
-    const { body } = render(Variants, { props: { slot: "pricing", versions: { v1: PlanOne, v2: PlanTwo }, default: "v1" } });
+    const { body } = render(Variants, { props: { slot: "pricing", variants: { v1: PlanOne, v2: PlanTwo }, default: "v1" } });
     expect(html(body)).toBe("<p>Plan one</p>");
   });
 });

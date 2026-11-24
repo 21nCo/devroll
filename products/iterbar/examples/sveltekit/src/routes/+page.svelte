@@ -4,7 +4,7 @@
   import CalmHero from "$lib/CalmHero.svelte";
 </script>
 
-<!-- One page, two slots. In `vite dev` the Iterbar bar switches between their versions. -->
+<!-- One page, two slots. In `vite dev` the Iterbar bar switches between their variants. -->
 {#snippet table()}
   <table id="pricing">
     <tbody>
@@ -21,6 +21,6 @@
 {/snippet}
 
 <main>
-  <Variants slot="hero" versions={{ calm: CalmHero, bold: BoldHero }} default="calm" />
-  <Variants slot="pricing" versions={{ table: { snippet: table }, cards: { snippet: cards } }} default="table" />
+  <Variants slot="hero" variants={{ calm: CalmHero, bold: BoldHero }} default="calm" />
+  <Variants slot="pricing" variants={{ table: { snippet: table }, cards: { snippet: cards } }} default="table" />
 </main>

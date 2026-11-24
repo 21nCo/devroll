@@ -8,8 +8,8 @@ import {
   webSocketProtocols,
   type DaemonEvent,
   type Feedback,
-} from "iterbar";
-import { iterbarPaths } from "iterbar/node";
+} from "@iterbar/core";
+import { iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chooseVariantDraft, commentDraft, deadPid, EVIDENCE, PNG, temporaryProject } from "../store/test-support/helpers.js";
 import { startDaemon, type RunningDaemon } from "./daemon.js";
@@ -92,7 +92,7 @@ describe("daemon.json", () => {
     await (await start()).close();
     running.length = 0;
     const leftover = {
-      schemaVersion: 1, host: "127.0.0.1", port: 9, token: "f".repeat(64), pid: await deadPid(), projectRoot: root,
+      schemaVersion: 2, host: "127.0.0.1", port: 9, token: "f".repeat(64), pid: await deadPid(), projectRoot: root,
       startedAt: "2026-11-01T00:00:00.000Z",
     };
     await writeFile(daemonFile, JSON.stringify(leftover), { mode: 0o644 });
@@ -134,12 +134,12 @@ describe("feedback API", () => {
     expect(Buffer.from(await evidence.arrayBuffer())).toEqual(EVIDENCE);
 
     const replied = await postJson(daemon, `/feedback/${feedback.id}/replies`, {
-      schemaVersion: 1, author: { kind: "agent", name: "Claude Code" }, text: "Made it larger.",
+      schemaVersion: 2, author: { kind: "agent", name: "Claude Code" }, text: "Made it larger.",
     });
     expect(replied.status).toBe(200);
     expect(((await replied.json()) as Feedback).replies).toMatchObject([{ text: "Made it larger.", author: { kind: "agent" } }]);
 
-    const status = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 1, status: "done" });
+    const status = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 2, status: "done" });
     expect(((await status.json()) as Feedback).status).toBe("done");
 
     const chosen = await create(daemon, { feedback: chooseVariantDraft });
@@ -163,7 +163,7 @@ describe("feedback API", () => {
     const created = await call(daemon, "/feedback", { method: "POST", body: form });
     expect(created.status).toBe(201);
     const feedback = parseMessageJson(feedbackSchema, await created.text(), "feedback");
-    const archived = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 1, status: "archived" });
+    const archived = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 2, status: "archived" });
     expect(((await archived.json()) as Feedback).status).toBe("archived");
     const deleted = await call(daemon, `/feedback/${feedback.id}`, { method: "DELETE" });
     expect(deleted.status).toBe(204);
@@ -173,7 +173,7 @@ describe("feedback API", () => {
     expect(again.status).toBe(404);
     expect((await client.next()).type).toBe("feedback.created");
     expect((await client.next()).type).toBe("feedback.updated");
-    expect(await client.next()).toEqual({ schemaVersion: 1, type: "feedback.deleted", feedbackId: feedback.id });
+    expect(await client.next()).toEqual({ schemaVersion: 2, type: "feedback.deleted", feedbackId: feedback.id });
   });
 
   // Moves tens of MiB through the daemon.
@@ -208,7 +208,7 @@ describe("feedback API", () => {
     const created = await call(daemon, "/feedback", { method: "POST", body: form });
     expect(created.status).toBe(201);
     const feedback = parseMessageJson(feedbackSchema, await created.text(), "feedback");
-    const archived = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 1, status: "archived" });
+    const archived = await postJson(daemon, `/feedback/${feedback.id}/status`, { schemaVersion: 2, status: "archived" });
     expect(((await archived.json()) as Feedback).status).toBe("archived");
     const deleted = await call(daemon, `/feedback/${feedback.id}`, { method: "DELETE" });
     expect(deleted.status).toBe(204);
@@ -218,7 +218,7 @@ describe("feedback API", () => {
     expect(again.status).toBe(404);
     expect((await client.next()).type).toBe("feedback.created");
     expect((await client.next()).type).toBe("feedback.updated");
-    expect(await client.next()).toEqual({ schemaVersion: 1, type: "feedback.deleted", feedbackId: feedback.id });
+    expect(await client.next()).toEqual({ schemaVersion: 2, type: "feedback.deleted", feedbackId: feedback.id });
   });
 
   // Moves tens of MiB through the daemon.
@@ -261,13 +261,13 @@ describe("feedback API", () => {
     const daemon = await start();
     const { id } = JSON.parse((await create(daemon, { feedback: commentDraft, evidence: EVIDENCE })).text) as Feedback;
     const token = bearer(daemon.info.token);
-    const reply = { schemaVersion: 1, author: { kind: "user", name: null }, text: "ok" };
+    const reply = { schemaVersion: 2, author: { kind: "user", name: null }, text: "ok" };
     const cases: Array<[string, Parameters<typeof send>[1], number, string]> = [
       ["invalid JSON", { method: "POST", path: `/feedback/${id}/replies`, headers: { ...token, ...json }, body: "{" }, 400, "invalid_request"],
       ["blank reply", { method: "POST", path: `/feedback/${id}/replies`, headers: { ...token, ...json }, body: JSON.stringify({ ...reply, text: " " }) }, 400, "invalid_request"],
-      ["newer major version", { method: "POST", path: `/feedback/${id}/replies`, headers: { ...token, ...json }, body: JSON.stringify({ ...reply, schemaVersion: 2 }) }, 400, "unsupported_schema_version"],
-      ["not JSON content", { method: "POST", path: `/feedback/${id}/status`, headers: { ...token, "content-type": "text/plain" }, body: JSON.stringify({ schemaVersion: 1, status: "done" }) }, 415, "invalid_request"],
-      ["unknown status", { method: "POST", path: `/feedback/${id}/status`, headers: { ...token, ...json }, body: JSON.stringify({ schemaVersion: 1, status: "closed" }) }, 400, "invalid_request"],
+      ["newer major version", { method: "POST", path: `/feedback/${id}/replies`, headers: { ...token, ...json }, body: JSON.stringify({ ...reply, schemaVersion: 3 }) }, 400, "unsupported_schema_version"],
+      ["not JSON content", { method: "POST", path: `/feedback/${id}/status`, headers: { ...token, "content-type": "text/plain" }, body: JSON.stringify({ schemaVersion: 2, status: "done" }) }, 415, "invalid_request"],
+      ["unknown status", { method: "POST", path: `/feedback/${id}/status`, headers: { ...token, ...json }, body: JSON.stringify({ schemaVersion: 2, status: "closed" }) }, 400, "invalid_request"],
       ["missing item", { path: "/feedback/feedback-missing", headers: token }, 404, "not_found"],
       ["reply to a missing item", { method: "POST", path: "/feedback/feedback-missing/replies", headers: { ...token, ...json }, body: JSON.stringify(reply) }, 404, "not_found"],
       ["unsafe id", { path: "/feedback/..%2Fstore.lock", headers: token }, 404, "not_found"],
@@ -312,11 +312,11 @@ describe("feedback API", () => {
 describe("slots", () => {
   it("keeps the latest report per page URL", async () => {
     const daemon = await start();
-    const slot = { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v1", mounts: 1 };
-    const report = (pageUrl: string, activeVersion: string, reportedAt: string) =>
-      ({ schemaVersion: 1, pageUrl, reportedAt, slots: [{ ...slot, activeVersion }] });
+    const slot = { slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v1", mounts: 1 };
+    const report = (pageUrl: string, activeVariant: string, reportedAt: string) =>
+      ({ schemaVersion: 2, pageUrl, reportedAt, slots: [{ ...slot, activeVariant }] });
 
-    expect((await (await call(daemon, "/slots")).json())).toEqual({ schemaVersion: 1, pages: [] });
+    expect((await (await call(daemon, "/slots")).json())).toEqual({ schemaVersion: 2, pages: [] });
     for (const body of [
       report("http://localhost:5173/pricing", "v1", "2026-11-03T10:00:00.000Z"),
       report("http://localhost:5173/", "v1", "2026-11-03T10:00:01.000Z"),
@@ -324,8 +324,8 @@ describe("slots", () => {
     ]) {
       expect((await postJson(daemon, "/slots", body)).status).toBe(204);
     }
-    const { pages } = (await (await call(daemon, "/slots")).json()) as { pages: Array<{ pageUrl: string; slots: Array<{ activeVersion: string }> }> };
-    expect(pages.map((page) => [page.pageUrl, page.slots[0]?.activeVersion])).toEqual([
+    const { pages } = (await (await call(daemon, "/slots")).json()) as { pages: Array<{ pageUrl: string; slots: Array<{ activeVariant: string }> }> };
+    expect(pages.map((page) => [page.pageUrl, page.slots[0]?.activeVariant])).toEqual([
       ["http://localhost:5173/", "v1"],
       ["http://localhost:5173/pricing", "v2"],
     ]);
@@ -335,24 +335,24 @@ describe("slots", () => {
     const daemon = await start();
     const client = await events(daemon);
     const pageUrl = "http://localhost:5173/pricing";
-    const slot = { slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1", mounts: 1 };
-    const report = (activeVersion: string, reportedAt: string) =>
-      ({ schemaVersion: 1, pageUrl, reportedAt, slots: [{ ...slot, activeVersion }] });
+    const slot = { slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1", mounts: 1 };
+    const report = (activeVariant: string, reportedAt: string) =>
+      ({ schemaVersion: 2, pageUrl, reportedAt, slots: [{ ...slot, activeVariant }] });
     const newer = report("v2", "2026-11-03T10:00:02.000Z");
     // Made a second before `newer` (written with an offset, so the instants are compared, not the strings) but
     // delivered after it.
     const older = report("v1", "2026-11-03T11:00:01.000+01:00");
     const sameInstant = report("v3", "2026-11-03T11:00:02.000+01:00");
-    const activeVersion = async () => {
-      const { pages } = (await (await call(daemon, "/slots")).json()) as { pages: Array<{ slots: Array<{ activeVersion: string }> }> };
-      return pages.map((page) => page.slots[0]?.activeVersion);
+    const activeVariant = async () => {
+      const { pages } = (await (await call(daemon, "/slots")).json()) as { pages: Array<{ slots: Array<{ activeVariant: string }> }> };
+      return pages.map((page) => page.slots[0]?.activeVariant);
     };
 
     for (const body of [newer, older]) expect((await postJson(daemon, "/slots", body)).status).toBe(204);
-    expect(await activeVersion()).toEqual(["v2"]);
+    expect(await activeVariant()).toEqual(["v2"]);
     // Of two reports made at the same instant, the one that arrives last is the page's state.
     expect((await postJson(daemon, "/slots", sameInstant)).status).toBe(204);
-    expect(await activeVersion()).toEqual(["v3"]);
+    expect(await activeVariant()).toEqual(["v3"]);
 
     expect(await client.next()).toMatchObject({ type: "slots.reported", report: newer });
     expect(await client.next()).toMatchObject({ type: "slots.reported", report: sameInstant });
@@ -376,17 +376,17 @@ describe("event stream", () => {
     const created = JSON.parse((await create(daemon, { feedback: commentDraft, evidence: EVIDENCE })).text) as Feedback;
     expect(await bar.next()).toMatchObject({ type: "feedback.created", feedback: { id: created.id } });
 
-    const reply = { schemaVersion: 1, author: { kind: "agent", name: "Codex" }, text: "Done; take a look." };
+    const reply = { schemaVersion: 2, author: { kind: "agent", name: "Codex" }, text: "Done; take a look." };
     expect((await postJson(daemon, `/feedback/${created.id}/replies`, reply)).status).toBe(200);
     const update = await bar.next();
     expect(update).toMatchObject({ type: "feedback.updated", feedback: { id: created.id, replies: [{ text: reply.text }] } });
 
     // Setting the current status is not an update; the next event is the real change.
-    await postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 1, status: "open" });
-    await postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 1, status: "needs-info" });
+    await postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 2, status: "open" });
+    await postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 2, status: "needs-info" });
     expect(await bar.next()).toMatchObject({ type: "feedback.updated", feedback: { status: "needs-info" } });
 
-    const report = { schemaVersion: 1, pageUrl: "http://localhost:5173/", reportedAt: "2026-11-03T10:00:00.000Z", slots: [] };
+    const report = { schemaVersion: 2, pageUrl: "http://localhost:5173/", reportedAt: "2026-11-03T10:00:00.000Z", slots: [] };
     await postJson(daemon, "/slots", report);
     expect(await bar.next()).toMatchObject({ type: "slots.reported", report });
 
@@ -399,7 +399,7 @@ describe("event stream", () => {
   /** Every event up to a sentinel slot report published after the operations under test. */
   async function eventsUntilSentinel(daemon: RunningDaemon, client: EventClient): Promise<DaemonEvent[]> {
     const pageUrl = "http://localhost:5173/sentinel";
-    await postJson(daemon, "/slots", { schemaVersion: 1, pageUrl, reportedAt: "2026-11-03T10:00:00.000Z", slots: [] });
+    await postJson(daemon, "/slots", { schemaVersion: 2, pageUrl, reportedAt: "2026-11-03T10:00:00.000Z", slots: [] });
     const received: DaemonEvent[] = [];
     for (;;) {
       const event = await client.next();
@@ -414,7 +414,7 @@ describe("event stream", () => {
     const daemon = await start(() => frozen);
     const bar = await events(daemon);
     const created = JSON.parse((await create(daemon, { feedback: commentDraft, evidence: EVIDENCE })).text) as Feedback;
-    const changed = await postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 1, status: "done" });
+    const changed = await postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 2, status: "done" });
     const feedback = (await changed.json()) as Feedback;
     expect(feedback).toMatchObject({ status: "done", updatedAt: created.updatedAt });
 
@@ -429,8 +429,8 @@ describe("event stream", () => {
     const bar = await events(daemon);
     const created = JSON.parse((await create(daemon, { feedback: commentDraft, evidence: EVIDENCE })).text) as Feedback;
     expect((await bar.next()).type).toBe("feedback.created");
-    const status = (value: string) => postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 1, status: value });
-    const reply = { schemaVersion: 1, author: { kind: "agent", name: "Codex" }, text: "Looking." };
+    const status = (value: string) => postJson(daemon, `/feedback/${created.id}/status`, { schemaVersion: 2, status: value });
+    const reply = { schemaVersion: 2, author: { kind: "agent", name: "Codex" }, text: "Looking." };
 
     // Replies overlap requests that set the current status: only the replies are updates.
     const overlapping = await Promise.all(Array.from({ length: 8 }, (_, index) =>
