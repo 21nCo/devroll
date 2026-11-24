@@ -65,7 +65,8 @@ export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli 
     caption: "Run in the project's folder. It installs the iterbar skill and registers the MCP server:",
     text: `${where}npx iterbar init --agent ${name}`,
   }, {
-    caption: "In a pnpm project, add the CLI to the project first (pnpm gives a package's command only to direct dependencies):",
+    caption: "In a pnpm project, add the CLI to the project first (pnpm gives a package's command only to direct dependencies; "
+      + "at the root of a pnpm workspace, use pnpm add -Dw iterbar):",
     text: `${where}pnpm add -D iterbar && pnpm exec iterbar init --agent ${name}`,
   }, ...(cli ? [{
     caption: "Or run the CLI this dev server runs (the same version as its daemon, published or not):",

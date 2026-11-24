@@ -298,3 +298,22 @@ test("offers no npm command for a package linked from a workspace or checkout, a
   await inBar(page, "[data-role=updates-check]").click();
   await expect(inBar(page, "[data-role=updates-npm] .snippet-text")).toHaveText("npm install -D @iterbar/vite@0.2.0");
 });
+
+test("a newer release of a linked package never reads as nothing newer", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => {
+    const bar = window.fixture.mountIterbarBar({
+      devServer: {
+        about: { packages: [{ name: "iterbar", version: "0.1.0", linked: true }], cli: null },
+        reconnect: async () => ({ daemonUrl: null, token: null }),
+        checkUpdates: async () => ({ packages: [{ name: "iterbar", installed: "0.1.0", latest: "0.2.0" }] }),
+      },
+    });
+    bar.expanded = true;
+  });
+  await openPanel(page, "settings");
+  await inBar(page, "[data-role=updates-check]").click();
+  await expect(inBar(page, "[data-role=settings-updates]")).toContainText("0.2.0 available");
+  await expect(inBar(page, "[data-role=updates-none]")).toHaveCount(0);
+  await expect(inBar(page, "[data-role=updates-npm]")).toHaveCount(0);
+});
