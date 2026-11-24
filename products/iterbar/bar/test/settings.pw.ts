@@ -243,3 +243,40 @@ test("a Start whose dev server answers after the bar was pointed at another daem
   await page.waitForTimeout(300);
   expect(await page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe(other.url);
 });
+
+test("a Start voided by a switch away and back again still changes nothing when its answer comes", async ({ page, openFixture, fixtureServer }) => {
+  const first = await fakeDaemon(page, fixtureServer.origin);
+  const second = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(({ url, token }) => {
+    const w = window as unknown as { release?: () => void };
+    const bar = window.fixture.mountIterbarBar({
+      daemonUrl: "http://127.0.0.1:9", token: "2".repeat(64),
+      devServer: {
+        about: null,
+        reconnect: () => new Promise((resolve) => {
+          w.release = () => resolve({ daemonUrl: url, token });
+        }),
+        checkUpdates: async () => ({ packages: [] }),
+      },
+    });
+    bar.expanded = true;
+  }, { url: first.url, token: first.token });
+  await openPanel(page, "settings");
+  await inBar(page, "[data-role=daemon-start]").click();
+  // Away to B and back to the unreachable daemon the bar began with.
+  await page.evaluate(({ url, token }) => {
+    const bar = document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string; token: string };
+    bar.daemonUrl = url;
+    bar.token = token;
+  }, { url: second.url, token: second.token });
+  await page.waitForTimeout(100);
+  await page.evaluate(() => {
+    const bar = document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string; token: string };
+    bar.daemonUrl = "http://127.0.0.1:9";
+    bar.token = "2".repeat(64);
+  });
+  await page.evaluate(() => (window as unknown as { release: () => void }).release());
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe("http://127.0.0.1:9");
+});

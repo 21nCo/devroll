@@ -41,9 +41,12 @@ export interface SettingsOptions {
   /** The daemon's process, start time and store; rejects when it can't be asked. */
   readonly daemonInfo: () => Promise<DaemonStatus>;
   readonly stopDaemon: () => Promise<void>;
-  /** Starts the daemon through the dev server (also after a stop); resolves once the bar has it again. */
-  readonly startDaemon: () => Promise<void>;
-  readonly restartDaemon: () => Promise<void>;
+  /**
+   * Starts the daemon through the dev server (also after a stop); resolves once the bar has it again. `current` says
+   * whether the action is still this sheet's (not voided by a change it did not make): nothing is applied once it isn't.
+   */
+  readonly startDaemon: (current: () => boolean) => Promise<void>;
+  readonly restartDaemon: (current: () => boolean) => Promise<void>;
   /** Deletes every item in the store; resolves with how many went and how many could not be deleted. */
   readonly deleteAll: () => Promise<{ deleted: number; failed: number; leftover: number }>;
   /** Removes every draft; resolves with how many went. */
@@ -263,7 +266,7 @@ export class SettingsPanel {
     if (this.#runToken !== null) this.#ownReconnect = true;
   }
 
-  async #run(name: string, action: () => Promise<string>): Promise<void> {
+  async #run(name: string, action: (current: () => boolean) => Promise<string>): Promise<void> {
     const focusAfter = RUN_FOCUS[name] ?? [];
     const token = Symbol(name);
     this.#runToken = token;
@@ -273,7 +276,7 @@ export class SettingsPanel {
     this.#renderAll();
     let message: { text: string; error: boolean };
     try {
-      message = { text: await action(), error: false };
+      message = { text: await action(() => this.#runToken === token), error: false };
     } catch (error) {
       message = { text: (error as Error).message, error: true };
     }
@@ -340,8 +343,8 @@ export class SettingsPanel {
     const dev = context.devServer;
     const actions = h("div", { class: "settings-actions" });
     if (context.connected) {
-      if (dev) actions.append(this.#button(this.#busy === "restart" ? "Restarting…" : "Restart", "daemon-restart", () => void this.#run("restart", async () => {
-        await this.#options.restartDaemon();
+      if (dev) actions.append(this.#button(this.#busy === "restart" ? "Restarting…" : "Restart", "daemon-restart", () => void this.#run("restart", async (current) => {
+        await this.#options.restartDaemon(current);
         return "The daemon restarted.";
       })));
       actions.append(this.#button("Stop…", "daemon-stop", () => {
@@ -351,8 +354,8 @@ export class SettingsPanel {
         this.#renderAll();
       }));
     } else if (dev) {
-      actions.append(this.#button(this.#busy === "start" ? "Starting…" : "Start", "daemon-start", () => void this.#run("start", async () => {
-        await this.#options.startDaemon();
+      actions.append(this.#button(this.#busy === "start" ? "Starting…" : "Start", "daemon-start", () => void this.#run("start", async (current) => {
+        await this.#options.startDaemon(current);
         return "The daemon is running.";
       }), { primary: true }));
     }

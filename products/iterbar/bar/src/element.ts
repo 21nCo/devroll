@@ -420,17 +420,17 @@ export class IterbarBarElement extends ElementBase {
       onChange: (change) => this.#saveState({ ...this.#state, ...change }),
       daemonInfo: () => this.#requireConnection().info(),
       stopDaemon: () => this.#stopDaemon(),
-      startDaemon: () => this.#startDaemon(),
-      restartDaemon: async () => {
+      startDaemon: (current) => this.#startDaemon(current),
+      restartDaemon: async (current) => {
         // The dev server and project the restart began with: set up again for another one meanwhile, it stops there.
         const dev = this.#devServer;
         const project = this.#project;
         const key = connectionKey(this.#daemonUrl, this.#token);
         await this.#stopDaemon();
-        if (this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== key) {
+        if (!current() || this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== key) {
           throw new Error("The bar was set up again meanwhile; nothing was started.");
         }
-        await this.#startDaemon();
+        await this.#startDaemon(current);
       },
       deleteAll: () => this.#requireConnection().deleteAll(),
       clearDrafts: () => {
@@ -1238,14 +1238,16 @@ export class IterbarBarElement extends ElementBase {
   }
 
   /** Asks the dev server for the daemon again (it starts one when none runs) and connects to what it answers. */
-  async #startDaemon(): Promise<void> {
+  /** `current` says whether the settings action that asked is still theirs; nothing is applied once it isn't. */
+  async #startDaemon(current: () => boolean = () => true): Promise<void> {
     const dev = this.#devServer;
     if (!dev) throw new Error("This page has no Iterbar dev-server plugin to start the daemon.");
     const project = this.#project;
     const before = connectionKey(this.#daemonUrl, this.#token);
     const config = await dev.reconnect();
-    // Set up again meanwhile (another dev server, project or daemon): this answer is for the bar as it was.
-    if (this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== before) {
+    // Set up again meanwhile (another dev server, project or daemon, even one switched back since: the action was voided
+    // then): this answer is for the bar as it was.
+    if (!current() || this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== before) {
       throw new Error("The bar was set up again meanwhile; nothing was changed.");
     }
     if (!config.daemonUrl || !config.token) throw new Error("The dev server could not start the daemon. Its terminal says why.");
