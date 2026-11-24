@@ -15,6 +15,8 @@ export interface FakeDaemon {
   rejectToken: boolean;
   readonly requests: { method: string; path: string; authorization: string | undefined }[];
   readonly slotReports: SlotReport[];
+  /** When true, `GET /slots` fails with a 500. */
+  failSlots: boolean;
   /** Every `POST /feedback`: the parsed draft, the screenshot part's bytes, if one was sent, and when it arrived (`Date.now()`, before any hold). */
   readonly posts: { draft: FeedbackDraft; screenshot: Buffer | null; receivedAt: number }[];
   /** A status to answer `POST /feedback` with instead of storing it. */
@@ -61,6 +63,7 @@ export async function fakeDaemon(
     rejectToken: false,
     requests: [],
     slotReports: [],
+    failSlots: false,
     posts: [],
     failFeedback: null,
     holdFeedback: null,
@@ -147,6 +150,10 @@ export async function fakeDaemon(
       return;
     }
     if (request.method() === "GET" && path === "/slots") {
+      if (daemon.failSlots) {
+        await route.fulfill({ status: 500, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error: { code: "internal", message: "The store is unavailable" } }) });
+        return;
+      }
       // The latest report per page, as the daemon keeps them.
       const pages = new Map<string, SlotReport>();
       for (const report of daemon.slotReports) pages.set(report.pageUrl, report);

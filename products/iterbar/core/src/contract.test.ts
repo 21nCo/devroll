@@ -24,6 +24,7 @@ import {
   parseSourceLocation,
   parseVariantParam,
   readPageApi,
+  registrySnapshotSchema,
   safeParseMessage,
   sourceLocationSchema,
   statusRequestSchema,
@@ -588,6 +589,37 @@ describe("page API", () => {
   it("rejects a registry from another major version or without the v1 methods", () => {
     expect(() => readPageApi({ [PAGE_API_GLOBAL]: { ...api, schemaVersion: 3 } })).toThrow(UnsupportedSchemaVersionError);
     expect(() => readPageApi({ [PAGE_API_GLOBAL]: { ...api, subscribe: undefined } })).toThrow(/subscribe/);
+  });
+
+  it("puts a version 1 registry behind a version 2 adapter: upgraded snapshots, translated selections", () => {
+    const legacySnapshot = {
+      schemaVersion: 1,
+      slots: [{ slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 }],
+      warnings: [{ code: "unknown_version", source: "api", value: "pricing:v9", message: "No such version" }],
+    };
+    const selections: unknown[] = [];
+    const received: unknown[] = [];
+    let notify: (snapshot: unknown) => void = () => undefined;
+    const legacy = {
+      schemaVersion: 1,
+      getSnapshot: () => legacySnapshot,
+      select: (selection: unknown) => selections.push(selection),
+      subscribe: (listener: (snapshot: unknown) => void) => {
+        notify = listener;
+        return () => undefined;
+      },
+    };
+    const adapted = readPageApi({ [PAGE_API_GLOBAL]: legacy })!;
+    expect(adapted.schemaVersion).toBe(2);
+    const read = adapted.getSnapshot();
+    expect(read.slots[0]).toMatchObject({ variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v2" });
+    expect(read.warnings[0]?.code).toBe("unknown_variant");
+    expect(registrySnapshotSchema.parse(read).schemaVersion).toBe(2);
+    adapted.select({ schemaVersion: 2, slot: "pricing", variant: "v1" });
+    expect(selections).toEqual([{ schemaVersion: 1, slot: "pricing", version: "v1" }]);
+    adapted.subscribe((snapshot) => received.push(snapshot));
+    notify(legacySnapshot);
+    expect((received[0] as typeof read).slots[0]?.variants).toEqual(["v1", "v2"]);
   });
 });
 

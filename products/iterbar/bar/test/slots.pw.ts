@@ -36,6 +36,27 @@ test.describe("slot dropdown", () => {
     expect((await inBar(page, "[data-role=panel]").boundingBox())!.height).toBe(empty);
   });
 
+  test("a failed page-list refresh empties the list, and the next good answer brings the same pages back", async ({ page, openFixture, fixtureServer }) => {
+    const daemon = await fakeDaemon(page, fixtureServer.origin);
+    const slot = { slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v1", mounts: 1 };
+    daemon.slotReports.push({ schemaVersion: SCHEMA_VERSION, pageUrl: `${fixtureServer.origin}/pricing`, reportedAt: "2026-01-01T00:00:00Z", slots: [slot] });
+    await openFixture();
+    await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+    await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
+    await openPanel(page, "variants");
+    await expect(inBar(page, "[data-role=variant-page]")).toHaveCount(1);
+    // Reopening the popover refreshes the list: first a failure, then the same pages again.
+    daemon.failSlots = true;
+    await inBar(page, "[data-role=variants-toggle]").click();
+    await openPanel(page, "variants");
+    await expect(inBar(page, "[data-role=pages]")).toContainText("The page list is unavailable");
+    await expect(inBar(page, "[data-role=variant-page]")).toHaveCount(0);
+    daemon.failSlots = false;
+    await inBar(page, "[data-role=variants-toggle]").click();
+    await openPanel(page, "variants");
+    await expect(inBar(page, "[data-role=variant-page]")).toHaveText(["/pricing2 variants · 1 slot"]);
+  });
+
   test("waits for a registry installed after the bar", async ({ page, openFixture }) => {
     await openFixture();
     await mountBar(page);

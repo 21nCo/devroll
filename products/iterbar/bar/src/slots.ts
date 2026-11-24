@@ -5,7 +5,6 @@ import {
   readPageApi,
   registrySnapshotSchema,
   safeParseMessage,
-  LEGACY_SCHEMA_VERSION,
   SCHEMA_VERSION,
   VARIANT_URL_PARAM,
   type IterbarPageApi,
@@ -245,6 +244,8 @@ export class SlotsPanel {
     } catch (error) {
       if (request !== this.#pagesRequest) return;
       this.#pagesList.replaceChildren();
+      // The emptied list matches no key, so the next answer rebuilds it even when its pages are the same.
+      this.#pagesKey = "";
       this.#pagesNote.textContent = `The page list is unavailable: ${(error as Error).message}`;
       return;
     }
@@ -336,11 +337,8 @@ export class SlotsPanel {
     const api = this.#api;
     if (!api) return;
     try {
-      // A registry from the previous protocol version takes the selection under its earlier names.
-      api.select(api.schemaVersion === LEGACY_SCHEMA_VERSION
-        ? { schemaVersion: LEGACY_SCHEMA_VERSION, slot, version: variant } as never
-        : { schemaVersion: SCHEMA_VERSION, slot, variant });
-      // Read as a protocol message, so a registry from protocol version 1 (`activeVersion`) is upgraded first.
+      // readPageApi puts a registry from protocol version 1 behind a version 2 adapter, which translates this.
+      api.select({ schemaVersion: SCHEMA_VERSION, slot, variant });
       const snapshot = safeParseMessage(registrySnapshotSchema, api.getSnapshot(), "registry snapshot");
       const applied = snapshot.success && snapshot.data.slots.find((entry) => entry.slot === slot)?.activeVariant === variant;
       if (applied) writeSelectionToUrl(slot, variant);

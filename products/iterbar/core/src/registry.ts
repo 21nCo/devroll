@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { InvalidMessageError, LEGACY_SCHEMA_VERSION, legacyUpgrade, parseMessage, SCHEMA_VERSION, withLegacyUpgrade } from "./errors.js";
+import {
+  InvalidMessageError, LEGACY_SCHEMA_VERSION, legacyUpgrade, parseMessage, SCHEMA_VERSION, upgradeMessage, withLegacyUpgrade,
+} from "./errors.js";
 import {
   isVariantName,
   pageUrlSchema,
@@ -120,7 +122,8 @@ export interface IterbarPageApi {
 /**
  * Reads the page API from `target` (default `globalThis`). Returns `null` when no registry is installed,
  * throws `unsupported_schema_version` for a registry from another major version and `invalid_message`
- * for an object that lacks the v1 methods.
+ * for an object that lacks the page API's methods. A registry from protocol version 1 is returned behind a version 2
+ * adapter: its snapshots come back upgraded and version 2 selections are translated for it.
  */
 export function readPageApi(target: unknown = globalThis): IterbarPageApi | null {
   if (typeof target !== "object" || target === null) return null;
@@ -132,7 +135,26 @@ export function readPageApi(target: unknown = globalThis): IterbarPageApi | null
   if (missing.length) {
     throw new InvalidMessageError(PAGE_API_GLOBAL, missing.map((method) => `${PAGE_API_GLOBAL}.${method}: must be a function`));
   }
+  if ((candidate as { schemaVersion: unknown }).schemaVersion === LEGACY_SCHEMA_VERSION) return legacyPageApi(candidate as LegacyPageApi);
   return candidate as IterbarPageApi;
+}
+
+/** The page API a registry from protocol version 1 installs. */
+interface LegacyPageApi {
+  getSnapshot(): unknown;
+  select(selection: { schemaVersion: typeof LEGACY_SCHEMA_VERSION; slot: string; version: string }): void;
+  subscribe(listener: (snapshot: unknown) => void): () => void;
+}
+
+function legacyPageApi(legacy: LegacyPageApi): IterbarPageApi {
+  // Upgraded, not validated: readers parse snapshots themselves, as they would a version 2 registry's.
+  const upgrade = (snapshot: unknown) => upgradeMessage(snapshot, registrySnapshotSchema) as RegistrySnapshot;
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    getSnapshot: () => upgrade(legacy.getSnapshot()),
+    select: (selection) => legacy.select({ schemaVersion: LEGACY_SCHEMA_VERSION, slot: selection.slot, version: selection.variant }),
+    subscribe: (listener) => legacy.subscribe((snapshot) => listener(upgrade(snapshot))),
+  };
 }
 
 /** Result of reading the `iterbar` URL parameter or the stored selection. */

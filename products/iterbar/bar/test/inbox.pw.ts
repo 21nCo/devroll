@@ -239,3 +239,22 @@ test("Undo running out after the only listed thread was deleted leaves focus on 
   await page.keyboard.press("Escape");
   await expect(inBar(page, "[data-role=panel]")).toBeHidden();
 });
+
+test("a thread that leaves the filter while focus is in it hands focus to the thread in its place, or the filter", async ({ page, openFixture, fixtureServer }) => {
+  const first = comment("First");
+  const second = comment("Second");
+  const daemon = await openInbox(page, openFixture, [first, second], fixtureServer.origin);
+  await inBar(page, "[data-filter=open]").click();
+  const done = (item: ReturnType<typeof comment>) => daemon.send({
+    schemaVersion: SCHEMA_VERSION, type: "feedback.updated",
+    feedback: { ...item, status: "done", updatedAt: new Date(Date.parse(item.updatedAt) + 1000).toISOString() },
+  });
+  await inBar(page, `[data-feedback-id="${second.id}"] summary`).click();
+  await inBar(page, `[data-feedback-id="${second.id}"] [data-action=archive]`).focus();
+  done(second);
+  await expect(inBar(page, `[data-feedback-id="${second.id}"]`)).toHaveCount(0);
+  await expect(inBar(page, `[data-feedback-id="${first.id}"] summary`)).toBeFocused();
+  done(first);
+  await expect(inBar(page, ".thread")).toHaveCount(0);
+  await expect(inBar(page, "[data-filter=open]")).toBeFocused();
+});

@@ -87,12 +87,15 @@ function mcpLaunch(root: string, cliPath: string | null): McpLaunch {
 /** The running CLI file (`cli.js`, links resolved), or `null` when init runs some other way (a test). */
 function runningCli(): string | null {
   const script = process.argv[1];
-  if (!script || basename(script) !== "cli.js") return null;
+  if (!script) return null;
+  // A link to the CLI (npm's .bin link, or ~/.local/bin/iterbar from setup.md) is resolved before its name is checked.
+  let resolved: string;
   try {
-    return realpathSync(script);
+    resolved = realpathSync(script);
   } catch {
     return null;
   }
+  return basename(resolved) === "cli.js" ? resolved : null;
 }
 
 type Parsed = { readonly help: true } | ({ readonly help: false } & InitOptions);

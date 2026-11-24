@@ -719,6 +719,10 @@ export class ThreadsPanel {
     // (newer threads pushed it down) drops out, so a bulk action never reaches it.
     for (const id of this.#selected) if (!visibleIds.has(id)) this.#selected.delete(id);
     if (this.#anchor !== null && !visibleIds.has(this.#anchor)) this.#anchor = null;
+    // Focus inside a row that this render removes (an agent marked it done under Open) moves to the row now in its place.
+    const focused = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
+    const focusedRow = focused && this.#list.contains(focused) ? focused.closest("li.thread") : null;
+    const focusedIndex = focusedRow ? [...this.#list.children].indexOf(focusedRow) : -1;
     for (const [id, row] of this.#rows) {
       if (liveIds.has(id) && visibleIds.has(id)) continue;
       row.element.remove();
@@ -740,6 +744,11 @@ export class ThreadsPanel {
         else this.#list.prepend(row.element);
       }
       previous = row.element;
+    }
+    if (focused && focusedIndex !== -1 && !this.#list.contains(focused)) {
+      const rows = this.#list.children;
+      const next = rows[Math.min(focusedIndex, rows.length - 1)]?.querySelector<HTMLElement>("summary");
+      (next ?? this.#filterButtons.get(this.#filter))?.focus();
     }
     const counts: Record<InboxFilter, number> = { all: 0, open: 0, progress: 0, done: 0, archived: 0 };
     for (const item of live) {
