@@ -188,6 +188,10 @@ export const BAR_CSS = String.raw`
   background: var(--ib-danger);
 }
 .dock[data-awake] .logo { margin-right: 2px; }
+/* Too narrow for the whole toolbar: icons only (names stay for assistive technology and in tooltips), and the
+   counts sit on the icons. */
+.dock[data-narrow] .tool-label { display: none; }
+.dock[data-narrow] .tool { padding: 4px 7px; }
 .dock[data-awake][data-align="end"] .logo { margin-right: 0; margin-left: 2px; }
 
 .divider { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--ib-border); }

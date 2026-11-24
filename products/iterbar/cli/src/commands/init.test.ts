@@ -126,7 +126,7 @@ describe("iterbar init", () => {
     await mkdir(realCodex, { recursive: true });
     await symlink(realCodex, join(base, "codex-link"));
     const codex = capture();
-    expect(await runInit(["--root", root, "--agent", "codex"], codex.io, { home, codexHome: join(base, "codex-link"), skillSource: skill })).toBe(0);
+    expect(await runInit(["--root", root, "--agent", "codex"], codex.io, { home, codexHome: `${join(base, "codex-link")}/`, skillSource: skill })).toBe(0);
     expect(codex.out()).toContain("is a link");
     await expect(readFile(join(realCodex, "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
   });

@@ -237,6 +237,8 @@ export class ThreadsPanel {
   #pendingDelete: { ids: Set<string>; timer: ReturnType<typeof setTimeout> } | null = null;
   /** Threads whose delete was sent and not yet answered: still hidden, back in view only if the delete fails. */
   readonly #deleting = new Set<string>();
+  /** Counts {@link clear}s: a delete answered after the bar switched daemons belongs to the old one and is ignored. */
+  #generation = 0;
   #busy = false;
 
   /** `options` connects the panel to the bar: counts, the remembered filter and the daemon requests for actions. */
@@ -390,6 +392,8 @@ export class ThreadsPanel {
 
   /** Forgets every thread, as when the bar switches to another daemon. A delete still undoable is dropped. */
   clear(): void {
+    this.#generation += 1;
+    this.#deleting.clear();
     this.#dropPendingDelete();
     this.#selected.clear();
     this.#anchor = null;
@@ -468,18 +472,23 @@ export class ThreadsPanel {
   async #sendDelete(ids: readonly string[]): Promise<void> {
     const onDelete = this.#options.onDelete;
     if (!onDelete) return;
+    const generation = this.#generation;
     for (const id of ids) this.#deleting.add(id);
     this.#render();
+    let outcome: { failed: readonly string[]; message: string | null };
     try {
-      // The ones that went are gone, even when others failed: those come back with the reason.
-      const { failed, message } = await onDelete(ids);
-      for (const id of ids) if (!failed.includes(id)) this.#state.remove(id);
-      if (message) this.#showError(message);
+      outcome = await onDelete(ids);
     } catch (error) {
-      this.#showError((error as Error).message);
-    } finally {
-      for (const id of ids) this.#deleting.delete(id);
+      outcome = { failed: ids, message: (error as Error).message };
     }
+    // Answered after a switch to another daemon: these ids mean nothing there.
+    if (generation !== this.#generation) return;
+    // The ones that went are gone, even when others failed: those come back with the reason.
+    for (const id of ids) {
+      this.#deleting.delete(id);
+      if (!outcome.failed.includes(id)) this.#state.remove(id);
+    }
+    if (outcome.message) this.#showError(outcome.message);
     this.#render();
   }
 

@@ -251,7 +251,9 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
     io.stdout.write(INIT_USAGE);
     return 0;
   }
-  const env = { ...environment, home: environment.home ?? homedir(), codexHome: environment.codexHome ?? process.env.CODEX_HOME };
+  // Normalized, so a trailing slash never makes a check follow a link: the same path is checked and written.
+  const codexHome = environment.codexHome ?? process.env.CODEX_HOME;
+  const env = { ...environment, home: resolve(environment.home ?? homedir()), codexHome: codexHome ? resolve(codexHome) : undefined };
   const root = resolve(env.cwd ?? process.cwd(), parsed.root ?? ".");
   const say = (line: string): void => {
     io.stdout.write(`${line}\n`);

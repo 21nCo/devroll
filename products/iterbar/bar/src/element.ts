@@ -1405,13 +1405,21 @@ export class IterbarBarElement extends ElementBase {
     let end = x > 2 / 3;
     if (this.#dock.hasAttribute("data-awake")) {
       this.#dock.style.maxWidth = "";
-      const natural = this.#dock.getBoundingClientRect().width;
+      this.#dock.removeAttribute("data-narrow");
+      let natural = this.#dock.getBoundingClientRect().width;
+      // Too narrow for the whole toolbar on either side: text labels go (each control keeps its name for assistive
+      // technology and its tooltip), so every control can fit a row.
+      if (natural > Math.max(leftRoom, rightRoom)) {
+        this.#dock.toggleAttribute("data-narrow", true);
+        natural = this.#dock.getBoundingClientRect().width;
+      }
       if (natural > (end ? leftRoom : rightRoom) && natural <= (end ? rightRoom : leftRoom)) end = !end;
       if (natural > Math.max(leftRoom, rightRoom)) end = leftRoom > rightRoom;
       const room = end ? leftRoom : rightRoom;
       if (natural > room) this.#dock.style.maxWidth = `${Math.max(anchor, Math.floor(room))}px`;
     } else {
       this.#dock.style.maxWidth = "";
+      this.#dock.removeAttribute("data-narrow");
     }
     this.#dock.dataset.align = end ? "end" : "start";
     const width = this.#dock.getBoundingClientRect().width;

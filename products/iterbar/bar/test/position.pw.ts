@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { fakeDaemon, comment } from "./support/fake-daemon.js";
-import { expect, inBar, mountBar, openPanel, test } from "./support/fixtures.js";
+import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 
 // The docked toolbar: collapsed to its logo by default at the bottom centre, expanded by clicking the logo, moved along
 // the bottom edge by dragging the logo, with its state remembered per project.
@@ -408,9 +408,11 @@ test("an open composer moves clear of a panel opened under it", async ({ page, o
 });
 
 test("expanding never moves the logo: the toolbar grows toward the side with room, and wraps when neither side has it", async ({ page, openFixture }) => {
-  for (const [width, x] of [[1000, 0.6], [1000, 0.5], [360, 0.5], [280, 0.5], [360, 0.9]] as const) {
+  for (const [width, x] of [[1000, 0.6], [1000, 0.5], [360, 0.5], [280, 0.5], [360, 0.9], [150, 0.5]] as const) {
     await page.setViewportSize({ width, height: 700 });
     await openFixture();
+    // With slots, so Variants shows its label and count where there is room.
+    await registerSlots(page, [PRICING]);
     await page.evaluate((position) => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ x: position })), x);
     await mountBar(page, { expanded: false });
     const logo = inBar(page, "[data-role=logo]");

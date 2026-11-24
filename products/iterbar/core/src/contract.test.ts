@@ -733,10 +733,17 @@ describe("protocol version 1 input", () => {
   });
 
   it("renames only protocol fields, never an extension field with the same name", () => {
-    const stored = { schemaVersion: 1, metadata: { version: "design-3", versions: ["a"] }, choice: { slot: "pricing", version: "v2" } };
+    const stored = {
+      schemaVersion: 1, metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
+      choice: { slot: "pricing", version: "v2" },
+    };
     expect(api.upgradeMessage(stored)).toEqual({
-      schemaVersion: 2, metadata: { version: "design-3", versions: ["a"] }, choice: { slot: "pricing", variant: "v2" },
+      schemaVersion: 2, metadata: { version: "design-3", versions: ["a"], extra: { slot: "sidebar", version: "x" } },
+      choice: { slot: "pricing", variant: "v2" },
     });
+    // Nested messages (an event's feedback, a slot list's pages) are upgraded at their own paths.
+    expect(api.upgradeMessage({ schemaVersion: 1, type: "slots.reported", report: { schemaVersion: 1, slots: [{ slot: "a", versions: ["x"] }] } }))
+      .toEqual({ schemaVersion: 2, type: "slots.reported", report: { schemaVersion: 2, slots: [{ slot: "a", variants: ["x"] }] } });
   });
 
   it("leaves version 2 input as it is and still refuses a later major version", () => {

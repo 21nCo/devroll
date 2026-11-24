@@ -456,10 +456,12 @@ class FileFeedbackStore implements FeedbackStore {
       // The record goes first: a crash after it leaves a directory without feedback.json, which the next open sweeps,
       // so the item never comes back half deleted.
       await rm(feedbackRecordPath(this.#root, feedbackId), { force: true });
-      // The record is gone, so the item is deleted: everything after this is cleanup that cannot undo it. If any of it
-      // fails, the next open sweeps the directory, which no longer has a record.
+      // The delete is made durable before it is reported: if the sync fails, the removal could still be lost to a
+      // crash, so the delete fails (the record may or may not be back after a restart; a listing shows which).
+      await syncDirectory(feedbackDirectoryPath(this.#root, feedbackId));
+      // The record is gone for good: what follows is cleanup. If it fails, the next open sweeps the directory, which no
+      // longer has a record.
       try {
-        await syncDirectory(feedbackDirectoryPath(this.#root, feedbackId));
         await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
         await syncDirectory(this.paths.feedbackDirectory);
       } catch {
