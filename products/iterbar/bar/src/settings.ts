@@ -251,7 +251,6 @@ export class SettingsPanel {
     this.#renderAll();
   }
 
-  /** Runs one of the sheet's actions, showing that it runs and then how it went. */
   /** The bar was set up again (another dev server): an action still running says and changes nothing here. */
   voidAction(): void {
     if (this.#runToken === null) return;
@@ -266,6 +265,7 @@ export class SettingsPanel {
     if (this.#runToken !== null) this.#ownReconnect = true;
   }
 
+  /** Runs one of the sheet's actions, showing that it runs and then how it went. */
   async #run(name: string, action: (current: () => boolean) => Promise<string>): Promise<void> {
     const focusAfter = RUN_FOCUS[name] ?? [];
     const token = Symbol(name);

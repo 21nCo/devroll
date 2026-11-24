@@ -222,10 +222,6 @@ export class SlotsPanel {
     if (empty && !wasEmpty) void this.refreshPages();
   }
 
-  /**
-   * Lists the pages the daemon has slot reports for, with each page's variant count, when this page has none. The
-   * bar calls it when the panel opens and when a page reports its slots.
-   */
   /** Forgets the page list (the bar switched daemons) and asks the new daemon for it. */
   resetPages(): void {
     this.#pagesRequest += 1;
@@ -235,6 +231,10 @@ export class SlotsPanel {
     void this.refreshPages();
   }
 
+  /**
+   * Lists the pages the daemon has slot reports for, with each page's variant count, when this page has none. The
+   * bar calls it when the panel opens and when a page reports its slots.
+   */
   async refreshPages(): Promise<void> {
     if (!this.#empty || !this.#options.listPages) return;
     const request = ++this.#pagesRequest;

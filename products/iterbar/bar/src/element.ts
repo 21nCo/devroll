@@ -1145,7 +1145,6 @@ export class IterbarBarElement extends ElementBase {
     }
   }
 
-  /** Deletes each thread through the daemon; rejects saying how many failed. */
   /** Deletes each thread through the daemon; resolves with the ones that failed and why, so the rest go at once. */
   async #deleteThreads(ids: readonly string[]): Promise<{ failed: readonly string[]; message: string | null }> {
     const connection = this.#connection;
@@ -1237,8 +1236,10 @@ export class IterbarBarElement extends ElementBase {
     while (this.#connectionKind === "connected" && Date.now() < until) await new Promise((done) => setTimeout(done, 100));
   }
 
-  /** Asks the dev server for the daemon again (it starts one when none runs) and connects to what it answers. */
-  /** `current` says whether the settings action that asked is still theirs; nothing is applied once it isn't. */
+  /**
+   * Asks the dev server for the daemon again (it starts one when none runs) and connects to what it answers. `current`
+   * says whether the settings action that asked is still theirs; nothing is applied once it isn't.
+   */
   async #startDaemon(current: () => boolean = () => true): Promise<void> {
     const dev = this.#devServer;
     if (!dev) throw new Error("This page has no Iterbar dev-server plugin to start the daemon.");
