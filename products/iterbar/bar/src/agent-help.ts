@@ -68,25 +68,21 @@ function launcher(cli: AgentCli | null): { run: string; command: string; args: r
  * it; otherwise the snippets keep the references' placeholders.
  */
 export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli | null = null): AgentSteps {
-  // Each step runs only if the one before it worked, so a folder that does not exist where the command runs stops it
-  // before it touches another project. A Windows project gets PowerShell's form (Windows PowerShell 5.1 has no &&).
-  const windows = root !== null && isWindowsPath(root);
-  const quote = windows ? powerShellWord : shellWord;
-  const chain = (...steps: string[]) => (windows
-    ? `${steps.slice(1).reduce((joined, step) => `${joined}; if ($?) { ${step}`, steps[0]!)}${" }".repeat(steps.length - 1)}`
-    : steps.join(" && "));
-  const inRoot = (...steps: string[]) => chain(...(root ? [`cd ${quote(root)}`] : []), ...steps);
+  // The commands carry no `cd` and no chaining, so they run alike in every shell (Windows PowerShell 5.1 has no &&)
+  // and none can run somewhere else: the caption names the folder to run them in.
+  const folder = root ? `in the project's folder (${root})` : "in the project's folder";
+  const quote = cli && isWindowsPath(cli.path) ? powerShellWord : shellWord;
   const launch = launcher(cli);
   const init = (name: string): readonly Snippet[] => [{
-    caption: "Run in the project's folder. It installs the iterbar skill and registers the MCP server:",
-    text: inRoot(`npx iterbar init --agent ${name}`),
+    caption: `Run ${folder}. It installs the iterbar skill and registers the MCP server:`,
+    text: `npx iterbar init --agent ${name}`,
   }, {
-    caption: "In a pnpm project, add the CLI to the project first (pnpm gives a package's command only to direct dependencies; "
-      + "at the root of a pnpm workspace, use pnpm add -Dw iterbar):",
-    text: inRoot("pnpm add -D iterbar", `pnpm exec iterbar init --agent ${name}`),
+    caption: `In a pnpm project, add the CLI to the project first, then run init, ${folder} (pnpm gives a package's command `
+      + "only to direct dependencies; at the root of a pnpm workspace, use pnpm add -Dw iterbar):",
+    text: `pnpm add -D iterbar\npnpm exec iterbar init --agent ${name}`,
   }, ...(cli ? [{
-    caption: "Or run the CLI this dev server runs (the same version as its daemon, published or not):",
-    text: inRoot(`${cli ? `node ${quote(cli.path)}` : launch.run} init --agent ${name}`),
+    caption: `Or run the CLI this dev server runs (the same version as its daemon, published or not), ${folder}:`,
+    text: `node ${quote(cli.path)} init --agent ${name}`,
   }] : [])];
   const copySkill = (folder: string): Snippet => ({
     caption: "Copy the skill out of the CLI's package, in the project's folder:",
