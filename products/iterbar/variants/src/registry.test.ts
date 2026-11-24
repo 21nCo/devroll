@@ -522,6 +522,37 @@ describe("page API", () => {
       delete holder[PAGE_API_GLOBAL];
     }
   });
+
+  it("registers into a page registry from protocol version 1, in its terms, so the bar sees the slots", () => {
+    const holder = globalThis as Record<PropertyKey, unknown>;
+    const key = Symbol.for("iterbar.variants.registry.v1");
+    const calls: unknown[] = [];
+    const legacy = {
+      pageApi: { schemaVersion: 1, getSnapshot: () => ({ schemaVersion: 1, slots: [], warnings: [] }), select: () => undefined, subscribe: () => () => undefined },
+      register: (definition: unknown) => {
+        calls.push(["register", definition]);
+        return () => undefined;
+      },
+      activeVersion: (definition: { defaultVersion: string }) => definition.defaultVersion,
+      subscribe: () => () => undefined,
+      select: (selection: unknown) => calls.push(["select", selection]),
+    };
+    holder[key] = legacy;
+    try {
+      const registry = getVariantsRegistry();
+      expect(getVariantsRegistry()).toBe(registry);
+      const definition = { slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1" };
+      registry.register(definition);
+      expect(registry.activeVariant(definition)).toBe("v1");
+      registry.select({ schemaVersion: 2, slot: "pricing", variant: "v2" });
+      expect(calls).toEqual([
+        ["register", { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1" }],
+        ["select", { schemaVersion: 1, slot: "pricing", version: "v2" }],
+      ]);
+    } finally {
+      delete holder[key];
+    }
+  });
 });
 
 describe("browser helpers", () => {

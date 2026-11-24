@@ -7,6 +7,7 @@ import {
   SCHEMA_VERSION,
   slotStateSchema,
   VARIANT_STORAGE_KEY,
+  LEGACY_SCHEMA_VERSION,
   upgradeMessage,
   variantSelectionSchema,
   type ActiveVariant,
@@ -435,10 +436,57 @@ export function getVariantsRegistry(): VariantsRegistry {
   const holder = globalThis as Record<symbol, unknown>;
   const existing = holder[SHARED_REGISTRY];
   if (existing instanceof VariantsRegistry || isRegistryLike(existing)) return existing as VariantsRegistry;
+  // A copy of this package from protocol version 1 created the page's registry first: its slots are the ones the bar
+  // sees, so this copy registers there too, through an adapter that speaks version 1.
+  if (isLegacyRegistry(existing)) return legacyBridge(existing);
   const registry = new VariantsRegistry();
   Object.defineProperty(holder, SHARED_REGISTRY, { value: registry, configurable: true, enumerable: false });
   installPageApi(registry);
   return registry;
+}
+
+/** The methods a version 1 registry (from an earlier copy of this package) has. */
+interface LegacyRegistry {
+  readonly pageApi: IterbarPageApi;
+  register(definition: { slot: string; versions: readonly string[]; defaultVersion: string }): () => void;
+  activeVersion(definition: { slot: string; versions: readonly string[]; defaultVersion: string }): string;
+  subscribe(listener: () => void): () => void;
+  select?(selection: unknown): void;
+  getSnapshot?(): unknown;
+}
+
+function isLegacyRegistry(value: unknown): value is LegacyRegistry {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<Record<keyof LegacyRegistry, unknown>>;
+  return typeof candidate.register === "function" && typeof candidate.activeVersion === "function"
+    && typeof candidate.subscribe === "function" && typeof candidate.pageApi === "object";
+}
+
+const bridges = new WeakMap<LegacyRegistry, VariantsRegistry>();
+
+/** A version 2 view of a version 1 registry, one per registry, so callers that compare registries see the same one. */
+function legacyBridge(legacy: LegacyRegistry): VariantsRegistry {
+  const known = bridges.get(legacy);
+  if (known) return known;
+  const asLegacy = (definition: SlotDefinition) => ({
+    slot: definition.slot, versions: definition.variants, defaultVersion: definition.defaultVariant,
+  });
+  const bridge = {
+    pageApi: legacy.pageApi,
+    register: (definition: SlotDefinition) => legacy.register(asLegacy(definition)),
+    activeVariant: (definition: SlotDefinition) => legacy.activeVersion(asLegacy(definition)),
+    subscribe: (listener: () => void) => legacy.subscribe(listener),
+    // Selections in either version reach it in its own terms.
+    select: (selection: unknown) => {
+      const parsed = variantSelectionSchema.safeParse(upgradeMessage(selection));
+      legacy.select?.(parsed.success
+        ? { schemaVersion: LEGACY_SCHEMA_VERSION, slot: parsed.data.slot, version: parsed.data.variant }
+        : selection);
+    },
+    getSnapshot: () => upgradeMessage(legacy.getSnapshot?.() ?? legacy.pageApi.getSnapshot()),
+  } as unknown as VariantsRegistry;
+  bridges.set(legacy, bridge);
+  return bridge;
 }
 
 function isRegistryLike(value: unknown): boolean {

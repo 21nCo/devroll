@@ -319,6 +319,6 @@ Removing the element closes the stream and cancels every timer.
 - `pnpm test`: unit tests for stored state, composer placement, labels, merging, URL handling, text
   excerpts and screenshot scaling.
 - `pnpm test:browser`: Playwright tests in Chromium, against a fake daemon
-  built from Playwright routes and against the real daemon from
-  `iterbar`. Install the browser once with
+  built from Playwright routes and against the real daemon from the
+  `iterbar` CLI package. Install the browser once with
   `pnpm exec playwright install chromium`.

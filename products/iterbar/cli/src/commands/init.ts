@@ -1,6 +1,6 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The npm package that carries the `iterbar` command, the MCP server and the agent skill. */
@@ -159,17 +159,60 @@ function skillDirectory(agent: InitAgent, options: InitOptions, root: string, en
   return join(base, agent === "claude" ? ".claude" : ".cursor", "skills", "iterbar");
 }
 
-/** Adds the iterbar server to a JSON config's `mcpServers`, keeping every other entry. */
-async function registerJson(path: string, entry: object, options: InitOptions, say: (line: string) => void): Promise<void> {
+/**
+ * The first linked folder between `base` and `path` (both absolute, `path` inside `base`), the final part excluded:
+ * writing there would land wherever the link points. `null` when there is none.
+ */
+async function linkedParent(base: string, path: string): Promise<string | null> {
+  const parts = relative(base, dirname(path)).split(sep).filter((part) => part && part !== ".");
+  let current = base;
+  for (const part of parts) {
+    current = join(current, part);
+    if ((await linkTarget(current)) !== null) return current;
+  }
+  return null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Writes `text` to `path` through a temporary file in the same folder and a rename, so a crash never truncates it. */
+async function writeAtomic(path: string, text: string): Promise<void> {
+  const temporary = `${path}.iterbar-${process.pid}-${Date.now()}.tmp`;
+  try {
+    await writeFile(temporary, text, { flag: "wx" });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+/**
+ * Adds the iterbar server to a JSON config's `mcpServers`, keeping every other entry. A config that is a link, or sits
+ * in a linked folder, is never written (it may be shared, such as a dotfiles checkout): the entry is printed instead.
+ */
+async function registerJson(base: string, path: string, entry: object, options: InitOptions, say: (line: string) => void): Promise<void> {
+  const manual = `{ "mcpServers": { "iterbar": ${JSON.stringify(entry)} } }`;
+  const link = (await linkTarget(path)) !== null ? path : await linkedParent(base, path);
+  if (link !== null) {
+    say(`  MCP server: ${link} is a link, so init leaves it alone. Add this to ${path} yourself:\n    ${manual}`);
+    return;
+  }
   let config: Record<string, unknown> = {};
   if (await exists(path)) {
+    let parsed: unknown;
     try {
-      config = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+      parsed = JSON.parse(await readFile(path, "utf8"));
     } catch {
       throw new Error(`${path} is not valid JSON; fix it or add the iterbar server by hand.`);
     }
+    if (!isPlainObject(parsed) || (parsed.mcpServers !== undefined && !isPlainObject(parsed.mcpServers))) {
+      throw new Error(`${path} is not an object with an "mcpServers" object; fix it or add the iterbar server by hand.`);
+    }
+    config = parsed;
   }
-  const servers = (typeof config.mcpServers === "object" && config.mcpServers !== null ? config.mcpServers : {}) as Record<string, unknown>;
+  const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
   const current = servers.iterbar;
   if (JSON.stringify(current) === JSON.stringify(entry)) {
     say(`  MCP server: already in ${path}`);
@@ -182,7 +225,7 @@ async function registerJson(path: string, entry: object, options: InitOptions, s
   say(`  MCP server: ${options.dryRun ? "would add" : "added"} iterbar to ${path}`);
   if (options.dryRun) return;
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ ...config, mcpServers: { ...servers, iterbar: entry } }, null, 2)}\n`);
+  await writeAtomic(path, `${JSON.stringify({ ...config, mcpServers: { ...servers, iterbar: entry } }, null, 2)}\n`);
 }
 
 /** `iterbar init`: installs the skill and registers the MCP server for each agent. Resolves with the exit code. */
@@ -209,8 +252,13 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
     for (const agent of parsed.agents) {
       say(`\n${{ claude: "Claude Code", codex: "Codex", cursor: "Cursor" }[agent]}`);
       const target = skillDirectory(agent, parsed, root, env);
+      const skillBase = agent === "codex" ? (env.codexHome ?? join(env.home, ".codex")) : parsed.scope === "project" ? root : env.home;
+      const linkedFolder = await linkedParent(skillBase, target);
       const link = await linkTarget(target);
-      if (link !== null && !parsed.force) {
+      if (linkedFolder !== null) {
+        // A linked folder on the way would put the skill wherever it points: never written, even on --force.
+        say(`  Skill: ${linkedFolder} is a link, so init leaves it alone. Copy the skill into ${target} yourself from ${source}`);
+      } else if (link !== null && !parsed.force) {
         // A link (to a checkout, say) is the user's own setup: it is never written through, and replaced only on --force.
         say(`  Skill: ${target} links to ${link}; kept it (--force replaces the link with a copy)`);
       } else if (link === null && await sameTree(source, target)) {
@@ -227,9 +275,9 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
         }
       }
       if (agent === "claude") {
-        await registerJson(join(root, ".mcp.json"), MCP_COMMAND, parsed, say);
+        await registerJson(root, join(root, ".mcp.json"), MCP_COMMAND, parsed, say);
       } else if (agent === "cursor") {
-        await registerJson(join(root, ".cursor", "mcp.json"), { ...MCP_COMMAND, args: [...MCP_COMMAND.args, "--root", "${workspaceFolder}"] }, parsed, say);
+        await registerJson(root, join(root, ".cursor", "mcp.json"), { ...MCP_COMMAND, args: [...MCP_COMMAND.args, "--root", "${workspaceFolder}"] }, parsed, say);
       } else {
         say(`  MCP server: add to ${join(env.codexHome ?? join(env.home, ".codex"), "config.toml")}:`);
         say(`    [mcp_servers.iterbar]\n    command = "npx"\n    args = ["-y", "${CLI_PACKAGE}", "mcp", "--root", ${JSON.stringify(root)}]\n    tool_timeout_sec = 1900`);

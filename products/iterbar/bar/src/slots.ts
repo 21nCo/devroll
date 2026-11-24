@@ -190,7 +190,7 @@ export class SlotsPanel {
   }
 
   /**
-   * Applies a snapshot from the page. One that does not match the v1 contract is shown as an error, and the page is
+   * Applies a snapshot from the page. One that does not match the contract is shown as an error, and the page is
    * then reported to have no slots, since nothing it showed before can be trusted.
    */
   #update(input: unknown): void {
@@ -320,7 +320,9 @@ export class SlotsPanel {
       api.select(api.schemaVersion === LEGACY_SCHEMA_VERSION
         ? { schemaVersion: LEGACY_SCHEMA_VERSION, slot, version: variant } as never
         : { schemaVersion: SCHEMA_VERSION, slot, variant });
-      const applied = api.getSnapshot().slots.find((entry) => entry.slot === slot)?.activeVariant === variant;
+      // Read as a protocol message, so a registry from protocol version 1 (`activeVersion`) is upgraded first.
+      const snapshot = safeParseMessage(registrySnapshotSchema, api.getSnapshot(), "registry snapshot");
+      const applied = snapshot.success && snapshot.data.slots.find((entry) => entry.slot === slot)?.activeVariant === variant;
       if (applied) writeSelectionToUrl(slot, variant);
     } catch (error) {
       this.#showMessage(`The page's Iterbar registry failed: ${(error as Error).message}`);

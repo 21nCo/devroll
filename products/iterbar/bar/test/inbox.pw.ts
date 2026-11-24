@@ -133,3 +133,26 @@ test("deletes after an undo window, and Undo brings the threads back without a r
   daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: daemon.items[1]!.id });
   await expect(texts(page)).toHaveText(["Keep"]);
 });
+
+test("drops a selected thread from the selection when it leaves the filter, so a bulk action never reaches it", async ({ page, openFixture, fixtureServer }) => {
+  const items = [comment("Stays open"), comment("Gets picked up")];
+  const daemon = await openInbox(page, openFixture, items, fixtureServer.origin);
+  await inBar(page, "[data-filter=open]").click();
+  await inBar(page, "[data-role=select-all]").check();
+  await expect(inBar(page, "[data-role=inbox-count]")).toHaveText("2 selected");
+  const moved = items[1]!;
+  daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: { ...moved, status: "working", updatedAt: new Date(Date.parse(moved.updatedAt) + 1000).toISOString() } });
+  await expect(inBar(page, "[data-role=inbox-count]")).toHaveText("1 selected");
+  await inBar(page, "[data-bulk=archive]").click();
+  await expect.poll(() => daemon.requests.filter((request) => request.path.endsWith("/status")).map((request) => request.path)).toEqual([`/feedback/${items[0]!.id}/status`]);
+});
+
+test("a delete still undoable is sent when the bar is removed, and survives the bar's connection closing", async ({ page, openFixture, fixtureServer }) => {
+  const items = [comment("Keep"), comment("Drop")];
+  const daemon = await openInbox(page, openFixture, items, fixtureServer.origin);
+  await inBar(page, `[data-feedback-id="${items[1]!.id}"] [data-role=thread-select]`).check();
+  await inBar(page, "[data-bulk=delete]").click();
+  await expect(inBar(page, "[data-role=undo]")).toBeVisible();
+  await page.evaluate(() => document.querySelector("iterbar-bar")!.remove());
+  await expect.poll(() => daemon.items.map((item) => item.text)).toEqual(["Keep"]);
+});

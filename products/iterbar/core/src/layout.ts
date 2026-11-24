@@ -48,3 +48,14 @@ export function attachmentFileName(attachment: Pick<AttachmentRef, "id" | "kind"
 export function feedbackDirectorySegments(feedbackId: string): string[] {
   return [iterbarLayout.directory, iterbarLayout.feedbackDirectory, assertSafeId(feedbackId, "feedback id")];
 }
+
+/** Absolute paths of the fixed entries in a project's `.iterbar/` directory (see `iterbarPaths` in the node entry). */
+export interface IterbarPaths {
+  readonly projectRoot: string;
+  readonly directory: string;
+  readonly gitignoreFile: string;
+  readonly daemonFile: string;
+  readonly lockFile: string;
+  readonly tmpDirectory: string;
+  readonly feedbackDirectory: string;
+}

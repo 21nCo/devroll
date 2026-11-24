@@ -1,7 +1,6 @@
 {
   "name": "iterbar",
   "version": "0.0.0",
-  "private": true,
   "description": "Iterbar command line: the daemon, the MCP server for coding agents, `iterbar init`, and the bundled agent skill.",
   "type": "module",
   "license": "MIT",
@@ -35,7 +34,7 @@
     "directory": "products/iterbar/cli"
   },
   "scripts": {
-    "build": "tsup --entry.store src/store/index.ts --entry.daemon src/daemon/index.ts --entry.cli src/cli.ts --format esm --dts --sourcemap --clean && node scripts/bundle-skill.mjs",
+    "build": "tsup && node scripts/bundle-skill.mjs",
     "clean": "rm -rf dist coverage skills",
     "lint": "eslint src",
     "test": "pnpm --filter iterbar... build && vitest run",
@@ -43,11 +42,11 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@iterbar/core": "workspace:*",
     "ws": "^8.22.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@iterbar/core": "workspace:*",
     "@types/node": "^22.15.30",
     "@types/ws": "^8.18.2",
     "tsup": "^8.5.0",

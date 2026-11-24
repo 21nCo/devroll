@@ -1,19 +1,10 @@
 import { join, normalize, sep } from "node:path";
 import { IterbarContractError } from "./errors.js";
 import type { AttachmentRef } from "./feedback.js";
-import { attachmentFileName, feedbackDirectorySegments, iterbarLayout } from "./layout.js";
+import { attachmentFileName, feedbackDirectorySegments, iterbarLayout, type IterbarPaths } from "./layout.js";
 import { isAbsolutePath, MAX_ABSOLUTE_PATH_LENGTH } from "./primitives.js";
 
-/** Absolute paths of the fixed entries in a project's `.iterbar/` directory. */
-export interface IterbarPaths {
-  readonly projectRoot: string;
-  readonly directory: string;
-  readonly gitignoreFile: string;
-  readonly daemonFile: string;
-  readonly lockFile: string;
-  readonly tmpDirectory: string;
-  readonly feedbackDirectory: string;
-}
+export type { IterbarPaths } from "./layout.js";
 
 const platform = sep === "\\" ? "win32" : "posix";
 

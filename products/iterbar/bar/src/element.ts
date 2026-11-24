@@ -408,6 +408,10 @@ export class IterbarBarElement extends ElementBase {
       container: this.#root,
       host: this,
       pageUrl: () => (/^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null),
+      // Pins never sit on the toolbar or an open panel, so they never take a click meant for the bar.
+      avoid: () => [this.#logo.parentElement!, this.#panel]
+        .filter((element) => !element.hidden && element.checkVisibility())
+        .map((element) => element.getBoundingClientRect()),
       onOpen: (ids) => {
         this.#openPanel("inbox", false);
         this.#threads.reveal(ids[0]!);
@@ -599,6 +603,8 @@ export class IterbarBarElement extends ElementBase {
       delete (this as Record<string, unknown>)[property];
       (this as Record<string, unknown>)[property] = value;
     }
+    // The pins enter the top layer before the toolbar, so the toolbar and its sheet always paint over them.
+    this.#pins.attach();
     this.#raise();
     if (this.#commentMode) {
       this.#picker.start();
@@ -621,7 +627,6 @@ export class IterbarBarElement extends ElementBase {
     this.#layout();
     this.#watchUrl(true);
     this.#slots.attach();
-    this.#pins.attach();
     this.#pins.update(this.#threads.threads);
     this.#reconnect();
   }
@@ -785,9 +790,11 @@ export class IterbarBarElement extends ElementBase {
     // The toolbar, and the panel above it when one is open, are kept clear.
     const popover = !this.#panel.hidden && this.#panel.dataset.mode === "popover";
     const barTop = Math.min(this.#logo.parentElement!.getBoundingClientRect().top, popover ? this.#panel.getBoundingClientRect().top : Infinity);
-    // An open sheet takes the right of the screen: the composer keeps to its left.
+    // An open sheet takes the right of the screen: the composer keeps to its left when it fits there. On a screen too
+    // narrow for both, it shows over the sheet (it is above it in the top layer), so the comment stays reachable.
     if (!this.#panel.hidden && !popover) {
-      viewport.width = Math.max(0, Math.min(viewport.width, this.#panel.getBoundingClientRect().left - offset.left - BAR_MARGIN_PX));
+      const room = this.#panel.getBoundingClientRect().left - offset.left - BAR_MARGIN_PX;
+      if (room >= box.width + BAR_MARGIN_PX) viewport.width = Math.min(viewport.width, room);
     }
     const reserved = Math.max(0, offset.top + viewport.height - barTop);
     const target = rect
@@ -1140,7 +1147,10 @@ export class IterbarBarElement extends ElementBase {
     const panel = this.#state.panel;
     if (panel === null) return;
     this.#saveState({ ...this.#state, panel: null });
-    if (refocus) this.#panelButton(panel).focus();
+    if (!refocus) return;
+    // The toolbar may have collapsed with the panel (it was opened from a comment pin): then the logo takes focus.
+    const button = this.#panelButton(panel);
+    (button.checkVisibility() ? button : this.#logo).focus();
   }
 
   #panelButton(panel: PanelName): HTMLButtonElement {
@@ -1275,7 +1285,10 @@ export class IterbarBarElement extends ElementBase {
     }
     const connection = new DaemonConnection(parsed.config, {
       onStatus: (status) => {
-        if (this.#connection === connection) this.#renderStatus(status);
+        if (this.#connection !== connection) return;
+        this.#renderStatus(status);
+        // A page list asked for before the connection opened comes from this daemon now.
+        if (status.kind === "connected" && this.#state.panel === "variants") void this.#slots.refreshPages();
       },
       onFeedback: (item): boolean => this.#connection === connection && this.#threads.merge(item),
       onDeleted: (feedbackId) => {
@@ -1404,6 +1417,8 @@ export class IterbarBarElement extends ElementBase {
       this.#panel.style.setProperty("--ib-sheet-bottom", `${under ? Math.round(height - toolbar.top + 8) : BAR_MARGIN_PX}px`);
     }
     if (this.#tooltipFor) this.#showTooltip(this.#tooltipFor);
+    // Pins keep off the toolbar and the panel wherever they are now.
+    this.#pins?.refresh();
   }
 
   /**

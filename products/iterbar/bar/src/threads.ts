@@ -235,6 +235,8 @@ export class ThreadsPanel {
   #swallowClick = false;
   /** Threads deleted but still undoable: hidden here, sent to the daemon when the undo runs out. */
   #pendingDelete: { ids: Set<string>; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** Threads whose delete was sent and not yet answered: still hidden, back in view only if the delete fails. */
+  readonly #deleting = new Set<string>();
   #busy = false;
 
   /** `options` connects the panel to the bar: counts, the remembered filter and the daemon requests for actions. */
@@ -302,9 +304,19 @@ export class ThreadsPanel {
     return this.#selected.size;
   }
 
-  /** Every thread kept, newest first (the comment pins read them). */
+  /** Every thread kept, newest first, leaving out deletes still undoable or being sent (the comment pins read them). */
   get threads(): readonly Feedback[] {
-    return this.#state.shown();
+    return this.#live();
+  }
+
+  /** Whether a thread is deleted here: waiting for its undo to run out, or sent and not yet answered. */
+  #hiddenByDelete(id: string): boolean {
+    return this.#pendingDelete?.ids.has(id) === true || this.#deleting.has(id);
+  }
+
+  /** The kept threads, newest first, leaving out the ones deleted here. */
+  #live(): Feedback[] {
+    return this.#state.shown().filter((item) => !this.#hiddenByDelete(item.id));
   }
 
   /**
@@ -313,7 +325,7 @@ export class ThreadsPanel {
    */
   reveal(id: string): boolean {
     const item = this.#state.get(id);
-    if (!item || this.#pendingDelete?.ids.has(id)) return false;
+    if (!item || this.#hiddenByDelete(id)) return false;
     if (!inFilter(item.status, this.#filter)) {
       this.filter = filterOf(item.status) === "archived" ? "archived" : "all";
       this.#options.onFilter?.(this.#filter);
@@ -389,10 +401,9 @@ export class ThreadsPanel {
     void this.#sendDelete([...pending.ids]);
   }
 
-  /** The threads the current filter lists, newest first, leaving out deletes still undoable. */
+  /** The threads the current filter lists, newest first, leaving out the ones deleted here. */
   #filtered(): Feedback[] {
-    const pending = this.#pendingDelete?.ids;
-    return this.#state.shown().filter((item) => !pending?.has(item.id) && inFilter(item.status, this.#filter));
+    return this.#live().filter((item) => inFilter(item.status, this.#filter));
   }
 
   #act(action: ThreadAction, ids: readonly string[]): void {
@@ -448,14 +459,19 @@ export class ThreadsPanel {
     this.#undo.hidden = true;
   }
 
+  /** Sends a delete; its threads stay hidden until the daemon answers, and come back only if it failed. */
   async #sendDelete(ids: readonly string[]): Promise<void> {
     const onDelete = this.#options.onDelete;
     if (!onDelete) return;
+    for (const id of ids) this.#deleting.add(id);
+    this.#render();
     try {
       await onDelete(ids);
       for (const id of ids) this.#state.remove(id);
     } catch (error) {
       this.#showError((error as Error).message);
+    } finally {
+      for (const id of ids) this.#deleting.delete(id);
     }
     this.#render();
   }
@@ -546,6 +562,8 @@ export class ThreadsPanel {
       if (!row || !(target.closest("summary") || target.closest(".thread-gutter"))) return;
       this.#swallowClick = false;
       this.#drag = { pointerId: event.pointerId, anchor: row.id, base: new Set(this.#selected), active: false };
+      window.addEventListener("pointerup", this.#onWindowRelease, true);
+      window.addEventListener("pointercancel", this.#onWindowRelease, true);
     });
     this.#list.addEventListener("pointermove", (event) => {
       const drag = this.#drag;
@@ -592,7 +610,8 @@ export class ThreadsPanel {
       finish(event);
       this.#swallowClick = false;
     });
-    // A drag released outside the list still ends.
+    // A drag released outside the list ends on the window's release (see #onWindowRelease), or on a move without the
+    // button held.
     this.element.addEventListener("pointerleave", (event) => {
       if (this.#drag && (event.buttons & 1) === 0) this.#endDrag();
     });
@@ -609,18 +628,30 @@ export class ThreadsPanel {
   #endDrag(): void {
     this.#drag = null;
     this.#list.removeAttribute("data-dragging");
+    window.removeEventListener("pointerup", this.#onWindowRelease, true);
+    window.removeEventListener("pointercancel", this.#onWindowRelease, true);
   }
+
+  /** A drag released anywhere (outside the list, outside the bar) ends there. */
+  readonly #onWindowRelease = (event: PointerEvent): void => {
+    if (!this.#drag || event.pointerId !== this.#drag.pointerId) return;
+    // A release on the list is handled there (it may need to swallow the click that follows).
+    if (event.composedPath().includes(this.#list)) return;
+    this.#endDrag();
+  };
 
   #render(): void {
     const shown = this.#state.shown();
     const total = this.#state.total;
-    const pending = this.#pendingDelete?.ids;
-    const live = pending ? shown.filter((item) => !pending.has(item.id)) : shown;
+    const live = this.#live();
     const liveIds = new Set(live.map((item) => item.id));
-    for (const id of this.#selected) if (!liveIds.has(id)) this.#selected.delete(id);
     const filtered = this.#filtered();
     const visible = filtered.slice(0, THREADS_PAGE_SIZE * this.#pages);
     const visibleIds = new Set(visible.map((item) => item.id));
+    // A selection only ever holds threads the user can see: one that left the filter (an agent changed it) or the page
+    // (newer threads pushed it down) drops out, so a bulk action never reaches it.
+    for (const id of this.#selected) if (!visibleIds.has(id)) this.#selected.delete(id);
+    if (this.#anchor !== null && !visibleIds.has(this.#anchor)) this.#anchor = null;
     for (const [id, row] of this.#rows) {
       if (liveIds.has(id) && visibleIds.has(id)) continue;
       row.element.remove();

@@ -3,6 +3,8 @@ import {
   MAX_TEXT_EXCERPT_LENGTH,
   parseSourceLocation,
   readPageApi,
+  registrySnapshotSchema,
+  safeParseMessage,
   SOURCE_ATTRIBUTE,
   type ActiveVariant,
   type BoundingBox,
@@ -69,7 +71,10 @@ export function readActiveVariants(): ActiveVariant[] {
   try {
     const api = readPageApi();
     if (!api) return [];
-    const variants = api.getSnapshot().slots.map((slot) => ({ slot: slot.slot, variant: slot.activeVariant }));
+    // Read as a protocol message, so a registry from protocol version 1 (`activeVersion`) is upgraded first.
+    const snapshot = safeParseMessage(registrySnapshotSchema, api.getSnapshot(), "registry snapshot");
+    if (!snapshot.success) return [];
+    const variants = snapshot.data.slots.map((slot) => ({ slot: slot.slot, variant: slot.activeVariant }));
     const parsed = activeVariantsSchema.safeParse(variants);
     return parsed.success ? parsed.data : [];
   } catch {

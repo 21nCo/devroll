@@ -1,6 +1,6 @@
-# iterbar
+# @iterbar/core
 
-Versioned (v1) contracts shared by every Iterbar package: zod schemas and
+Versioned (protocol version 2) contracts shared by every Iterbar package: zod schemas and
 TypeScript types for feedback, the page variants registry, the local daemon's
 HTTP and WebSocket messages, and the `.iterbar/` directory layout.
 
@@ -11,7 +11,7 @@ const feedback = parseMessage(feedbackSchema, JSON.parse(text), "feedback");
 ```
 
 The root export is browser-safe. Node.js path helpers for `.iterbar/` are
-available from `iterbar/node`:
+available from `@iterbar/core/node`:
 
 ```ts
 import { feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
@@ -21,11 +21,16 @@ import { feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
 
 Every top-level protocol message and schema-backed JSON file (`daemon.json`,
 `store.lock`, `feedback.json`) carries `schemaVersion: 2`; `.gitignore`,
-temporary files and attachment contents are not versioned. `parseMessage`
-rejects any other major version with `UnsupportedSchemaVersionError`
+temporary files and attachment contents are not versioned. Version 2 names a
+slot's variants `variants`, `defaultVariant` and `activeVariant`, and a chosen
+or active one `variant`, where version 1 said `versions`, `defaultVersion`,
+`activeVersion` and `version`. For one version, `parseMessage` still reads
+version 1 input (stored records, older bars and pages) by upgrading it first
+(`upgradeMessage`); it rejects any other major version with
+`UnsupportedSchemaVersionError`
 (`code: "unsupported_schema_version"`) before checking the shape, and reports
 every other mismatch as `InvalidMessageError` (`code: "invalid_message"`).
-Unknown properties are dropped, so additive v1 fields are tolerated; breaking
+Unknown properties are dropped, so additive fields are tolerated; breaking
 changes ship as a new major version.
 
 ## Contents
@@ -39,7 +44,7 @@ changes ship as a new major version.
 - **Daemon**: `daemonInfoSchema` (`daemon.json`), `storeLockSchema`, endpoint
   table, request, response, error and WebSocket event schemas, and token
   transport helpers.
-- **Layout**: `iterbarLayout` and, from `iterbar/node`, absolute path helpers
+- **Layout**: `iterbarLayout` and, from `@iterbar/core/node`, absolute path helpers
   that refuse unsafe ids. A project root is valid for `absolutePathSchema`
   when it is at most `MAX_ABSOLUTE_PATH_LENGTH` (4096) characters and POSIX
   absolute, or on Windows drive-qualified (`C:\`) or full UNC

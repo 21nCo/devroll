@@ -90,6 +90,29 @@ describe("iterbar init", () => {
     expect(await readFile(join(home, ".claude/skills/iterbar/SKILL.md"), "utf8")).toMatch(/name: iterbar/);
   });
 
+  it("never writes through a linked config or a linked folder, and refuses a config that is not an object", async () => {
+    const shared = join(base, "dotfiles");
+    await mkdir(shared, { recursive: true });
+    await writeFile(join(shared, "mcp.json"), JSON.stringify({ mcpServers: {} }));
+    await symlink(join(shared, "mcp.json"), join(root, ".mcp.json"));
+    await symlink(shared, join(root, ".cursor"));
+    await mkdir(home, { recursive: true });
+    await symlink(shared, join(home, ".claude"));
+    const run = capture();
+    expect(await runInit(["--root", root, "--agent", "all", "--force"], run.io, { home, skillSource: skill })).toBe(0);
+    expect(run.out()).toContain(`${join(root, ".mcp.json")} is a link`);
+    expect(run.out()).toContain(`${join(root, ".cursor")} is a link`);
+    expect(run.out()).toContain(`${join(home, ".claude")} is a link`);
+    expect(JSON.parse(await readFile(join(shared, "mcp.json"), "utf8"))).toEqual({ mcpServers: {} });
+    await expect(readFile(join(shared, "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
+
+    await rm(join(root, ".mcp.json"));
+    await writeFile(join(root, ".mcp.json"), "[1, 2]");
+    const refused = capture();
+    expect(await runInit(["--root", root], refused.io, { home: join(base, "other-home"), skillSource: skill })).toBe(1);
+    expect(refused.err()).toContain("is not an object");
+  });
+
   it("writes nothing on a dry run, and prints Codex's config instead of editing it", async () => {
     const run = capture();
     expect(await runInit(["--root", root, "--agent", "all", "--dry-run"], run.io, { home, skillSource: skill })).toBe(0);

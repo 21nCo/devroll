@@ -50,8 +50,27 @@ test("pins unfinished threads on their elements, follows them, and opens the thr
   }
   await expect(pins(page)).toHaveCount(0);
 
-  // An element that appears later gets its pin.
+  // An element that appears later gets its pin (with the inbox closed: an open sheet keeps pins off its area).
+  await inBar(page, "[data-role=panel-close]").click();
   daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: { ...gone, replies: [], updatedAt: new Date(Date.parse(gone.updatedAt) + 1000).toISOString() } });
-  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("beforeend", '<p id="nothing-here">Now here</p>'));
+  await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("beforeend", '<p id="nothing-here" style="width: 300px">Now here</p>'));
+  await expect(pins(page)).toHaveCount(1);
+});
+
+test("pins never sit on the toolbar or an open sheet, and closing a sheet opened from a pin focuses the logo", async ({ page, openFixture, fixtureServer }) => {
+  const here = `${fixtureServer.origin}/`;
+  // A full-width element: its pin is at the right edge, where the sheet opens.
+  const item = comment("On the heading", { pageUrl: here, target: target("#page-heading") });
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [item]);
+  await openFixture();
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token, expanded: false });
+  await expect(pins(page)).toHaveCount(1);
+  await pins(page).click();
+  await expect(inBar(page, "[data-role=panel]")).toBeVisible();
+  // The sheet covers the pin's place: the pin hides rather than paint over the sheet.
+  await expect(pins(page)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(inBar(page, "[data-role=panel]")).toBeHidden();
+  await expect(inBar(page, "[data-role=logo]")).toBeFocused();
   await expect(pins(page)).toHaveCount(1);
 });

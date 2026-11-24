@@ -20,6 +20,8 @@ export interface PinLayerOptions {
   readonly onOpen: (ids: readonly string[]) => void;
   /** The page URL threads are filed under, as slot reports file it; `null` for a page the contract cannot name. */
   readonly pageUrl: () => string | null;
+  /** Areas the bar draws (the toolbar, an open panel): a pin that would overlap one hides. */
+  readonly avoid?: () => readonly DOMRect[];
 }
 
 interface Pin {
@@ -90,7 +92,8 @@ export class PinLayer {
         if (records.every((record) => this.#options.host.contains(record.target))) return;
         this.#queueResolve();
       });
-      this.#mutations.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden", "id"] });
+      // Every attribute: a recorded selector may name any of them (an id, a class, data-testid, data-iterbar-src).
+      this.#mutations.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
     }
     if (typeof ResizeObserver === "function") this.#resizes = new ResizeObserver(this.#queuePlace);
     this.#rebuild();
@@ -201,20 +204,35 @@ export class PinLayer {
     });
   };
 
-  /** Puts each pin on its element's top-right corner; one whose element is gone, hidden or out of view hides. */
+  /** Places the pins again, as when the bar's toolbar or panel moved. */
+  refresh(): void {
+    this.#queuePlace();
+  }
+
+  /**
+   * Puts each pin on its element's top-right corner; one whose element is gone, hidden or out of view hides, and so
+   * does one that would sit on the bar's toolbar or open panel.
+   */
   #place(): void {
     const width = document.documentElement.clientWidth || window.innerWidth;
     const height = document.documentElement.clientHeight || window.innerHeight;
+    const avoid = this.#options.avoid?.() ?? [];
     for (const pin of this.#pins.values()) {
       const element = pin.element;
       const rect = element?.isConnected ? element.getBoundingClientRect() : null;
       const shown = rect !== null && rect.width > 0 && rect.height > 0
         && rect.bottom > 0 && rect.right > 0 && rect.top < height && rect.left < width
         && (element as HTMLElement).checkVisibility?.({ visibilityProperty: true, opacityProperty: false }) !== false;
-      pin.button.hidden = !shown;
-      if (!shown || !rect) continue;
+      if (!shown || !rect) {
+        pin.button.hidden = true;
+        continue;
+      }
       const left = Math.min(width - PIN_SIZE_PX - 2, Math.max(2, rect.right - PIN_SIZE_PX / 2));
       const top = Math.min(height - PIN_SIZE_PX - 2, Math.max(2, rect.top - PIN_SIZE_PX / 2));
+      const covered = avoid.some((area) => left < area.right && left + PIN_SIZE_PX > area.left
+        && top < area.bottom && top + PIN_SIZE_PX > area.top);
+      pin.button.hidden = covered;
+      if (covered) continue;
       pin.button.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
     }
   }

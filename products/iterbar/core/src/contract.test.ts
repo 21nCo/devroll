@@ -725,6 +725,13 @@ describe("protocol version 1 input", () => {
     expect(feedback).toMatchObject({ schemaVersion: 2, activeVariants: [{ slot: "pricing", variant: "v2" }], choice: { slot: "pricing", variant: "v2" } });
   });
 
+  it("keeps the version 1 field when a version 1 message also carries its version 2 name", () => {
+    for (const choice of [{ slot: "pricing", version: "v2", variant: "metadata" }, { variant: "metadata", slot: "pricing", version: "v2" }]) {
+      expect(api.parseMessage(api.activeVariantsSchema, [{ ...choice }], "x")).toBeDefined();
+      expect(api.upgradeMessage({ schemaVersion: 1, choice })).toEqual({ schemaVersion: 2, choice: { slot: "pricing", variant: "v2" } });
+    }
+  });
+
   it("leaves version 2 input as it is and still refuses a later major version", () => {
     const input = { schemaVersion: 2, slot: "pricing", variant: "v2" };
     expect(api.upgradeMessage(input)).toBe(input);

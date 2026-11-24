@@ -25,6 +25,7 @@ const packagePaths = [
   "products/diffpanel/presentation",
   "products/diffpanel/storage",
   "products/iterbar/core",
+  "products/iterbar/cli",
 ];
 
 try {
@@ -137,6 +138,17 @@ try {
     [join(root, "scripts", "verify-browser-imports.mjs"), consumerDirectory, "--probe-node-global"],
     { cwd: consumerDirectory, stdio: "pipe" },
   ), /Browser bundle contains a Node\.js-only global/);
+
+  // The Iterbar CLI installs on its own (its contracts are bundled) and carries its agent skill for `iterbar init`.
+  const iterbarCli = join(consumerDirectory, "node_modules", "iterbar", "dist", "cli.js");
+  assert.match(execFileSync(process.execPath, [iterbarCli, "--help"], { encoding: "utf8" }), /init/);
+  const iterbarManifest = JSON.parse(await readFile(join(consumerDirectory, "node_modules", "iterbar", "package.json"), "utf8"));
+  assert(!JSON.stringify(iterbarManifest.dependencies ?? {}).includes("workspace:"), "iterbar must not depend on workspace packages");
+  const initOutput = execFileSync(process.execPath, [iterbarCli, "init", "--agent", "all", "--dry-run", "--root", repository], {
+    encoding: "utf8", env: { ...process.env, HOME: home },
+  });
+  assert.match(initOutput, /would install/);
+  assert(existsSync(join(consumerDirectory, "node_modules", "iterbar", "skills", "iterbar", "SKILL.md")), "iterbar must carry its skill");
 
   const packedNames = tarballs.map((tarball) => tarball.slice(tarball.lastIndexOf("/") + 1));
   assert.equal(new Set(packedNames).size, packagePaths.length);

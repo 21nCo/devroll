@@ -97,6 +97,11 @@ const V1_RENAMES: Readonly<Record<string, string>> = Object.freeze({
   version: "variant",
 });
 
+/** Each version 2 name and the version 1 field it replaces. */
+const LEGACY_NAMES: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(Object.entries(V1_RENAMES).map(([legacy, current]) => [current, legacy])),
+);
+
 /** Most levels of nesting {@link upgradeMessage} walks; protocol messages are far shallower. */
 const MAX_UPGRADE_DEPTH = 32;
 
@@ -107,7 +112,12 @@ function upgradeV1(value: unknown, depth: number): unknown {
   const prototype = Object.getPrototypeOf(value) as unknown;
   if (prototype !== Object.prototype && prototype !== null) return value;
   const upgraded: Record<string, unknown> = {};
+  const record = value as Record<string, unknown>;
   for (const [key, item] of Object.entries(value)) {
+    // A version 2 name next to its version 1 field was an unknown, ignored field in version 1: the version 1 field
+    // decides, whichever order the keys come in.
+    const legacy = LEGACY_NAMES[key];
+    if (legacy !== undefined && Object.hasOwn(record, legacy)) continue;
     if (key === "schemaVersion" && item === LEGACY_SCHEMA_VERSION) {
       upgraded[key] = SCHEMA_VERSION;
     } else if (key === "code" && item === "unknown_version") {

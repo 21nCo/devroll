@@ -271,10 +271,14 @@ export class DaemonConnection {
     return feedback.data;
   }
 
-  /** Deletes an item and its attachments. An item that is already gone counts as deleted. */
+  /**
+   * Deletes an item and its attachments. An item that is already gone counts as deleted. The request outlives the
+   * connection and the page: stopping the connection does not abort it, and it is sent with `keepalive`, so a delete
+   * sent as the page goes away or the bar is removed still reaches the daemon.
+   */
   async deleteFeedback(feedbackId: string): Promise<void> {
     try {
-      await this.#userRequest("deleteFeedback", { feedbackId });
+      await this.#userRequest("deleteFeedback", { feedbackId }, undefined, true);
     } catch (error) {
       if (error instanceof DaemonRequestError && error.status === 404) return;
       throw error;
@@ -300,10 +304,12 @@ export class DaemonConnection {
   }
 
   /** A request the user started from the inbox: refused while stopped, and a `401` stops the connection. */
-  async #userRequest(endpoint: "setStatus" | "deleteFeedback", params: Readonly<Record<string, string>>, body?: string): Promise<unknown> {
+  async #userRequest(
+    endpoint: "setStatus" | "deleteFeedback", params: Readonly<Record<string, string>>, body?: string, detached = false,
+  ): Promise<unknown> {
     if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
     try {
-      return await this.#request(endpoint, body, params);
+      return await this.#request(endpoint, body, params, detached);
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         this.#reject();
@@ -487,11 +493,15 @@ export class DaemonConnection {
     endpoint: Exclude<DaemonEndpointName, "registerOrigins" | "events" | "getFeedback" | "getAttachment" | "reply">,
     body?: string | FormData,
     params: Readonly<Record<string, string>> = {},
+    /** Sent with `keepalive` and not aborted when the connection stops, so it outlives the bar and the page. */
+    detached = false,
   ): Promise<unknown> {
     const deadline = new AbortController();
     const cancel = (): void => deadline.abort();
-    if (this.#abort.signal.aborted) cancel();
-    this.#abort.signal.addEventListener("abort", cancel, { once: true });
+    if (!detached) {
+      if (this.#abort.signal.aborted) cancel();
+      this.#abort.signal.addEventListener("abort", cancel, { once: true });
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
@@ -511,6 +521,7 @@ export class DaemonConnection {
         cache: "no-store",
         credentials: "omit",
         signal: deadline.signal,
+        ...(detached ? { keepalive: true } : {}),
       });
       if (response.status === 401) throw new UnauthorizedError("unauthorized");
       if (!response.ok) {

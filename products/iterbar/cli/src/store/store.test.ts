@@ -255,6 +255,32 @@ describe("records", () => {
     expect(await store.get(item.id)).toEqual(updated);
   });
 
+  it("saves a version 1 record as version 2 on its next write, keeping fields it does not know", async () => {
+    let store = await open();
+    const item = await store.create(chooseVariantDraft);
+    const recordPath = feedbackRecordPath(root, item.id);
+    const v2 = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown> & { choice: { slot: string; variant: string } };
+    const { variant, ...choice } = v2.choice;
+    const activeVariants = (v2.activeVariants as Array<{ slot: string; variant: string }>).map(({ slot, variant: name }) => ({ slot, version: name }));
+    await writeFile(recordPath, JSON.stringify({ ...v2, schemaVersion: 1, choice: { ...choice, version: variant }, activeVariants, labels: ["ui"] }));
+
+    store = await reopen(store);
+    expect((await store.get(item.id)).kind === "choose_variant" && (await store.get(item.id))).toMatchObject({ choice: { variant } });
+    await store.setStatus(item.id, "archived");
+    const onDisk = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+    expect(onDisk).toMatchObject({ schemaVersion: 2, status: "archived", choice: { variant }, labels: ["ui"] });
+    expect(JSON.stringify(onDisk)).not.toContain('"version"');
+  });
+
+  it("deletes an item and its attachments", async () => {
+    const store = await open();
+    const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
+    await store.delete(item.id);
+    expect(await readdir(iterbarPaths(root).feedbackDirectory)).toEqual([]);
+    await expect(store.get(item.id)).rejects.toMatchObject({ code: "not_found" });
+    await expect(store.delete(item.id)).rejects.toMatchObject({ code: "not_found" });
+  });
+
   it("reports corrupt_store for a referenced attachment that is missing or altered", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });

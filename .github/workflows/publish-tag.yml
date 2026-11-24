@@ -10,6 +10,7 @@ on:
       - 'diffpanel-presentation-v*.*.*'
       - 'diffpanel-storage-v*.*.*'
       - 'iterbar-core-v*.*.*'
+      - 'iterbar-v*.*.*'
   workflow_dispatch:
     inputs:
       release_tag:

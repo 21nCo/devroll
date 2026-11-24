@@ -149,6 +149,35 @@ test.describe("switching a variant", () => {
     expect(await page.evaluate(() => location.search)).toBe("?q=1");
   });
 
+  test("switches a page registry from protocol version 1 in its terms, records the switch and reads its active variants", async ({ page, openFixture }) => {
+    await openFixture("/?q=1");
+    await page.evaluate(() => {
+      // A version 1 registry: its snapshot says versions/defaultVersion/activeVersion and it selects with `version`.
+      let active = "v1";
+      const listeners = new Set<(snapshot: unknown) => void>();
+      const snapshot = () => ({ schemaVersion: 1, warnings: [], slots: [{ slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: active, mounts: 1 }] });
+      const api = {
+        schemaVersion: 1,
+        getSnapshot: snapshot,
+        select: (selection: { schemaVersion: number; slot: string; version?: string }) => {
+          if (selection.schemaVersion !== 1 || !selection.version) return;
+          active = selection.version;
+          for (const listener of listeners) listener(snapshot());
+        },
+        subscribe: (listener: (snapshot: unknown) => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
+      Object.defineProperty(window, "__ITERBAR__", { configurable: true, value: api });
+    });
+    await mountBar(page);
+    await openPanel(page, "variants");
+    await inBar(page, "[data-variant=v2]").click();
+    await expect(inBar(page, "[data-variant=v2]")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => page.evaluate(() => location.search)).toBe("?q=1&iterbar=pricing:v2");
+  });
+
   test("reports an incompatible page API instead of using it", async ({ page, openFixture }) => {
     await openFixture();
     await page.evaluate(() => {

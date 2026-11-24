@@ -24,7 +24,9 @@ import {
   type FeedbackListQuery,
   type FeedbackStatus,
   type ReplyAuthor,
+  type IterbarPaths,
   type ScreenshotAttachment,
+  upgradeMessage,
 } from "@iterbar/core";
 import {
   attachmentPath,
@@ -32,7 +34,6 @@ import {
   feedbackDirectoryPath,
   feedbackRecordPath,
   iterbarPaths,
-  type IterbarPaths,
 } from "@iterbar/core/node";
 import { errnoCode, IterbarStoreError } from "./errors.js";
 import { createFileAtomic, syncDirectory, writeFileAtomic } from "./files.js";
@@ -269,8 +270,9 @@ class FileFeedbackStore implements FeedbackStore {
     let json: Record<string, unknown>;
     try {
       feedback = parseMessageJson(feedbackSchema, text, "feedback");
-      // A valid record is a JSON object.
-      json = JSON.parse(text) as Record<string, unknown>;
+      // A valid record is a JSON object. A version 1 record is upgraded here too, so a write (a reply, a status) saves
+      // it as version 2, unknown fields kept.
+      json = upgradeMessage(JSON.parse(text)) as Record<string, unknown>;
     } catch (error) {
       if (error instanceof InvalidMessageError) {
         throw new IterbarStoreError("corrupt_store", `${path} is not a valid feedback record: ${error.message}`, { cause: error });
@@ -451,8 +453,14 @@ class FileFeedbackStore implements FeedbackStore {
       // so the item never comes back half deleted.
       await rm(feedbackRecordPath(this.#root, feedbackId), { force: true });
       await syncDirectory(feedbackDirectoryPath(this.#root, feedbackId));
-      await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
-      await syncDirectory(this.paths.feedbackDirectory);
+      // The record is gone, so the item is deleted. Its attachments go next; if that fails, the next open sweeps the
+      // directory, which no longer has a record.
+      try {
+        await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
+        await syncDirectory(this.paths.feedbackDirectory);
+      } catch {
+        // Left for the sweep.
+      }
     });
   }
 
