@@ -164,6 +164,10 @@ describe("iterbar init", () => {
     const contracts = capture();
     expect(await runInit(["--root", root, "--force"], contracts.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
+    // Run through npx with that package in the way, the entry names this CLI's version so npx fetches it instead.
+    const viaNpx = capture();
+    expect(await runInit(["--root", root, "--force"], viaNpx.io, { home, skillSource: skill, cliPath: "/cache/_npx/1/node_modules/iterbar/dist/cli.js" })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toMatch(/^iterbar@\d+\.\d+\.\d+/);
     await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", bin: { iterbar: "./dist/cli.js" } }));
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);

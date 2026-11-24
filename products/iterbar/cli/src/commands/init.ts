@@ -1,8 +1,9 @@
 import { chmod, cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { packageVersion } from "../version.js";
 
 /** The npm package that carries the `iterbar` command, the MCP server and the agent skill. */
 export const CLI_PACKAGE = "iterbar";
@@ -79,8 +80,13 @@ interface McpLaunch {
  * absolute path, so the agent can start the server.
  */
 function mcpLaunch(root: string, cliPath: string | null): McpLaunch {
-  const installed = hasIterbarCommand(join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json"));
-  if (installed || cliPath === null || cliPath.split(sep).includes("_npx")) return MCP_COMMAND;
+  const manifest = join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json");
+  if (hasIterbarCommand(manifest)) return MCP_COMMAND;
+  const fromNpx = cliPath === null || cliPath.split(sep).includes("_npx");
+  // Something without the command is installed under the name (the contracts package once published as iterbar):
+  // npx would run that, so the entry names this CLI's version, which npx then fetches instead.
+  if (fromNpx && existsSync(manifest)) return { command: "npx", args: ["-y", `${CLI_PACKAGE}@${packageVersion()}`, "mcp"] };
+  if (fromNpx) return MCP_COMMAND;
   return { command: "node", args: [cliPath, "mcp"] };
 }
 
