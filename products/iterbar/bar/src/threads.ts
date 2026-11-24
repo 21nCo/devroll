@@ -154,11 +154,15 @@ class ThreadItem {
           h("p", { class: "reply-text" }, reply.text))))
         : h("p", { class: "muted" }, "No replies yet."),
     );
-    // Focus on an action that this update removes moves to the next one, so the keyboard keeps its place.
+    // The actions are rebuilt only when they change (a reply leaves them as they are, so focus and the next Enter stay
+    // on the same action). When they change, focus stays on the same action if it remains, or moves to the first.
+    const actions = ACTIONS.filter((action) => actionApplies(action, feedback.status));
+    if (this.#actions.dataset.actions === actions.join(" ")) return;
+    this.#actions.dataset.actions = actions.join(" ");
     const root = this.element.getRootNode();
     const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
-    const focused = active !== null && this.#actions.contains(active);
-    this.#actions.replaceChildren(...ACTIONS.filter((action) => actionApplies(action, feedback.status)).map((action) => {
+    const focused = active !== null && this.#actions.contains(active) ? (active as HTMLElement).dataset.action ?? null : null;
+    this.#actions.replaceChildren(...actions.map((action) => {
       const button = h("button", {
         type: "button", class: `icon action${action === "delete" ? " danger" : ""}`, "data-action": action,
         "data-tip": ACTION_LABELS[action],
@@ -166,7 +170,9 @@ class ThreadItem {
       button.addEventListener("click", () => this.#onAction(action, this.id));
       return button;
     }));
-    if (focused) (this.#actions.querySelector("button") as HTMLButtonElement | null)?.focus();
+    if (focused !== null) {
+      (this.#actions.querySelector<HTMLButtonElement>(`[data-action="${focused}"]`) ?? this.#actions.querySelector("button"))?.focus();
+    }
   }
 
   set selected(value: boolean) {
@@ -186,6 +192,8 @@ export interface ThreadsPanelOptions {
   readonly onDelete?: (ids: readonly string[]) => Promise<{ readonly failed: readonly string[]; readonly message: string | null }>;
   /** Says `text` to screen readers. */
   readonly announce?: (text: string) => void;
+  /** A delete left room among the kept threads for older ones the bar knows of: a fresh listing brings them in. */
+  readonly onNeedListing?: () => void;
 }
 
 /** A drag that selects the threads it passes over, from the row it started on. */
@@ -389,7 +397,14 @@ export class ThreadsPanel {
   remove(id: string): void {
     const had = this.#state.remove(id);
     this.#selected.delete(id);
-    if (had) this.#render();
+    if (!had) return;
+    this.#render();
+    this.#backfill();
+  }
+
+  /** Asks for a listing when the kept threads have room for older ones the bar knows of but holds no copy of. */
+  #backfill(): void {
+    if (this.#state.total > this.#state.shown().length) this.#options.onNeedListing?.();
   }
 
   /** Whether every thread in view has its latest content; see {@link ThreadsState.complete}. */
@@ -504,6 +519,7 @@ export class ThreadsPanel {
     }
     if (outcome.message) this.#showError(outcome.message);
     this.#render();
+    this.#backfill();
   }
 
   #setBusy(busy: boolean): void {

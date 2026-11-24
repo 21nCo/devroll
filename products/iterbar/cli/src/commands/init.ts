@@ -259,6 +259,10 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
     io.stdout.write(`${line}\n`);
   };
   try {
+    // A --root that is itself a link is refused (name the folder it points to), like every other link init could write
+    // through. Its ancestors are not checked: they are the user's own path to the project (/tmp is a link on macOS).
+    const rootLink = await linkTarget(root);
+    if (rootLink !== null) throw new Error(`${root} is a link to ${rootLink}; run init with --root set to the folder it points to.`);
     const source = env.skillSource ?? await bundledSkill();
     say(`Setting up Iterbar in ${root}${parsed.dryRun ? " (dry run: nothing is written)" : ""}`);
     for (const agent of parsed.agents) {

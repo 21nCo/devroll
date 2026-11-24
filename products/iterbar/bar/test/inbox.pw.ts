@@ -188,3 +188,29 @@ test("Show more from the keyboard moves focus to the first thread it lists", asy
   await expect(inBar(page, "[data-role=inbox-count]")).toHaveText("30 of 30");
   await expect(inBar(page, ".thread").nth(25).locator("summary")).toBeFocused();
 });
+
+test("a delete that leaves room among the kept threads lists again to bring in the next older one", async ({ page, openFixture, fixtureServer }) => {
+  const items = Array.from({ length: 501 }, (_, index) => comment(`Thread ${index}`));
+  const daemon = await openInbox(page, openFixture, items, fixtureServer.origin);
+  await expect(inBar(page, "[data-filter=all]")).toHaveAttribute("aria-label", "All, 500");
+  const listings = () => daemon.requests.filter((request) => request.method === "GET" && request.path === "/feedback").length;
+  const before = listings();
+  daemon.items = daemon.items.filter((item) => item.id !== items[500]!.id);
+  daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: items[500]!.id });
+  await expect.poll(listings).toBeGreaterThan(before);
+  await expect(inBar(page, "[data-filter=all]")).toHaveAttribute("aria-label", "All, 500");
+  await expect(inBar(page, "[data-role=threads-older]")).toBeHidden();
+});
+
+test("a reply that leaves a thread's actions as they were keeps focus on the same action", async ({ page, openFixture, fixtureServer }) => {
+  const item = comment("Focus me");
+  const daemon = await openInbox(page, openFixture, [item], fixtureServer.origin);
+  await inBar(page, ".thread summary").click();
+  await inBar(page, ".thread [data-action=archive]").focus();
+  daemon.send({
+    schemaVersion: SCHEMA_VERSION, type: "feedback.updated",
+    feedback: { ...item, updatedAt: new Date(Date.parse(item.updatedAt) + 1000).toISOString(), replies: [{ id: "r1", author: { kind: "agent", name: null }, text: "On it.", createdAt: item.updatedAt }] },
+  });
+  await expect(inBar(page, ".thread .reply")).toHaveCount(1);
+  await expect(inBar(page, ".thread [data-action=archive]")).toBeFocused();
+});

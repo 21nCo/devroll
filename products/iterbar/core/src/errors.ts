@@ -114,7 +114,10 @@ function renameFields(value: unknown, legacyKeys: readonly string[]): unknown {
   const upgraded: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
     if (renamed.has(key)) continue;
-    upgraded[legacyKeys.includes(key) ? V1_RENAMES[key]! : key] = item;
+    // Defined, not assigned, so a JSON field named `__proto__` stays an ordinary field.
+    Object.defineProperty(upgraded, legacyKeys.includes(key) ? V1_RENAMES[key]! : key, {
+      value: item, enumerable: true, writable: true, configurable: true,
+    });
   }
   return upgraded;
 }

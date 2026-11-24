@@ -747,6 +747,10 @@ describe("protocol version 1 input", () => {
     // An active variant's or a choice's extension named like a slot state field keeps its name.
     expect(api.upgradeMessage({ schemaVersion: 1, kind: "choose_variant", activeVariants: [{ slot: "pricing", version: "b", versions: ["m"] }], choice: { slot: "pricing", version: "b", activeVersion: "m" } }, api.feedbackSchema))
       .toEqual({ schemaVersion: 2, kind: "choose_variant", activeVariants: [{ slot: "pricing", variant: "b", versions: ["m"] }], choice: { slot: "pricing", variant: "b", activeVersion: "m" } });
+    // A field named __proto__ (valid JSON) stays an own field through the rename.
+    const proto = api.upgradeMessage(JSON.parse('{"schemaVersion":1,"kind":"choose_variant","choice":{"slot":"p","version":"b","__proto__":{"x":1}}}'), api.feedbackSchema) as { choice: object };
+    expect(Object.hasOwn(proto.choice, "__proto__")).toBe(true);
+    expect(JSON.stringify(proto.choice)).toBe('{"slot":"p","variant":"b","__proto__":{"x":1}}');
     // A comment's extension named `choice` is not a variant choice: its fields stay.
     expect(api.upgradeMessage({ schemaVersion: 1, kind: "comment", choice: { version: "design-3" } }, api.feedbackSchema))
       .toEqual({ schemaVersion: 2, kind: "comment", choice: { version: "design-3" } });

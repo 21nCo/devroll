@@ -120,6 +120,10 @@ describe("iterbar init", () => {
     expect((await stat(join(root, ".mcp.json"))).mode & 0o777).toBe(0o600);
 
     expect(() => parseInitArgs(["--root", "--dry-run"])).toThrow(/needs a value/);
+    await symlink(root, join(base, "project-link"));
+    const linked = capture();
+    expect(await runInit(["--root", join(base, "project-link")], linked.io, { home, skillSource: skill })).toBe(1);
+    expect(linked.err()).toContain("is a link");
     expect(parseInitArgs(["--root=-odd"])).toMatchObject({ root: "-odd" });
 
     const realCodex = join(base, "real-codex");

@@ -43,10 +43,12 @@ interface Pin {
  */
 /** Whether an element with `style` is the containing block of fixed elements inside it, as a transform makes it. */
 function holdsFixed(style: CSSStyleDeclaration): boolean {
-  return style.transform !== "none" || style.perspective !== "none" || style.filter !== "none"
+  const individual = (value: string | undefined) => value !== undefined && value !== "" && value !== "none";
+  return style.transform !== "none" || individual(style.translate) || individual(style.rotate) || individual(style.scale)
+    || style.perspective !== "none" || style.filter !== "none"
     || (style.backdropFilter !== undefined && style.backdropFilter !== "none" && style.backdropFilter !== "")
     || /paint|layout|strict|content/.test(style.contain)
-    || /transform|perspective|filter/.test(style.willChange);
+    || /transform|translate|rotate|scale|perspective|filter/.test(style.willChange);
 }
 
 /**

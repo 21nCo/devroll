@@ -285,6 +285,11 @@ export class DaemonConnection {
     }
   }
 
+  /** Lists the threads again (now, or once the listing in flight ends), as when a delete left room for older ones. */
+  refresh(): void {
+    this.#refreshThreads();
+  }
+
   /** The latest slot report of every page the daemon has heard from since it started (`GET /slots`). */
   async listSlots(): Promise<readonly SlotReport[]> {
     if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");

@@ -373,6 +373,7 @@ export class IterbarBarElement extends ElementBase {
       onStatus: (ids, status) => this.#setStatuses(ids, status),
       onDelete: (ids) => this.#deleteThreads(ids),
       announce: (text) => this.#announce(text),
+      onNeedListing: () => this.#connection?.refresh(),
     });
     this.#tray = new DraftTray({
       onSendAll: () => void this.#sendAll(),
