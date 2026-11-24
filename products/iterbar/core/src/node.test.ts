@@ -8,7 +8,7 @@ vi.mock("node:path", async () => (await vi.importActual<typeof import("node:path
 
 const root = join("/", "work", "app");
 
-/** Every `iterbar/node` helper that takes a project root, so each one is held to the same root rule. */
+/** Every `@iterbar/core/node` helper that takes a project root, so each one is held to the same root rule. */
 const helpers: Record<string, (projectRoot: string) => string> = {
   iterbarPaths: (projectRoot) => iterbarPaths(projectRoot).daemonFile,
   feedbackDirectoryPath: (projectRoot) => feedbackDirectoryPath(projectRoot, "fb_0001"),
@@ -17,7 +17,7 @@ const helpers: Record<string, (projectRoot: string) => string> = {
   attachmentPath: (projectRoot) => attachmentPath(projectRoot, "fb_0001", { id: "at_1", kind: "screenshot" }),
 };
 
-describe("iterbar/node paths", () => {
+describe("@iterbar/core/node paths", () => {
   it("places every fixed entry inside the project's .iterbar directory", () => {
     const paths = iterbarPaths(join(root, "nested", ".."));
     expect(paths.directory).toBe(join(root, ".iterbar"));

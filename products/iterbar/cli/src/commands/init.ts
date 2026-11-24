@@ -245,6 +245,17 @@ async function writeAtomic(path: string, text: string): Promise<void> {
   }
 }
 
+/** The package name an earlier init registered, before the CLI was published as `iterbar`. */
+const EARLIER_PACKAGE = "@iterbar/cli";
+
+/** Whether `current` is exactly what an earlier init wrote where it now writes `entry`. */
+function isEarlierDefault(current: unknown, entry: object): boolean {
+  const earlier = JSON.parse(JSON.stringify(entry)) as { args?: unknown[] };
+  if (!Array.isArray(earlier.args)) return false;
+  earlier.args = earlier.args.map((arg) => (arg === CLI_PACKAGE ? EARLIER_PACKAGE : arg));
+  return JSON.stringify(current) === JSON.stringify(earlier) && JSON.stringify(current) !== JSON.stringify(entry);
+}
+
 /**
  * Adds the iterbar server to a JSON config's `mcpServers`, keeping every other entry. A config that is a link, or sits
  * in a linked folder, is never written (it may be shared, such as a dotfiles checkout): the entry is printed instead.
@@ -273,6 +284,14 @@ async function registerJson(base: string, path: string, entry: object, options: 
   const current = servers.iterbar;
   if (JSON.stringify(current) === JSON.stringify(entry)) {
     say(`  MCP server: already in ${path}`);
+    return;
+  }
+  // An entry an earlier init wrote under the package's earlier name (@iterbar/cli) is that init's own default, not a
+  // customized entry: it is moved to the current one.
+  if (current !== undefined && isEarlierDefault(current, entry)) {
+    say(`  MCP server: ${options.dryRun ? "would update" : "updated"} iterbar in ${path} to the package's new name`);
+    if (options.dryRun) return;
+    await writeAtomic(path, `${JSON.stringify({ ...config, mcpServers: { ...servers, iterbar: entry } }, null, 2)}\n`);
     return;
   }
   if (current !== undefined && !options.force) {

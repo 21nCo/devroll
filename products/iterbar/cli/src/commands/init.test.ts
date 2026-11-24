@@ -158,8 +158,8 @@ describe("iterbar init", () => {
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
     expect(run.out()).toContain(`command = "node"`);
     // Installed in the project, or fetched by npx: npx runs it.
-    await mkdir(join(root, "node_modules", "@iterbar", "cli"), { recursive: true });
-    await writeFile(join(root, "node_modules", "@iterbar", "cli", "package.json"), "{}");
+    await mkdir(join(root, "node_modules", "iterbar"), { recursive: true });
+    await writeFile(join(root, "node_modules", "iterbar", "package.json"), "{}");
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
@@ -170,6 +170,17 @@ describe("iterbar init", () => {
     const codex = capture();
     expect(await runInit(["--root", root, "--agent", "codex"], codex.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
     expect(codex.out()).toContain(`command = "node"\n    args = [${JSON.stringify(projectCli)}, "mcp", "--root", ${JSON.stringify(root)}]`);
+  });
+
+  it("moves an entry an earlier init wrote under @iterbar/cli to the new name, and keeps a customized one", async () => {
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp"] } } }));
+    const run = capture();
+    expect(await runInit(["--root", root], run.io, { home, skillSource: skill })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp", "--verbose"] } } }));
+    const custom = capture();
+    expect(await runInit(["--root", root], custom.io, { home, skillSource: skill })).toBe(0);
+    expect(custom.out()).toContain("kept it");
   });
 
   it("writes nothing on a dry run, and prints Codex's config instead of editing it", async () => {

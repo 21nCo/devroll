@@ -80,7 +80,7 @@ export const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/, "must be a lowerc
 /** A positive process id. */
 export const pidSchema = z.number().int().positive();
 
-/** The longest project root, in UTF-16 code units, that `absolutePathSchema` and `iterbar/node` accept. */
+/** The longest project root, in UTF-16 code units, that `absolutePathSchema` and `@iterbar/core/node` accept. */
 export const MAX_ABSOLUTE_PATH_LENGTH = 4096;
 
 const POSIX_ROOT = /^\/(?![\\/])/;
@@ -101,7 +101,7 @@ const WINDOWS_ROOT = new RegExp(String.raw`^(?:[A-Za-z]:[\\/]|[\\/]{2}${UNC_NAME
  *
  * The path must also be at most {@link MAX_ABSOLUTE_PATH_LENGTH} characters long.
  *
- * `platform` limits the check to that platform's forms, as `iterbar/node` does; omit it to accept either.
+ * `platform` limits the check to that platform's forms, as `@iterbar/core/node` does; omit it to accept either.
  */
 export function isAbsolutePath(value: string, platform?: "posix" | "win32"): boolean {
   if (typeof value !== "string" || value.length > MAX_ABSOLUTE_PATH_LENGTH || value.includes("\0")) return false;

@@ -1,6 +1,6 @@
 {
   "name": "iterbar",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Iterbar command line: the daemon, the MCP server for coding agents, `iterbar init`, and the bundled agent skill.",
   "type": "module",
   "license": "MIT",

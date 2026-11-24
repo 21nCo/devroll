@@ -8,7 +8,7 @@ vi.mock("node:path", async () => (await vi.importActual<typeof import("node:path
 const { attachmentPath, attachmentsDirectoryPath, feedbackDirectoryPath, feedbackRecordPath, iterbarPaths } =
   await import("./node.js");
 
-/** Every `iterbar/node` helper that takes a project root, so each one is held to the same root rule. */
+/** Every `@iterbar/core/node` helper that takes a project root, so each one is held to the same root rule. */
 const helpers: Record<string, (projectRoot: string) => string> = {
   iterbarPaths: (projectRoot) => iterbarPaths(projectRoot).daemonFile,
   feedbackDirectoryPath: (projectRoot) => feedbackDirectoryPath(projectRoot, "fb_0001"),
@@ -38,7 +38,7 @@ function expectAccepted(projectRoot: string, expectedRoot: string): void {
   expect(absolutePathSchema.safeParse(iterbarPaths(projectRoot).projectRoot).success, projectRoot).toBe(true);
 }
 
-describe("iterbar/node paths on Windows", () => {
+describe("@iterbar/core/node paths on Windows", () => {
   it("accepts drive-qualified and full UNC roots", () => {
     expect(iterbarPaths("C:\\work\\app").daemonFile).toBe("C:\\work\\app\\.iterbar\\daemon.json");
     expect(iterbarPaths("c:/work/app").directory).toBe("c:\\work\\app\\.iterbar");
