@@ -389,8 +389,22 @@ export class ThreadsPanel {
    */
   replace(items: readonly Feedback[], touched: ReadonlySet<string>): boolean {
     const { changed, complete } = this.#state.applyListing(items, touched);
+    // A listing that no longer has a thread whose Undo still shows (deleted elsewhere while the socket was down): Undo
+    // no longer covers it.
+    for (const id of [...(this.#pendingDelete?.ids ?? [])]) if (!this.#state.get(id)) this.#forgetPending(id);
     if (changed) this.#render();
     return complete;
+  }
+
+  /** `id` is gone for good: the pending Undo no longer covers it, and goes once it covers nothing. */
+  #forgetPending(id: string): void {
+    const pending = this.#pendingDelete;
+    if (!pending?.ids.delete(id)) return;
+    if (pending.ids.size === 0) this.#dropPendingDelete();
+    else {
+      const label = this.#undo.querySelector("span");
+      if (label) label.textContent = `Deleted ${plural(pending.ids.size, "thread")}.`;
+    }
   }
 
   /** A thread was deleted (here or elsewhere): it goes for good. */
@@ -398,14 +412,7 @@ export class ThreadsPanel {
     const had = this.#state.remove(id);
     this.#selected.delete(id);
     // Deleted for good (from another tab, say) while its Undo still shows: Undo no longer covers it.
-    const pending = this.#pendingDelete;
-    if (pending?.ids.delete(id)) {
-      if (pending.ids.size === 0) this.#dropPendingDelete();
-      else {
-        const label = this.#undo.querySelector("span");
-        if (label) label.textContent = `Deleted ${plural(pending.ids.size, "thread")}.`;
-      }
-    }
+    this.#forgetPending(id);
     if (!had) return;
     this.#render();
     this.#backfill();

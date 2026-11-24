@@ -281,7 +281,8 @@ describe("records", () => {
     await expect(store.delete(item.id)).rejects.toMatchObject({ code: "not_found" });
   });
 
-  it("opens even when a folder left by a delete can't be removed, and says so", async () => {
+  // A read-only folder stops nobody running as root (CAP_DAC_OVERRIDE), so there the case can't be set up this way.
+  it.skipIf(process.getuid?.() === 0)("opens even when a folder left by a delete can't be removed, and says so", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
     await rm(feedbackRecordPath(root, item.id));

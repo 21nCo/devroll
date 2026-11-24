@@ -65,6 +65,9 @@ export interface SettingsContext {
   readonly devServer: DevServerLink | null;
 }
 
+/** Actions that connect the bar to a new daemon themselves, so the change of daemon is their own outcome. */
+const RECONNECTING_ACTIONS: ReadonlySet<string> = new Set(["start", "restart"]);
+
 /** Where focus goes once an action ends: the first of these controls the sheet shows then. */
 const RUN_FOCUS: Readonly<Record<string, readonly string[]>> = {
   stop: ["daemon-start", "daemon-stop", "settings-setup"],
@@ -147,6 +150,8 @@ export class SettingsPanel {
   #focusCancel = false;
   /** Counts daemon-info requests, so an answer from an earlier daemon is dropped. */
   #infoRequest = 0;
+  /** Counts daemon changes, so an action begun against an earlier daemon says nothing here when it ends. */
+  #connectionEpoch = 0;
   #updatesResult: readonly PackageUpdate[] | null = null;
   /** The dev-server link the update result belongs to. */
   #updatesFor: DevServerLink | null = null;
@@ -185,6 +190,9 @@ export class SettingsPanel {
    */
   resetForConnection(): void {
     this.#infoRequest += 1;
+    this.#connectionEpoch += 1;
+    // An action still running against the earlier daemon no longer holds this sheet's controls.
+    if (this.#busy !== null && !RECONNECTING_ACTIONS.has(this.#busy)) this.#busy = null;
     this.#info = null;
     this.#infoError = null;
     this.#confirming = null;
@@ -239,33 +247,42 @@ export class SettingsPanel {
   /** Runs one of the sheet's actions, showing that it runs and then how it went. */
   async #run(name: string, action: () => Promise<string>): Promise<void> {
     const focusAfter = RUN_FOCUS[name] ?? [];
+    const epoch = this.#connectionEpoch;
     this.#busy = name;
     this.#message = null;
     this.#confirming = null;
     this.#renderAll();
+    let message: { text: string; error: boolean };
     try {
-      this.#message = { text: await action(), error: false };
+      message = { text: await action(), error: false };
     } catch (error) {
-      this.#message = { text: (error as Error).message, error: true };
-    } finally {
-      this.#busy = null;
-      // In the sheet, or nowhere (it fell to the page's body); not when the user moved on to the page or another control.
-      const active = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
-      const pageActive = document.activeElement;
-      const hadFocus = active ? this.element.contains(active) : pageActive === null || pageActive === document.body;
+      message = { text: (error as Error).message, error: true };
+    }
+    // Start and Restart switch daemons themselves; any other action's outcome concerns the daemon it began with.
+    const stale = epoch !== this.#connectionEpoch && !RECONNECTING_ACTIONS.has(name);
+    if (stale) {
+      if (this.#busy === name) this.#busy = null;
       this.#renderAll();
-      // Focus moves on to the control that now stands for the action (Stop becomes Start), unless the user went elsewhere.
-      if (hadFocus) {
-        for (const role of focusAfter) {
-          const target = this.element.querySelector<HTMLElement>(`[data-role="${role}"]`);
-          if (target) {
-            target.focus();
-            break;
-          }
+      return;
+    }
+    this.#message = message;
+    this.#busy = null;
+    // In the sheet, or nowhere (it fell to the page's body); not when the user moved on to the page or another control.
+    const active = (this.element.getRootNode() as Document | ShadowRoot).activeElement;
+    const pageActive = document.activeElement;
+    const hadFocus = active ? this.element.contains(active) : pageActive === null || pageActive === document.body;
+    this.#renderAll();
+    // Focus moves on to the control that now stands for the action (Stop becomes Start), unless the user went elsewhere.
+    if (hadFocus) {
+      for (const role of focusAfter) {
+        const target = this.element.querySelector<HTMLElement>(`[data-role="${role}"]`);
+        if (target) {
+          target.focus();
+          break;
         }
       }
-      void this.#loadInfo();
     }
+    void this.#loadInfo();
   }
 
   #renderAll(): void {

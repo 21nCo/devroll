@@ -297,3 +297,15 @@ test("a thread deleted elsewhere during its Undo window leaves Undo, which then 
   daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: second.id });
   await expect(inBar(page, "[data-role=undo]")).toBeHidden();
 });
+
+test("a listing after a reconnect that no longer has a thread under Undo takes it out of Undo", async ({ page, openFixture, fixtureServer }) => {
+  const only = comment("Only");
+  const daemon = await openInbox(page, openFixture, [only], fixtureServer.origin);
+  await inBar(page, "[data-role=select-all]").check();
+  await inBar(page, "[data-bulk=delete]").click();
+  await expect(inBar(page, "[data-role=undo]")).toBeVisible();
+  // Deleted elsewhere while this tab's socket is down: the event never reaches it, the next listing does.
+  daemon.items = [];
+  for (const socket of [...daemon.sockets]) socket.close();
+  await expect(inBar(page, "[data-role=undo]")).toBeHidden({ timeout: 10_000 });
+});
