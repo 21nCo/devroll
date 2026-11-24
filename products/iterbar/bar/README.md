@@ -20,16 +20,18 @@ attributes. The bar never writes the token to an attribute.
 
 The bar is a toolbar docked at the bottom of the page. Collapsed (the default)
 it shows only the Iterbar logo. Clicking the logo, or **Ctrl/Cmd+.**,
-expands it (Comment, Inbox with its open count, Drafts, Variants and, at its
-end, Help); clicking it again collapses it. Hovering and focus
+expands it (Comment; Inbox, with its open count and, dashed, its draft count;
+Variants; and at its end Settings and Help); clicking it again collapses it. Hovering and focus
 never expand it; a panel, the composer or comment mode show the whole toolbar
 while they last. The logo stays where it is when the toolbar expands, and
 dragging it (or the arrow keys, Home and End on it) moves the toolbar along
 the bottom edge. The place, the expanded state and the open panel are
-remembered per project. The inbox, the draft tray and Help open as a
-full-height sheet on the right of the screen (stopping above the toolbar when
-the toolbar is under it); Variants opens as a fixed-height popover above the
-toolbar.
+remembered per project. The inbox and the draft tray share one full-height
+sheet on the right of the screen, switched by Inbox | Drafts tabs at its top;
+Settings and Help open in the same kind of sheet (stopping above the toolbar
+when the toolbar is under it). Variants opens as a fixed-height popover above
+the toolbar, as wide as the toolbar, which widens to fit it while it is open.
+Counts are neutral (foreground on a muted fill), never the accent colour.
 
 **Comment pins.** Each thread on the current page that is still open, in
 progress or needing info shows a small comment pin on the top-right corner of
@@ -39,7 +41,20 @@ follows its element as the page scrolls, resizes or changes; it hides while the
 element is gone, hidden or out of view, and goes once the thread is done or
 archived. Clicking it opens the inbox at that thread. An element the recorded
 selector no longer finds (the page changed shape, or it is in a closed shadow
-root or a frame) gets no pin; its thread is still in the inbox.
+root or a frame) gets no pin; its thread is still in the inbox. A thread made
+on an element inside a slot shows its pin only while the slot shows the variant
+it was made on. Each draft not sent yet gets its own pin, neutral with a dashed
+outline, on the element it was picked on; clicking it opens the Drafts tab at
+that draft.
+
+**Settings** (the gear before Help): the daemon's status and process, with
+Stop (after a confirmation) and, when the Iterbar Vite plugin serves the page,
+Start and Restart; where the agent's MCP server runs; the installed Iterbar
+versions, a Check for updates button (the dev server asks the npm registry only
+then) and the commands that update them; the toolbar's position, colours
+(system, light or dark), keyboard shortcuts, screenshots and pins; and Clear
+drafts and Delete all Iterbar data, each after a confirmation that says what
+it removes. Nothing runs until its button is pressed.
 
 Keys typed into the bar's own fields (the composer, a draft being edited, the
 slot list) stop at the bar, so the page's keyboard shortcuts never see them.
@@ -296,8 +311,9 @@ Removing the element closes the stream and cancels every timer.
   comments are saved for a coding agent, which reaches the same daemon on its
   own through `iterbar mcp`; offline, comments stay as drafts, and the Help
   button carries a red dot. Below it, for Claude Code, Codex, Cursor or another
-  MCP client: the one-time `npx @iterbar/cli init` command (with the project's path
-  filled in when the bar knows it), a prompt to paste, and the same setup by
+  MCP client: the one-time `init` command (with the project's path filled in
+  when the bar knows it, and the CLI the dev server runs, as `node <its path>`,
+  when the Iterbar Vite plugin says which), a prompt to paste, and the same setup by
   hand, each with a copy button. The draft tray links to it too.
 - On a page without variants, Variants lists the pages that have some, with
   each page's variant and slot counts (from the daemon's `GET /slots`: pages

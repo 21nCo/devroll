@@ -253,11 +253,11 @@ test("with a draft waiting, the collapsed toolbar shows only its logo, and click
     document.querySelector("iterbar-bar")!.expanded = false;
   });
   await page.locator("#page-text").click();
-  await expect(inBar(page, "[data-role=drafts-toggle]")).toBeHidden();
+  await expect(inBar(page, "[data-role=inbox-toggle]")).toBeHidden();
   // Hovering never expands it.
   await inBar(page, "[data-role=logo]").hover();
   await page.waitForTimeout(200);
-  await expect(inBar(page, "[data-role=drafts-toggle]")).toBeHidden();
+  await expect(inBar(page, "[data-role=inbox-toggle]")).toBeHidden();
   await inBar(page, "[data-role=logo]").click();
   await expect(inBar(page, "[data-role=draft-count]")).toHaveText("1");
 });
@@ -398,4 +398,46 @@ test("the inbox wraps long comments and replies, shows statuses, filters, and ke
   await expect(inBar(page, ".thread:not([hidden]) .badge")).toHaveText(["In progress"]);
   await inBar(page, "[data-filter=done]").click();
   await expect(inBar(page, ".thread:not([hidden]) .badge")).toHaveText(["Done"]);
+});
+
+test("a draft gets a dashed pin on its element that opens it, and Inbox and Drafts share one sheet", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  // One toolbar button for both, labelled Inbox; no Drafts button.
+  await expect(inBar(page, "[data-role=drafts-toggle]")).toHaveCount(0);
+  await expect(inBar(page, "[data-role=inbox-toggle] .tool-label")).toHaveText("Inbox");
+
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "card", "Too small");
+  await page.keyboard.press("Escape");
+  const pin = inBar(page, "[data-role=draft-pin]:not([hidden])");
+  await expect(pin).toHaveCount(1);
+  // Neutral and dashed, not the accent fill of a sent thread's pin.
+  const style = await pin.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return { border: computed.borderTopStyle, background: computed.backgroundColor };
+  });
+  expect(style.border).toBe("dashed");
+  const accent = await page.evaluate(() => getComputedStyle(document.querySelector("iterbar-bar")!.shadowRoot!.querySelector(".dock")!).getPropertyValue("--ib-accent"));
+  expect(style.background).not.toContain(accent.trim());
+  const card = (await page.getByTestId("card").boundingBox())!;
+  const box = (await pin.boundingBox())!;
+  expect(box.x + box.width / 2).toBeCloseTo(card.x + card.width, 0);
+
+  // Clicking it opens the sheet on the Drafts tab at that draft.
+  await pin.click();
+  await expect(inBar(page, "[data-role=drafts-tab]")).toHaveAttribute("aria-selected", "true");
+  await expect(inBar(page, "[data-role=drafts-tab-count]")).toHaveText("1");
+  await expect(inBar(page, ".draft[data-revealed]")).toHaveCount(1);
+  await expect(inBar(page, ".draft [data-role=draft-edit]")).toBeFocused();
+  // The tabs switch the sheet; the toolbar button stays expanded for both.
+  await inBar(page, "[data-role=inbox-tab]").click();
+  await expect(inBar(page, "[data-section=threads]")).toBeVisible();
+  await expect(inBar(page, "[data-role=inbox-toggle]")).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(inBar(page, "[data-role=drafts-tab]")).toHaveAttribute("aria-selected", "true");
+
+  // Sent, the draft's pin goes.
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect(pin).toHaveCount(0);
 });

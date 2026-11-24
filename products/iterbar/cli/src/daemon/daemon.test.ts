@@ -176,6 +176,30 @@ describe("feedback API", () => {
     expect(await client.next()).toEqual({ schemaVersion: 2, type: "feedback.deleted", feedbackId: feedback.id });
   });
 
+  it("deletes every item at once, announcing each, reports its own process and store, and stops when asked", async () => {
+    const daemon = await start();
+    const client = await events(daemon);
+    const first = JSON.parse((await create(daemon, { feedback: { ...commentDraft, evidenceWindow: null } })).text) as Feedback;
+    const second = JSON.parse((await create(daemon, { feedback: chooseVariantDraft })).text) as Feedback;
+    const info = (await (await call(daemon, "/info")).json()) as Record<string, unknown>;
+    expect(info).toEqual({
+      schemaVersion: 2, pid: process.pid, startedAt: daemon.info.startedAt, projectRoot: daemon.info.projectRoot,
+      feedbackDirectory: iterbarPaths(daemon.info.projectRoot).feedbackDirectory,
+    });
+    const cleared = await call(daemon, "/feedback", { method: "DELETE" });
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toEqual({ schemaVersion: 2, deleted: 2 });
+    expect(await storedItems()).toEqual([]);
+    expect((await client.next()).type).toBe("feedback.created");
+    expect((await client.next()).type).toBe("feedback.created");
+    const announced = [await client.next(), await client.next()].map((event) => (event as { feedbackId?: string }).feedbackId).sort();
+    expect(announced).toEqual([first.id, second.id].sort());
+    // Stopping: the answer comes first, then the daemon closes.
+    const stopped = await call(daemon, "/shutdown", { method: "POST" });
+    expect(stopped.status).toBe(202);
+    await daemon.closed;
+  });
+
   // Moves tens of MiB through the daemon.
   it("refuses an attachment over 10 MiB with payload_too_large and stores nothing", { timeout: 30_000 }, async () => {
     const daemon = await start();

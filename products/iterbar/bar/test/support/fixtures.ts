@@ -42,6 +42,7 @@ export interface SlotDefinitionInput {
   readonly slot: string;
   readonly variants: readonly string[];
   readonly defaultVariant: string;
+  readonly descriptions?: Readonly<Record<string, string>>;
 }
 
 export const test = base.extend<{ openFixture: (path?: string) => Promise<void> }, { fixtureServer: FixtureServer }>({
@@ -102,12 +103,20 @@ export async function mountBar(
   }, { config, expanded });
 }
 
-/** Opens the toolbar's `inbox`, `drafts` or `variants` panel, unless it is already open. */
-export async function openPanel(page: Page, panel: "inbox" | "drafts" | "variants"): Promise<void> {
-  const button = page.locator(`iterbar-bar [data-role=${panel}-toggle]`);
+/**
+ * Opens the toolbar's `inbox`, `drafts`, `variants` or `settings` panel, unless it is already open. Inbox and drafts
+ * share the Inbox button and sheet; the sheet's tabs switch between them.
+ */
+export async function openPanel(page: Page, panel: "inbox" | "drafts" | "variants" | "settings"): Promise<void> {
+  const toggle = panel === "drafts" ? "inbox" : panel;
+  const button = page.locator(`iterbar-bar [data-role=${toggle}-toggle]`);
   // Collapsed, the toolbar shows only its logo; clicking it expands the toolbar.
   if (!(await button.isVisible())) await page.locator("iterbar-bar [data-role=logo]").click();
   if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+  if (panel === "inbox" || panel === "drafts") {
+    const tab = page.locator(`iterbar-bar [data-role=${panel}-tab]`);
+    if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  }
   await page.mouse.move(0, 0);
 }
 

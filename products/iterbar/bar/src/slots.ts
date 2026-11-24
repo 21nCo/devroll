@@ -305,13 +305,17 @@ export class SlotsPanel {
   #renderVersions(slot: SlotState): void {
     this.#variants.hidden = false;
     this.#variants.setAttribute("aria-label", `Variants of ${slot.slot}`);
-    const key = JSON.stringify([slot.slot, slot.variants, slot.defaultVariant]);
+    const key = JSON.stringify([slot.slot, slot.variants, slot.defaultVariant, slot.descriptions ?? null]);
     if (key !== this.#versionsKey) {
       this.#versionsKey = key;
       this.#variants.replaceChildren(...slot.variants.map((variant) => {
+        const description = slot.descriptions?.[variant];
         const button = h("button", { type: "button", class: "variant", "data-variant": variant },
-          h("span", { class: "variant-name" }, variant),
-          variant === slot.defaultVariant ? h("span", { class: "variant-tag" }, "default") : null,
+          h("span", { class: "variant-text" },
+            h("span", { class: "variant-head" },
+              h("span", { class: "variant-name" }, variant),
+              variant === slot.defaultVariant ? h("span", { class: "variant-tag" }, "default") : null),
+            description ? h("span", { class: "variant-description", "data-role": "variant-description" }, description) : null),
           h("span", { class: "variant-check", "aria-hidden": "true" }, icon("check")));
         button.addEventListener("click", () => this.#choose(slot.slot, variant));
         return button;

@@ -40,6 +40,11 @@ export type VariantsProps<VariantMap extends Readonly<Record<string, VariantCont
   readonly slot: string;
   /** The variant to render when nothing selects another, and the only one rendered in production. */
   readonly default: Extract<keyof VariantMap, string>;
+  /**
+   * A short description of some or all variants (what each one tries), by variant name, shown under each name in the
+   * bar's Variants popover; at most 200 characters each. Development only, like the rest.
+   */
+  readonly descriptions?: Readonly<Partial<Record<Extract<keyof VariantMap, string>, string>>>;
 } & (
   | {
     /** Each variant, keyed by variant name (1-64 letters, digits, `_`, `.` or `-`). */
@@ -58,13 +63,14 @@ interface ResolvedVariantsProps<VariantMap extends Readonly<Record<string, Varia
   readonly slot: string;
   readonly variants: VariantMap;
   readonly default: Extract<keyof VariantMap, string>;
+  readonly descriptions?: Readonly<Partial<Record<string, string>>>;
 }
 
 /** The variants from `variants`, or from the earlier `versions`. */
 function resolveVariantsProps<VariantMap extends Readonly<Record<string, VariantContent>>>(
   props: VariantsProps<VariantMap>,
 ): ResolvedVariantsProps<VariantMap> {
-  return { slot: props.slot, default: props.default, variants: (props.variants ?? props.versions)! };
+  return { slot: props.slot, default: props.default, variants: (props.variants ?? props.versions)!, descriptions: props.descriptions };
 }
 
 const RegistryContext = /* @__PURE__ */ createContext<VariantsRegistry | null>(null);
@@ -130,13 +136,19 @@ function DevelopmentVariants<VariantMap extends Readonly<Record<string, VariantC
   slot,
   variants,
   default: defaultVariant,
+  descriptions,
 }: ResolvedVariantsProps<VariantMap>): JSX.Element {
   const providedRegistry = useContext(RegistryContext);
   const variantNames = JSON.stringify(Object.keys(variants));
-  // Throws `invalid_message` during render for an invalid slot, variant name or default.
+  // Compared as text, so a descriptions object written inline in JSX does not register the slot again on every render.
+  const descriptionText = descriptions ? JSON.stringify(descriptions) : null;
+  // Throws `invalid_message` during render for an invalid slot, variant name, default or description.
   const definition = useMemo(
-    () => validateSlotDefinition({ slot, variants: JSON.parse(variantNames) as string[], defaultVariant }),
-    [slot, variantNames, defaultVariant],
+    () => validateSlotDefinition({
+      slot, variants: JSON.parse(variantNames) as string[], defaultVariant,
+      ...(descriptionText === null ? {} : { descriptions: JSON.parse(descriptionText) as Record<string, string> }),
+    }),
+    [slot, variantNames, defaultVariant, descriptionText],
   );
   const registry = useCallback(() => providedRegistry ?? getVariantsRegistry(), [providedRegistry]);
   const subscribe = useCallback((onChange: () => void) => registry().subscribe(onChange), [registry]);

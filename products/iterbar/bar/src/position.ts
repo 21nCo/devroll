@@ -12,9 +12,9 @@ export function barStateStorageKey(project: string | null | undefined): string {
 }
 
 /** The panel that opens upward from the toolbar. */
-export type PanelName = "inbox" | "drafts" | "variants" | "agent";
+export type PanelName = "inbox" | "drafts" | "variants" | "settings" | "agent";
 
-export const PANELS: readonly PanelName[] = ["inbox", "drafts", "variants", "agent"];
+export const PANELS: readonly PanelName[] = ["inbox", "drafts", "variants", "settings", "agent"];
 
 /** Panel names stored by earlier bars, read as the panel they became. */
 const LEGACY_PANELS: Readonly<Record<string, PanelName>> = { versions: "variants" };
@@ -40,7 +40,19 @@ export interface BarState {
   readonly filter: InboxFilter;
   /** The agent "Use with your agent" shows the steps for. */
   readonly agent: AgentName;
+  /** The bar's colours: the system's (`auto`), or always light or dark. */
+  readonly theme: BarTheme;
+  /** Whether C and Ctrl/Cmd+. work on the page. */
+  readonly shortcuts: boolean;
+  /** Whether a comment takes a screenshot of its element. */
+  readonly screenshots: boolean;
+  /** Whether comment and draft pins show on the page. */
+  readonly pins: boolean;
 }
+
+export type BarTheme = "auto" | "light" | "dark";
+
+export const BAR_THEMES: readonly BarTheme[] = ["auto", "light", "dark"];
 
 /** Gap, in CSS pixels, the toolbar keeps from the left and right screen edges; the stylesheet's `--ib-margin`. */
 export const BAR_MARGIN_PX = 12;
@@ -49,7 +61,9 @@ export const BAR_MARGIN_PX = 12;
 export const BAR_BOTTOM_PX = 20;
 
 /** Bottom centre, collapsed, no panel, every thread. */
-export const DEFAULT_BAR_STATE: BarState = Object.freeze({ x: 0.5, expanded: false, panel: null, filter: "all", agent: "claude" });
+export const DEFAULT_BAR_STATE: BarState = Object.freeze({
+  x: 0.5, expanded: false, panel: null, filter: "all", agent: "claude", theme: "auto", shortcuts: true, screenshots: true, pins: true,
+});
 
 /** The positions the earlier left, centre and right docks stood for; a stored dock still places the toolbar. */
 const LEGACY_DOCKS: Readonly<Record<string, number>> = { left: 0, center: 0.5, right: 1 };
@@ -73,7 +87,8 @@ export function parseBarState(text: string | null | undefined): BarState {
     return DEFAULT_BAR_STATE;
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) return DEFAULT_BAR_STATE;
-  const { x, dock, expanded, panel, filter, agent } = value as Record<string, unknown>;
+  const { x, dock, expanded, panel, filter, agent, theme, shortcuts, screenshots, pins } = value as Record<string, unknown>;
+  const flag = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
   const legacy = typeof dock === "string" && Object.hasOwn(LEGACY_DOCKS, dock) ? LEGACY_DOCKS[dock]! : null;
   return {
     x: clampPosition(x) ?? legacy ?? DEFAULT_BAR_STATE.x,
@@ -82,11 +97,16 @@ export function parseBarState(text: string | null | undefined): BarState {
       : typeof panel === "string" && Object.hasOwn(LEGACY_PANELS, panel) ? LEGACY_PANELS[panel]! : null,
     filter: oneOf(INBOX_FILTERS, filter, DEFAULT_BAR_STATE.filter),
     agent: oneOf(AGENTS, agent, DEFAULT_BAR_STATE.agent),
+    theme: oneOf(BAR_THEMES, theme, DEFAULT_BAR_STATE.theme),
+    shortcuts: flag(shortcuts, DEFAULT_BAR_STATE.shortcuts),
+    screenshots: flag(screenshots, DEFAULT_BAR_STATE.screenshots),
+    pins: flag(pins, DEFAULT_BAR_STATE.pins),
   };
 }
 
 export function formatBarState(state: BarState): string {
-  return JSON.stringify({ x: state.x, expanded: state.expanded, panel: state.panel, filter: state.filter, agent: state.agent });
+  const { x, expanded, panel, filter, agent, theme, shortcuts, screenshots, pins } = state;
+  return JSON.stringify({ x, expanded, panel, filter, agent, theme, shortcuts, screenshots, pins });
 }
 
 /**
@@ -107,16 +127,6 @@ export function toolbarLeft(x: number, logoWidth: number, width: number, viewpor
   const logo = leftForPosition(x, logoWidth, viewport, margin);
   const wanted = end ? logo + logoWidth - width : logo;
   const max = Math.max(margin, viewport - margin - width);
-  return Math.min(max, Math.max(margin, wanted));
-}
-
-/**
- * The left edge of a `panelWidth`-wide panel above a toolbar at `left`, `width` wide: lined up with the toolbar's start
- * (its end when it runs right to left), kept inside the margins.
- */
-export function panelLeft(left: number, width: number, panelWidth: number, viewport: number, end: boolean, margin = BAR_MARGIN_PX): number {
-  const wanted = end ? left + width - panelWidth : left;
-  const max = Math.max(margin, viewport - margin - panelWidth);
   return Math.min(max, Math.max(margin, wanted));
 }
 

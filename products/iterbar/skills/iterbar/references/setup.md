@@ -5,19 +5,23 @@ These steps are for the user (or for you, when the user asks you to set it up).
 
 ## The quick way: `iterbar init`
 
-The `@iterbar/cli` package carries the `iterbar` command, the MCP server and this skill. In the project's root:
+The `@iterbar/cli` package carries the `iterbar` command, the MCP server and this skill. It is not on npm yet, so
+run the copy the project already has (the Vite plugin `@iterbar/vite` depends on it) or one from a Devroll checkout
+(below). The bar's Help sheet shows the exact command for the CLI the dev server runs; in the project's root:
 
 ```bash
-npx @iterbar/cli init --agent claude     # or codex, cursor, all
+node /path/to/@iterbar/cli/dist/cli.js init --agent claude     # or codex, cursor, all
+iterbar init --agent claude                                     # with the command linked from a checkout
 ```
 
 It copies this skill into the agent's skills folder (`--scope project` puts it in the project instead), registers the
 MCP server (Claude Code: `.mcp.json`; Cursor: `.cursor/mcp.json`; for Codex it prints the `config.toml` lines to add),
 and prints the prompt to paste. It never replaces an existing iterbar skill or server entry that differs unless you
-pass `--force`, and `--dry-run` shows what it would change. Projects that use the Vite plugin (`@iterbar/vite`)
-already have `@iterbar/cli` installed, so `npx` runs that copy.
+pass `--force`, and `--dry-run` shows what it would change.
 
-The MCP configs it writes run `npx -y @iterbar/cli mcp`, so nothing has to be on `PATH`.
+The MCP configs it writes run `npx -y @iterbar/cli mcp` when the project itself has `@iterbar/cli` installed (`npx`
+runs that copy), and otherwise the CLI init ran from, by its path (`node /path/to/cli.js mcp`), so nothing has to be
+on `PATH`.
 
 ## From a Devroll checkout (contributors)
 

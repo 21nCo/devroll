@@ -14,6 +14,9 @@ import {
   slotReportSchema,
   statusRequestSchema,
   type DaemonEndpointName,
+  type DaemonInfo,
+  type DaemonStatus,
+  type DeleteAllFeedbackResponse,
   type FeedbackListResponse,
   type RegisterOriginsResponse,
   type SlotListResponse,
@@ -101,6 +104,10 @@ export interface RouteContext {
   readonly events: EventHub;
   /** Serializes status changes per feedback id. */
   readonly statusChanges: KeyedSerializer;
+  /** The daemon's own record (pid, start time, project). */
+  readonly info: DaemonInfo;
+  /** Stops the daemon once the current response is sent. */
+  readonly shutdown: () => void;
 }
 
 type RouteHandler = (context: RouteContext) => Promise<void>;
@@ -268,6 +275,30 @@ const handlers: Readonly<Record<DaemonEndpointName, RouteHandler>> = {
     await context.store.delete(feedbackId);
     context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId });
     sendEmpty(context.response, 204, context.headers);
+  },
+
+  async deleteAllFeedback(context) {
+    const deleted = await context.store.deleteAll();
+    for (const feedbackId of deleted) context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId });
+    const body: DeleteAllFeedbackResponse = { schemaVersion: SCHEMA_VERSION, deleted: deleted.length };
+    sendJson(context.response, 200, body, context.headers);
+  },
+
+  async getInfo(context) {
+    const body: DaemonStatus = {
+      schemaVersion: SCHEMA_VERSION,
+      pid: context.info.pid,
+      startedAt: context.info.startedAt,
+      projectRoot: context.info.projectRoot,
+      feedbackDirectory: context.store.paths.feedbackDirectory,
+    };
+    sendJson(context.response, 200, body, context.headers);
+  },
+
+  async shutdown(context) {
+    sendEmpty(context.response, 202, context.headers);
+    // After the answer is on its way: the shutdown waits for in-flight requests, this one included.
+    context.response.once("finish", () => context.shutdown());
   },
 
   async reportSlots(context) {

@@ -204,7 +204,7 @@ test("loads nothing but the page and the daemon", async ({ page, openFixture, fi
 test("small muted text and links keep 4.5:1 contrast in both themes", async ({ page, openFixture }) => {
   await openFixture();
   await mountBar(page);
-  await page.locator("iterbar-bar [data-role=drafts-toggle]").click();
+  await openPanel(page, "drafts");
   const ratio = (selector: string) => page.evaluate((target) => {
     const root = document.querySelector("iterbar-bar")!.shadowRoot!;
     const channel = (value: number) => {
@@ -253,7 +253,7 @@ test("small muted text and links keep 4.5:1 contrast in both themes", async ({ p
   }
 });
 
-test("text sticks to the 12/14px scale (10px count badges) and every control has a 28px hit area", async ({ page, openFixture, fixtureServer }) => {
+test("text sticks to the 12/14px scale (10px counts) and every control has a 28px hit area", async ({ page, openFixture, fixtureServer }) => {
   await openFixture();
   await registerSlots(page, [PRICING]);
   const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Make the price bolder")]);
@@ -268,7 +268,7 @@ test("text sticks to the 12/14px scale (10px count badges) and every control has
       const name = `${element.tagName.toLowerCase()}.${element.getAttribute("class") ?? ""}`;
       if ([...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())) {
         const size = getComputedStyle(element).fontSize;
-        const badge = element.matches(".count, .pin-count");
+        const badge = element.matches(".count, .pin-count, .tab-count");
         if (badge ? size !== "10px" : size !== "12px" && size !== "14px") fonts.push(`${name} ${size}`);
       }
       if (element.matches("button:not(.link), select, summary, input")) {
@@ -286,6 +286,8 @@ test("text sticks to the 12/14px scale (10px count badges) and every control has
   }
   await inBar(page, "[data-role=help-toggle]").click();
   expect(await scan(), "help").toEqual({ fonts: [], small: [] });
+  await openPanel(page, "settings");
+  expect(await scan(), "settings").toEqual({ fonts: [], small: [] });
 
   // Clicking the edge of a thread's checkbox label, away from the box itself, selects the thread.
   await openPanel(page, "inbox");

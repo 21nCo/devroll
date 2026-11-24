@@ -13,7 +13,6 @@ import {
   describePosition,
   formatBarState,
   leftForPosition,
-  panelLeft,
   parseBarState,
   positionForKey,
   positionForLeft,
@@ -27,6 +26,7 @@ import { ElementPicker } from "./pick/picker.js";
 import { captureScreenshot, RenderSlot, type ScreenshotResult } from "./pick/screenshot.js";
 import { describeTarget, labelElement, readActiveVariants, type TargetLabel } from "./pick/target.js";
 import { PinLayer } from "./pins.js";
+import { SettingsPanel, type DevServerLink } from "./settings.js";
 import { ThreadsPanel } from "./threads.js";
 
 /** The bar's tag name. */
@@ -80,8 +80,11 @@ const STATUS_DETAIL: Readonly<Record<ConnectionStatus["kind"], string>> = {
 };
 
 const PANEL_TITLES: Readonly<Record<PanelName, string>> = {
-  inbox: "Inbox", drafts: "Drafts", variants: "Variants", agent: "Set up your agent",
+  inbox: "Inbox", drafts: "Drafts", variants: "Variants", settings: "Iterbar settings", agent: "Set up your agent",
 };
+
+/** The Variants popover's smallest width; the toolbar widens to it while the popover is open. */
+const VARIANTS_MIN_WIDTH_PX = 340;
 
 /** Hovering a control shows its tooltip after this delay; keyboard focus shows it at once. */
 const TOOLTIP_DELAY_MS = 400;
@@ -260,6 +263,11 @@ export class IterbarBarElement extends ElementBase {
   /** The connection, at the top of the help sheet: its dot, label and what they mean, and any detail. */
   readonly #connectionBox = h("div", { class: "connection", "data-role": "connection" },
     h("div", { class: "connection-head" }, this.#statusDot, this.#status), this.#statusExplain);
+  /** Iterbar's settings, just before the help button. */
+  readonly #settingsButton = h("button", {
+    type: "button", class: "tool help", "data-role": "settings-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+    "aria-label": "Settings",
+  }, icon("settings"));
   /** The help button at the toolbar's end: the setup sheet, with the connection at its top. */
   readonly #helpButton = h("button", {
     type: "button", class: "tool help", "data-role": "help-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
@@ -286,16 +294,25 @@ export class IterbarBarElement extends ElementBase {
   readonly #comment = h("button", {
     type: "button", class: "tool", "data-role": "comment", "aria-pressed": "false", "aria-label": "Comment", "aria-keyshortcuts": "C",
   }, icon("comment"));
-  readonly #draftsButton = h("button", {
-    type: "button", class: "tool", "data-role": "drafts-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
-    "aria-label": "Drafts",
-  }, icon("drafts"));
-  readonly #draftCount = h("span", { class: "count", "data-role": "draft-count", hidden: true });
+  /** The inbox and the draft tray share one button and one sheet, switched by the tabs at the sheet's top. */
   readonly #inboxButton = h("button", {
     type: "button", class: "tool", "data-role": "inbox-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
     "aria-label": "Inbox",
-  }, icon("inbox"));
+  }, icon("inbox"), h("span", { class: "tool-label", "aria-hidden": "true" }, "Inbox"));
   readonly #openCount = h("span", { class: "count", "data-role": "open-count", hidden: true });
+  /** Drafts not sent yet, next to the open count, dashed like a draft's pin. */
+  readonly #draftCount = h("span", { class: "count draft-count", "data-role": "draft-count", hidden: true });
+  readonly #inboxTabCount = h("span", { class: "tab-count", "data-role": "inbox-tab-count" });
+  readonly #draftsTabCount = h("span", { class: "tab-count", "data-role": "drafts-tab-count" });
+  readonly #inboxTab = h("button", {
+    type: "button", class: "segment", role: "tab", "data-role": "inbox-tab", "aria-selected": "false", "aria-controls": "iterbar-panel-body",
+  }, "Inbox", this.#inboxTabCount);
+  readonly #draftsTab = h("button", {
+    type: "button", class: "segment", role: "tab", "data-role": "drafts-tab", "aria-selected": "false", "aria-controls": "iterbar-panel-body",
+  }, "Drafts", this.#draftsTabCount);
+  /** Inbox | Drafts, at the top of their shared sheet. */
+  readonly #tabs = h("div", { class: "segmented", role: "tablist", "aria-label": "Inbox or drafts", "data-role": "inbox-tabs" },
+    this.#inboxTab, this.#draftsTab);
   readonly #variantsButton = h("button", {
     type: "button", class: "tool", "data-role": "variants-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
     "aria-label": "Variants",
@@ -309,6 +326,10 @@ export class IterbarBarElement extends ElementBase {
   readonly #threads: ThreadsPanel;
   readonly #tray: DraftTray;
   readonly #agentHelp: AgentHelp;
+  readonly #settings: SettingsPanel;
+  /** The dev server that mounted the bar (the Iterbar Vite plugin), when one did. */
+  #devServer: DevServerLink | null = null;
+  #connectionKind: ConnectionStatus["kind"] = "unconfigured";
   readonly #composer = new Composer({
     onSend: (text) => void this.#send(text),
     onDraft: (text) => this.#addDraft(text),
@@ -386,24 +407,40 @@ export class IterbarBarElement extends ElementBase {
       copy: (text) => copyText(text, this.#root, this.#panel),
       onAgent: (agent) => this.#saveState({ ...this.#state, agent }),
     });
-    this.#draftsButton.append(this.#draftCount);
-    this.#inboxButton.append(this.#openCount);
+    this.#settings = new SettingsPanel({
+      onChange: (change) => this.#saveState({ ...this.#state, ...change }),
+      daemonInfo: () => this.#requireConnection().info(),
+      stopDaemon: () => this.#stopDaemon(),
+      startDaemon: () => this.#startDaemon(),
+      restartDaemon: async () => {
+        await this.#stopDaemon();
+        await this.#startDaemon();
+      },
+      deleteAll: () => this.#requireConnection().deleteAll(),
+      clearDrafts: () => {
+        for (const draft of [...this.#drafts]) this.#removeDraft(draft.id);
+      },
+      openSetup: () => this.#openPanel("agent", true),
+      copy: (text) => copyText(text, this.#root, this.#panel),
+    });
+    this.#inboxButton.append(this.#openCount, this.#draftCount);
     this.#variantsButton.append(this.#slotCount);
     this.#panel = h("div", {
       class: "panel", id: "iterbar-panel", role: "region", "aria-labelledby": "iterbar-panel-title", "data-role": "panel", hidden: true,
     },
-    h("div", { class: "panel-header" }, this.#panelTitle, this.#panelClose),
-    h("div", { class: "panel-body" }, this.#connectionBox, this.#tray.element, this.#threads.element, this.#slots.element, this.#agentHelp.element));
+    h("div", { class: "panel-header" }, this.#panelTitle, this.#tabs, this.#panelClose),
+    h("div", { class: "panel-body", id: "iterbar-panel-body" }, this.#connectionBox, this.#tray.element, this.#threads.element, this.#slots.element, this.#settings.element, this.#agentHelp.element));
     this.#connectionBox.append(this.#detail);
     const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
       // The logo comes first and stays where it is when the toolbar expands (see #layout); the rest grows away from it.
-      this.#logo, this.#comment, this.#inboxButton, this.#draftsButton,
+      this.#logo, this.#comment, this.#inboxButton,
       h("span", { class: "divider", "aria-hidden": "true" }),
-      this.#variantsButton, this.#helpButton);
+      this.#variantsButton, this.#settingsButton, this.#helpButton);
     this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel, this.#tooltip);
     const mod = modKey();
     tip(this.#comment, "Comment", "C", "Pick an element and write a comment on it. Esc leaves.");
     tip(this.#variantsButton, "Variants", null, "Switch between the variants of each slot on this page");
+    tip(this.#settingsButton, "Settings", null, "The daemon, updates, the toolbar and this project's Iterbar data");
     this.#toggleKeys = `${mod} .`;
     this.#pins = new PinLayer({
       container: this.#root,
@@ -416,6 +453,10 @@ export class IterbarBarElement extends ElementBase {
       onOpen: (ids) => {
         this.#openPanel("inbox", false);
         this.#threads.reveal(ids[0]!);
+      },
+      onOpenDraft: (ids) => {
+        this.#openPanel("drafts", false);
+        this.#tray.reveal(ids[0]!);
       },
     });
     this.#root.append(this.#zoomProbe, this.#dock, this.#composer.element, this.#announcer);
@@ -442,6 +483,7 @@ export class IterbarBarElement extends ElementBase {
       this.#setExpanded(!this.#state.expanded);
     });
     this.#helpButton.addEventListener("click", () => this.#togglePanel("agent"));
+    this.#settingsButton.addEventListener("click", () => this.#togglePanel("settings"));
     this.#logo.addEventListener("pointerdown", (event) => this.#startDrag(event));
     this.#logo.addEventListener("pointermove", (event) => this.#moveDrag(event));
     this.#logo.addEventListener("pointerup", (event) => this.#endDrag(event, true));
@@ -464,8 +506,19 @@ export class IterbarBarElement extends ElementBase {
     this.#comment.addEventListener("click", () => {
       this.commentMode = !this.#commentMode;
     });
-    this.#draftsButton.addEventListener("click", () => this.#togglePanel("drafts"));
-    this.#inboxButton.addEventListener("click", () => this.#togglePanel("inbox"));
+    this.#inboxButton.addEventListener("click", () => {
+      if (this.#state.panel === "inbox" || this.#state.panel === "drafts") this.#closePanel(false);
+      else this.#openPanel("inbox", false);
+    });
+    this.#inboxTab.addEventListener("click", () => this.#openPanel("inbox", false));
+    this.#draftsTab.addEventListener("click", () => this.#openPanel("drafts", false));
+    this.#tabs.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const next = this.#state.panel === "drafts" ? "inbox" : "drafts";
+      this.#openPanel(next, false);
+      (next === "drafts" ? this.#draftsTab : this.#inboxTab).focus();
+    });
     this.#variantsButton.addEventListener("click", () => this.#togglePanel("variants"));
     this.#panelClose.addEventListener("click", () => this.#closePanel(true));
     this.#dock.addEventListener("keydown", (event) => {
@@ -688,6 +741,8 @@ export class IterbarBarElement extends ElementBase {
     if (event.repeat || event.defaultPrevented) return;
     // Text fields keep both shortcuts: Ctrl/Cmd+. is an editor command in some (Quick Fix), C is a letter.
     if (isTextEntry(event.composedPath()[0])) return;
+    // Turned off in the settings: the page keeps both keys.
+    if (!this.#state.shortcuts) return;
     if (isToggleShortcut(event)) {
       event.preventDefault();
       const focusInside = this.#root.activeElement !== null;
@@ -716,7 +771,9 @@ export class IterbarBarElement extends ElementBase {
       label: labelElement(element, target),
       pageUrl: /^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null,
       activeVariants: readActiveVariants(),
-      screenshot: captureScreenshot(element, this, this.#renderSlot, withdraw.signal),
+      screenshot: this.#state.screenshots
+        ? captureScreenshot(element, this, this.#renderSlot, withdraw.signal)
+        : Promise.resolve({ ok: false, reason: "Screenshots are turned off in Iterbar's settings." }),
       withdraw,
     };
     this.#composer.show(this.#pick.label);
@@ -1085,13 +1142,8 @@ export class IterbarBarElement extends ElementBase {
     this.#tray.render(this.#drafts.map((draft) => ({
       id: draft.id, label: draft.pick.label, text: draft.text, state: draft.state, error: draft.error,
     })), this.#sendingBatch, this.#batchError);
-    const count = this.#drafts.length;
-    this.#draftCount.textContent = String(count);
-    this.#draftCount.hidden = count === 0;
-    this.#draftsButton.toggleAttribute("data-has", count > 0);
-    this.#draftsButton.setAttribute("aria-label", count ? `Drafts, ${count} waiting` : "Drafts");
-    tip(this.#draftsButton, count ? `Drafts: ${count} waiting` : "Drafts", null,
-      count ? "Comments waiting to be sent together. Open the tray to check them and Send all." : "Comments you add as drafts wait here until you send them together.");
+    this.#pins.updateDrafts(this.#drafts.map((draft) => ({ id: draft.id, element: draft.pick.element })));
+    this.#renderCounts();
   }
 
   /** Updates the toolbar's open-feedback count from the inbox. */
@@ -1099,10 +1151,19 @@ export class IterbarBarElement extends ElementBase {
     // The inbox renders once while it is being constructed, before it is assigned.
     if (!this.#threads) return;
     const open = this.#threads.openCount;
+    const drafts = this.#drafts.length;
     this.#openCount.textContent = String(open);
     this.#openCount.hidden = open === 0;
-    this.#inboxButton.setAttribute("aria-label", open ? `Inbox, ${open} open` : "Inbox");
-    tip(this.#inboxButton, open ? `Inbox: ${open} open` : "Inbox", null, "Sent comments, their status and your agent's replies");
+    this.#draftCount.textContent = String(drafts);
+    this.#draftCount.hidden = drafts === 0;
+    this.#inboxTabCount.textContent = String(open);
+    this.#draftsTabCount.textContent = String(drafts);
+    this.#draftsTab.setAttribute("aria-label", `Drafts, ${drafts} not sent`);
+    this.#inboxTab.setAttribute("aria-label", `Inbox, ${open} open`);
+    const parts = [open ? `${open} open` : "", drafts ? `${drafts} ${drafts === 1 ? "draft" : "drafts"}` : ""].filter(Boolean);
+    this.#inboxButton.setAttribute("aria-label", parts.length ? `Inbox, ${parts.join(", ")}` : "Inbox");
+    tip(this.#inboxButton, parts.length ? `Inbox: ${parts.join(", ")}` : "Inbox", null,
+      drafts ? "Sent comments with your agent's replies, and the drafts waiting to be sent together" : "Sent comments, their status and your agent's replies");
     this.#renderLogoTip();
   }
 
@@ -1125,6 +1186,58 @@ export class IterbarBarElement extends ElementBase {
     this.#pins.setActiveVariants(slots.map((slot) => ({ slot: slot.slot, variant: slot.activeVariant })));
     this.#variantsButton.setAttribute("aria-label", slots.length ? `Variants, ${slots.length} ${slots.length === 1 ? "slot" : "slots"}` : "Variants");
     this.#queueReport(slots);
+  }
+
+  #settingsWasOpen = false;
+
+  /** Renders the settings sheet with what the bar knows now; `refreshInfo` asks the daemon for its details again. */
+  #renderSettings(refreshInfo: boolean): void {
+    const { x, theme, shortcuts, screenshots, pins } = this.#state;
+    this.#settings.render({
+      values: { x, theme, shortcuts, screenshots, pins },
+      connected: this.#connectionKind === "connected",
+      connectionLabel: STATUS_TEXT[this.#connectionKind],
+      threadCount: this.#threads.threads.length,
+      draftCount: this.#drafts.length,
+      devServer: this.#devServer,
+    }, refreshInfo);
+  }
+
+  #requireConnection(): DaemonConnection {
+    if (!this.#connection) throw new Error("The bar is not connected to the Iterbar daemon.");
+    return this.#connection;
+  }
+
+  /** Asks the daemon to stop, and waits (a few seconds at most) until the bar has seen it go. */
+  async #stopDaemon(): Promise<void> {
+    await this.#requireConnection().shutdown();
+    const until = Date.now() + 5000;
+    while (this.#connectionKind === "connected" && Date.now() < until) await new Promise((done) => setTimeout(done, 100));
+  }
+
+  /** Asks the dev server for the daemon again (it starts one when none runs) and connects to what it answers. */
+  async #startDaemon(): Promise<void> {
+    const dev = this.#devServer;
+    if (!dev) throw new Error("This page has no Iterbar dev-server plugin to start the daemon.");
+    const config = await dev.reconnect();
+    if (!config.daemonUrl || !config.token) throw new Error("The dev server could not start the daemon. Its terminal says why.");
+    if (config.about) this.#devServer = { ...dev, about: config.about };
+    this.daemonUrl = config.daemonUrl;
+    this.token = config.token;
+    const until = Date.now() + 5000;
+    while (this.#connectionKind !== "connected" && Date.now() < until) await new Promise((done) => setTimeout(done, 100));
+    if (this.#connectionKind !== "connected") throw new Error("The daemon started, but the bar has not connected to it yet.");
+  }
+
+  /** The dev server that mounted the bar, for the settings (daemon controls, versions) and the setup steps. */
+  get devServer(): DevServerLink | null {
+    return this.#devServer;
+  }
+
+  set devServer(value: DevServerLink | null) {
+    this.#devServer = value;
+    this.#agentHelp.cli = value?.about?.cli ?? null;
+    if (this.#state.panel === "settings") this.#renderSettings(false);
   }
 
   /** Says `text` to screen readers through a polite live region. */
@@ -1160,9 +1273,10 @@ export class IterbarBarElement extends ElementBase {
 
   #panelButton(panel: PanelName): HTMLButtonElement {
     switch (panel) {
-      case "drafts": return this.#draftsButton;
+      case "drafts":
       case "inbox": return this.#inboxButton;
       case "variants": return this.#variantsButton;
+      case "settings": return this.#settingsButton;
       case "agent": return this.#helpButton;
     }
   }
@@ -1315,6 +1429,8 @@ export class IterbarBarElement extends ElementBase {
   }
 
   #renderStatus(status: ConnectionStatus): void {
+    this.#connectionKind = status.kind;
+    if (this.#state.panel === "settings") this.#renderSettings(status.kind === "connected");
     this.#status.dataset.status = status.kind;
     this.#statusDot.dataset.status = status.kind;
     this.#status.textContent = STATUS_TEXT[status.kind];
@@ -1368,10 +1484,25 @@ export class IterbarBarElement extends ElementBase {
     this.#agentHelp.agent = this.#state.agent;
     this.#panel.hidden = panel === null;
     this.#panelTitle.textContent = panel ? PANEL_TITLES[panel] : "";
+    // Inbox and drafts show their tabs instead of a title; the title stays for assistive technology.
+    const tabbed = panel === "inbox" || panel === "drafts";
+    this.#tabs.hidden = !tabbed;
+    this.#panelTitle.classList.toggle("sr-only", tabbed);
+    this.#inboxTab.setAttribute("aria-selected", String(panel === "inbox"));
+    this.#draftsTab.setAttribute("aria-selected", String(panel === "drafts"));
+    this.#inboxTab.tabIndex = panel === "drafts" ? -1 : 0;
+    this.#draftsTab.tabIndex = panel === "drafts" ? 0 : -1;
     this.#tray.element.hidden = panel !== "drafts";
     this.#threads.element.hidden = panel !== "inbox";
     this.#slots.element.hidden = panel !== "variants";
     this.#agentHelp.element.hidden = panel !== "agent";
+    this.#settings.element.hidden = panel !== "settings";
+    if (panel === "settings") this.#renderSettings(this.#settingsWasOpen !== true);
+    this.#settingsWasOpen = panel === "settings";
+    // The colours the settings choose, on each of the bar's top-level boxes (the host's attributes are the page's).
+    for (const box of [this.#dock, this.#composer.element]) box.dataset.theme = this.#state.theme;
+    this.#pins.theme = this.#state.theme;
+    this.#pins.visible = this.#state.pins;
     // An open composer keeps clear of the panel, which may just have opened or closed.
     if (this.#composer.open) this.#queuePlaceComposer();
     // Inbox, drafts and setup open as a full-height sheet on the right; variants as a popover above the toolbar.
@@ -1379,8 +1510,9 @@ export class IterbarBarElement extends ElementBase {
     this.#panel.dataset.mode = panel === "variants" ? "popover" : "sheet";
     this.#connectionBox.hidden = panel !== "agent";
     if (panel === "variants") void this.#slots.refreshPages();
-    for (const name of ["drafts", "inbox", "variants", "agent"] as const) {
-      this.#panelButton(name).setAttribute("aria-expanded", String(panel === name));
+    for (const name of ["inbox", "variants", "settings", "agent"] as const) {
+      const open = name === "inbox" ? panel === "inbox" || panel === "drafts" : panel === name;
+      this.#panelButton(name).setAttribute("aria-expanded", String(open));
     }
     this.#applyAwake();
   }
@@ -1412,6 +1544,11 @@ export class IterbarBarElement extends ElementBase {
     const rightRoom = viewport.width - BAR_MARGIN_PX - logoLeft;
     const leftRoom = logoLeft + anchor - BAR_MARGIN_PX;
     let end = x > 2 / 3;
+    // With Variants open, the toolbar and the popover above it have one width: the toolbar's, at least the popover's
+    // smallest useful width.
+    const matched = !this.#panel.hidden && this.#panel.dataset.mode === "popover";
+    this.#dock.style.minWidth = matched ? `${Math.min(VARIANTS_MIN_WIDTH_PX, viewport.width - 2 * BAR_MARGIN_PX)}px` : "";
+    this.#dock.toggleAttribute("data-matched", matched);
     if (this.#dock.hasAttribute("data-awake")) {
       this.#dock.style.maxWidth = "";
       this.#dock.removeAttribute("data-narrow");
@@ -1436,10 +1573,11 @@ export class IterbarBarElement extends ElementBase {
       ? toolbarLeft(x, anchor, width, viewport.width, end)
       : leftForPosition(x, anchor, viewport.width);
     this.#dock.style.setProperty("--ib-left", `${Math.round(viewport.left + left)}px`);
-    if (!this.#panel.hidden && this.#panel.dataset.mode === "popover") {
-      const panelWidth = this.#panel.getBoundingClientRect().width;
-      this.#panel.style.left = `${Math.round(panelLeft(left, width, panelWidth, viewport.width, end) - left)}px`;
+    if (matched) {
+      this.#panel.style.width = `${Math.round(width)}px`;
+      this.#panel.style.left = "0px";
     } else {
+      this.#panel.style.removeProperty("width");
       this.#panel.style.removeProperty("left");
     }
     if (!this.#panel.hidden && this.#panel.dataset.mode === "sheet") {
@@ -1638,6 +1776,8 @@ export interface MountIterbarBarOptions {
   readonly project?: string | null;
   /** Where to add the bar when the page has none; defaults to `document.body`. */
   readonly target?: Element;
+  /** The dev server's side (the Iterbar Vite plugin passes it): versions, the CLI, and starting the daemon again. */
+  readonly devServer?: DevServerLink | null;
 }
 
 /**
@@ -1650,6 +1790,7 @@ export function mountIterbarBar(options: MountIterbarBarOptions = {}): IterbarBa
   if (options.project !== undefined) bar.project = options.project;
   bar.daemonUrl = options.daemonUrl ?? null;
   bar.token = options.token ?? null;
+  if (options.devServer !== undefined) bar.devServer = options.devServer;
   if (!bar.isConnected) (options.target ?? document.body ?? document.documentElement).append(bar);
   return bar;
 }

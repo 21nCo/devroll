@@ -27,6 +27,11 @@ export type VariantsProps<VariantMap extends Readonly<Record<string, VariantCont
   readonly slot: string;
   /** The variant to render when nothing selects another, and the only one rendered in production. */
   readonly default: Extract<keyof VariantMap, string>;
+  /**
+   * A short description of some or all variants (what each one tries), by variant name, shown under each name in the
+   * bar's Variants popover; at most 200 characters each. Development only, like the rest.
+   */
+  readonly descriptions?: Readonly<Partial<Record<Extract<keyof VariantMap, string>, string>>>;
 } & (
   | {
     /** Each variant, keyed by variant name (1-64 letters, digits, `_`, `.` or `-`). */
@@ -45,4 +50,5 @@ export interface ResolvedVariantsProps<VariantMap extends Readonly<Record<string
   readonly slot: string;
   readonly variants: VariantMap;
   readonly default: Extract<keyof VariantMap, string>;
+  readonly descriptions?: Readonly<Partial<Record<string, string>>>;
 }

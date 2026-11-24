@@ -12,5 +12,5 @@ export function variantContent(
 export function resolveVariantsProps<VariantMap extends Readonly<Record<string, VariantContent>>>(
   props: VariantsProps<VariantMap>,
 ): ResolvedVariantsProps<VariantMap> {
-  return { slot: props.slot, default: props.default, variants: (props.variants ?? props.versions)! };
+  return { slot: props.slot, default: props.default, variants: (props.variants ?? props.versions)!, descriptions: props.descriptions };
 }

@@ -15,6 +15,8 @@ export interface FakeDaemon {
   rejectToken: boolean;
   readonly requests: { method: string; path: string; authorization: string | undefined }[];
   readonly slotReports: SlotReport[];
+  /** How many `POST /shutdown` requests arrived. */
+  shutdowns: number;
   /** When true, `GET /slots` fails with a 500. */
   failSlots: boolean;
   /** Every `POST /feedback`: the parsed draft, the screenshot part's bytes, if one was sent, and when it arrived (`Date.now()`, before any hold). */
@@ -63,6 +65,7 @@ export async function fakeDaemon(
     rejectToken: false,
     requests: [],
     slotReports: [],
+    shutdowns: 0,
     failSlots: false,
     posts: [],
     failFeedback: null,
@@ -147,6 +150,26 @@ export async function fakeDaemon(
       const before = daemon.items.length;
       daemon.items = daemon.items.filter((each) => each.id !== itemPath[1]);
       await route.fulfill({ status: daemon.items.length < before ? 204 : 404, headers: cors });
+      return;
+    }
+    if (request.method() === "DELETE" && path === "/feedback") {
+      const deleted = daemon.items.length;
+      for (const item of daemon.items) daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: item.id });
+      daemon.items = [];
+      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, deleted }) });
+      return;
+    }
+    if (request.method() === "GET" && path === "/info") {
+      await route.fulfill({
+        status: 200, headers: cors, contentType: "application/json",
+        body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, pid: 4242, startedAt: "2026-01-01T00:00:00.000Z", projectRoot: "/work/shop", feedbackDirectory: "/work/shop/.iterbar/feedback" }),
+      });
+      return;
+    }
+    if (request.method() === "POST" && path === "/shutdown") {
+      daemon.shutdowns += 1;
+      await route.fulfill({ status: 202, headers: cors });
+      for (const socket of daemon.sockets) socket.close();
       return;
     }
     if (request.method() === "GET" && path === "/slots") {

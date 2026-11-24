@@ -45,7 +45,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   expect(await focusedControl(page)).toMatchObject({ id: "comment" });
 
   // Every toolbar control is reachable by Tab, in order, and each shows a focus ring.
-  expect(await tabThrough(page)).toEqual(["comment", "inbox-toggle", "drafts-toggle", "variants-toggle", "help-toggle"]);
+  expect(await tabThrough(page)).toEqual(["comment", "inbox-toggle", "variants-toggle", "settings-toggle", "help-toggle"]);
   // The logo comes before them, at the toolbar's start.
   await inBar(page, "[data-role=comment]").focus();
   await page.keyboard.press("Shift+Tab");
@@ -78,7 +78,7 @@ test("is fully operable from the keyboard, with visible focus on every control",
   await inBar(page, "[data-role=inbox-toggle]").focus();
   await page.keyboard.press("Enter");
   expect(await tabThrough(page)).toEqual([
-    "inbox-toggle", "drafts-toggle", "variants-toggle", "help-toggle", "panel-close", "all", "open", "progress", "done", "archived",
+    "inbox-toggle", "variants-toggle", "settings-toggle", "help-toggle", "inbox-tab", "panel-close", "all", "open", "progress", "done", "archived",
     "select-all", "thread-select", "summary",
   ]);
   await inBar(page, ".thread summary").focus();
@@ -87,9 +87,10 @@ test("is fully operable from the keyboard, with visible focus on every control",
   const controls = await page.evaluate(() => [...document.querySelector("iterbar-bar")!.shadowRoot!
     .querySelectorAll("button, select, summary, input, textarea, a[href], [tabindex]")]
     .filter((element) => (element as HTMLElement).checkVisibility()).length);
-  // The six toolbar controls (the logo among them), the close button, five filters, the select-all and the thread's
-  // checkbox, its summary and its three actions (mark done, archive, delete): nothing focusable is left out.
-  expect(controls).toBe(18);
+  // The six toolbar controls (the logo among them), the Inbox and Drafts tabs, the close button, five filters, the
+  // select-all and the thread's checkbox, its summary and its three actions (mark done, archive, delete): nothing
+  // focusable is left out.
+  expect(controls).toBe(20);
 
   // C enters comment mode from the page and announces the change; Escape leaves it.
   const events = page.evaluate(() => new Promise<boolean>((resolve) => {

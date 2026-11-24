@@ -39,10 +39,17 @@ switches between them in place, and the `iterbar` URL parameter (`?iterbar=prici
    ```tsx
    import { Variants } from "@iterbar/react";
 
-   <Variants slot="pricing" variants={{ v1: Pricing, v2: PricingV2, v3: PricingCompact }} default="v1" />
+   <Variants
+     slot="pricing"
+     variants={{ v1: Pricing, v2: PricingV2, v3: PricingCompact }}
+     default="v1"
+     descriptions={{ v1: "Current table", v2: "Cards with the plan names first", v3: "One dense row per plan" }}
+   />
    ```
 
    Use the Svelte component in a Svelte app. In production builds `Variants` renders only the default.
+   Give every variant a `descriptions` entry: a short phrase (at most 200 characters) saying what it tries. The bar
+   shows it under the variant's name, so the user can choose without switching to each one.
 4. Make the variants genuinely different in the dimension the user asked about (layout, density, copy, emphasis),
    and keep everything else equal so the comparison is fair. Each variant must work on its own: same props, same
    data, no shared state that only one of them sets.

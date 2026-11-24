@@ -47,6 +47,12 @@ export const daemonEndpoints = Object.freeze({
   setStatus: { method: "POST", path: "/feedback/:feedbackId/status" },
   /** Deletes an item with its attachments; the bar's inbox offers it, agents do not. */
   deleteFeedback: { method: "DELETE", path: "/feedback/:feedbackId" },
+  /** Deletes every item with its attachments (the bar's settings offer it, behind a confirmation); agents do not. */
+  deleteAllFeedback: { method: "DELETE", path: "/feedback" },
+  /** The daemon's process, start time and store, for the bar's settings. */
+  getInfo: { method: "GET", path: "/info" },
+  /** Stops the daemon (the bar's settings offer it); it answers first, then shuts down. */
+  shutdown: { method: "POST", path: "/shutdown" },
   reportSlots: { method: "POST", path: "/slots" },
   listSlots: { method: "GET", path: "/slots" },
   /** WebSocket upgrade for {@link daemonEventSchema} messages. */
@@ -126,6 +132,22 @@ export const slotListResponseSchema = z.object({
   ),
 });
 
+/** Response of `DELETE /feedback`: how many items were deleted. */
+export const deleteAllFeedbackResponseSchema = z.object({
+  schemaVersion: schemaVersionSchema,
+  deleted: z.number().int().nonnegative(),
+});
+
+/** Response of `GET /info`. */
+export const daemonStatusSchema = z.object({
+  schemaVersion: schemaVersionSchema,
+  pid: pidSchema,
+  startedAt: timestampSchema,
+  projectRoot: absolutePathSchema,
+  /** The folder that holds the feedback: deleting all data empties it. */
+  feedbackDirectory: absolutePathSchema,
+});
+
 export const daemonErrorCodeSchema = z.enum([
   "unauthorized",
   "forbidden_origin",
@@ -179,6 +201,8 @@ export type FeedbackListResponse = z.infer<typeof feedbackListResponseSchema>;
 export type ReplyRequest = z.infer<typeof replyRequestSchema>;
 export type StatusRequest = z.infer<typeof statusRequestSchema>;
 export type SlotListResponse = z.infer<typeof slotListResponseSchema>;
+export type DeleteAllFeedbackResponse = z.infer<typeof deleteAllFeedbackResponseSchema>;
+export type DaemonStatus = z.infer<typeof daemonStatusSchema>;
 export type DaemonErrorCode = z.infer<typeof daemonErrorCodeSchema>;
 export type DaemonErrorResponse = z.infer<typeof daemonErrorResponseSchema>;
 export type DaemonEvent = z.infer<typeof daemonEventSchema>;

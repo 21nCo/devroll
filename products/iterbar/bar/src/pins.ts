@@ -21,13 +21,22 @@ export interface PinLayerOptions {
   readonly host: Element;
   /** A pin was clicked: the newest of its threads (and every thread on that element). */
   readonly onOpen: (ids: readonly string[]) => void;
+  /** A draft's pin was clicked: the newest draft on that element (and every draft on it). */
+  readonly onOpenDraft: (ids: readonly string[]) => void;
   /** The page URL threads are filed under, as slot reports file it; `null` for a page the contract cannot name. */
   readonly pageUrl: () => string | null;
   /** Areas the bar draws (the toolbar, an open panel): a pin that would overlap one hides. */
   readonly avoid?: () => readonly DOMRect[];
 }
 
+/** A draft not sent yet, on the element it was picked on. */
+export interface DraftPin {
+  readonly id: string;
+  readonly element: Element;
+}
+
 interface Pin {
+  readonly kind: "thread" | "draft";
   readonly element: Element;
   readonly ids: string[];
   readonly button: HTMLButtonElement;
@@ -105,6 +114,9 @@ export class PinLayer {
   readonly #layer = h("div", { class: "pin-layer", popover: "manual", "data-role": "pin-layer" });
   /** One pin per element: threads whose recorded selectors find the same element share it. */
   readonly #pins = new Map<Element, Pin>();
+  /** Draft pins, one per element, in their own style; they show whatever the connection, as drafts stay in the tab. */
+  readonly #draftPins = new Map<Element, Pin>();
+  #drafts: readonly DraftPin[] = [];
   #threads: readonly Feedback[] = [];
   #active = new Map<string, string>();
   #enabled = true;
@@ -129,6 +141,16 @@ export class PinLayer {
     if (value === this.#enabled) return;
     this.#enabled = value;
     this.#rebuild();
+  }
+
+  /** Whether any pin shows (the settings can turn pins off); the layer keeps following its elements either way. */
+  set visible(value: boolean) {
+    this.#layer.toggleAttribute("data-off", !value);
+  }
+
+  /** The colours the settings choose (`auto` follows the system). */
+  set theme(value: string) {
+    this.#layer.dataset.theme = value;
   }
 
   /** Cancels the inverse page zoom the bar applies, so the pins line up with viewport rectangles. */
@@ -165,8 +187,9 @@ export class PinLayer {
     if (!this.#attached) return;
     this.#attached = false;
     // The pins go with the observers; attaching again builds them afresh, each observed by the new resize observer.
-    for (const pin of this.#pins.values()) pin.button.remove();
+    for (const pin of [...this.#pins.values(), ...this.#draftPins.values()]) pin.button.remove();
     this.#pins.clear();
+    this.#draftPins.clear();
     window.removeEventListener("scroll", this.#queuePlace, true);
     window.removeEventListener("resize", this.#queuePlace);
     window.removeEventListener("load", this.#queuePlace, true);
@@ -211,6 +234,17 @@ export class PinLayer {
     this.#rebuild();
   }
 
+  /** The drafts in the tray: each gets a pin on its element, in the draft style, newest first per element. */
+  updateDrafts(drafts: readonly DraftPin[]): void {
+    this.#drafts = drafts;
+    this.#rebuild();
+  }
+
+  /** The draft pins shown now, for tests. */
+  get draftSize(): number {
+    return [...this.#draftPins.values()].filter((pin) => !pin.button.hidden).length;
+  }
+
   /**
    * Builds the pins from the threads: finds each unfinished thread's element (again, as the page may have replaced or
    * removed it) and gives every element found one pin with its threads, newest first. Then places them.
@@ -231,36 +265,55 @@ export class PinLayer {
         else groups.set(element, [thread.id]);
       }
     }
-    for (const [element, pin] of this.#pins) {
+    const drafts = new Map<Element, string[]>();
+    if (this.#attached) {
+      // Newest first, like a thread pin's ids.
+      for (const draft of [...this.#drafts].reverse()) {
+        if (!draft.element.isConnected || this.#options.host.contains(draft.element)) continue;
+        const ids = drafts.get(draft.element);
+        if (ids) ids.push(draft.id);
+        else drafts.set(draft.element, [draft.id]);
+      }
+    }
+    this.#sync(this.#pins, groups, "thread");
+    this.#sync(this.#draftPins, drafts, "draft");
+    this.#place();
+  }
+
+  /** Makes `pins` match `groups`: one pin per element with its ids, created, updated or removed as needed. */
+  #sync(pins: Map<Element, Pin>, groups: ReadonlyMap<Element, readonly string[]>, kind: Pin["kind"]): void {
+    for (const [element, pin] of pins) {
       if (groups.has(element)) continue;
       pin.button.remove();
-      this.#resizes?.unobserve(element);
-      this.#pins.delete(element);
+      if (!this.#pins.has(element) && !this.#draftPins.has(element)) this.#resizes?.unobserve(element);
+      pins.delete(element);
     }
     for (const [element, ids] of groups) {
-      let pin = this.#pins.get(element);
+      let pin = pins.get(element);
       if (!pin) {
         const count = h("span", { class: "pin-count", hidden: true });
-        const button = h("button", { type: "button", class: "pin", "data-role": "pin" }, icon("comment"), count);
-        const created: Pin = { element, ids: [], button, count };
+        const button = kind === "thread"
+          ? h("button", { type: "button", class: "pin", "data-role": "pin" }, icon("comment"), count)
+          : h("button", { type: "button", class: "pin draft-pin", "data-role": "draft-pin" }, icon("drafts"), count);
+        const created: Pin = { kind, element, ids: [], button, count };
         button.addEventListener("click", (event) => {
           event.stopPropagation();
-          this.#options.onOpen([...created.ids]);
+          if (kind === "thread") this.#options.onOpen([...created.ids]);
+          else this.#options.onOpenDraft([...created.ids]);
         });
         this.#layer.append(button);
-        this.#pins.set(element, created);
+        pins.set(element, created);
         this.#resizes?.observe(element);
         pin = created;
       }
       pin.ids.splice(0, pin.ids.length, ...ids);
       pin.count.textContent = String(ids.length);
       pin.count.hidden = ids.length < 2;
-      const label = ids.length === 1 ? "Open comment" : `Open ${ids.length} comments`;
-      pin.button.setAttribute("aria-label", label);
-      pin.button.title = ids.length === 1 ? "Open comment" : `${ids.length} comments`;
-      pin.button.dataset.feedbackIds = ids.join(" ");
+      const noun = kind === "thread" ? "comment" : "draft";
+      pin.button.setAttribute("aria-label", ids.length === 1 ? `Open ${noun}` : `Open ${ids.length} ${noun}s`);
+      pin.button.title = ids.length === 1 ? (kind === "thread" ? "Open comment" : "Open draft (not sent yet)") : `${ids.length} ${noun}s`;
+      pin.button.dataset[kind === "thread" ? "feedbackIds" : "draftIds"] = ids.join(" ");
     }
-    this.#place();
   }
 
   /** The element a recorded selector finds now; never one inside the bar, and none for a selector that throws. */
@@ -308,7 +361,7 @@ export class PinLayer {
     } catch {
       // Pins still show; only the areas to keep clear are unknown.
     }
-    for (const pin of this.#pins.values()) {
+    for (const pin of [...this.#pins.values(), ...this.#draftPins.values()]) {
       const element = pin.element;
       const rect = element.isConnected ? visibleRect(element) : null;
       const shown = rect !== null && rect.width > 0 && rect.height > 0
@@ -318,7 +371,9 @@ export class PinLayer {
         pin.button.hidden = true;
         continue;
       }
-      const left = Math.min(width - PIN_SIZE_PX - 2, Math.max(2, rect.right - PIN_SIZE_PX / 2));
+      // A draft pin on an element that also has a thread pin sits just left of it.
+      const shift = pin.kind === "draft" && this.#pins.has(element) ? PIN_SIZE_PX + 4 : 0;
+      const left = Math.min(width - PIN_SIZE_PX - 2, Math.max(2, rect.right - PIN_SIZE_PX / 2 - shift));
       const top = Math.min(height - PIN_SIZE_PX - 2, Math.max(2, rect.top - PIN_SIZE_PX / 2));
       const covered = avoid.some((area) => left < area.right && left + PIN_SIZE_PX > area.left
         && top < area.bottom && top + PIN_SIZE_PX > area.top);

@@ -21,6 +21,7 @@ const ICONS = {
   trash: "trash-light",
   caret: "caret-down-light",
   help: "question-light",
+  settings: "gear-six-light",
 };
 
 const lines = Object.entries(ICONS).map(([name, id]) => {

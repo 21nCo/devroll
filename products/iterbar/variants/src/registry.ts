@@ -53,6 +53,8 @@ export interface SlotDefinition {
   /** Variant names in display order; unique, 1-64 of them. */
   readonly variants: readonly string[];
   readonly defaultVariant: string;
+  /** A short description of some or all variants, by name, shown under each name in the bar (at most 200 characters). */
+  readonly descriptions?: Readonly<Record<string, string>>;
 }
 
 interface SlotInstance {
@@ -90,11 +92,13 @@ export function validateSlotDefinition(definition: SlotDefinition): SlotDefiniti
     defaultVariant: legacy?.defaultVariant ?? legacy?.defaultVersion,
     activeVariant: legacy?.defaultVariant ?? legacy?.defaultVersion,
     mounts: 1,
+    ...(legacy?.descriptions === undefined ? {} : { descriptions: legacy.descriptions }),
   }, "slot definition");
   return Object.freeze({
     slot: state.slot,
     variants: Object.freeze([...state.variants]),
     defaultVariant: state.defaultVariant,
+    ...(state.descriptions ? { descriptions: Object.freeze({ ...state.descriptions }) } : {}),
   });
 }
 
@@ -323,6 +327,7 @@ export class VariantsRegistry {
           defaultVariant: definition.defaultVariant,
           activeVariant: record.activeVariant,
           mounts: record.instances.length,
+          ...(definition.descriptions ? { descriptions: { ...definition.descriptions } } : {}),
         };
       }),
       warnings: warnings.slice(0, MAX_WARNINGS).map((entry) => ({ ...entry })),

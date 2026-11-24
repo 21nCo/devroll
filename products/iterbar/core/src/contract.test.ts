@@ -147,6 +147,14 @@ const cases: Case[] = [
     message: /each slot may appear only once/,
   },
   { schema: "slotStateSchema", valid: slotState, invalid: { ...slotState, activeVariant: "v3" }, path: "activeVariant" },
+  {
+    schema: "slotStateSchema",
+    variant: "descriptions",
+    valid: { ...slotState, descriptions: { v1: "The current layout", v2: "Prices first" } },
+    invalid: { ...slotState, descriptions: { v1: "The current layout", v9: "No such variant" } },
+    path: "descriptions.v9",
+    message: /does not have/,
+  },
   { schema: "registryWarningSchema", valid: warning, invalid: { ...warning, source: "cookie" }, path: "source" },
   {
     schema: "registryWarningSchema",
@@ -328,6 +336,18 @@ const cases: Case[] = [
     invalid: { schemaVersion: 2, pages: [slotReport, { ...slotReport, reportedAt: updatedAt }] },
     path: "pages",
     message: /page URLs must be unique/,
+  },
+  {
+    schema: "deleteAllFeedbackResponseSchema",
+    valid: { schemaVersion: 2, deleted: 3 },
+    invalid: { schemaVersion: 2, deleted: -1 },
+    path: "deleted",
+  },
+  {
+    schema: "daemonStatusSchema",
+    valid: { schemaVersion: 2, pid: 4242, startedAt: createdAt, projectRoot: "/work/app", feedbackDirectory: "/work/app/.iterbar/feedback" },
+    invalid: { schemaVersion: 2, pid: 4242, startedAt: createdAt, projectRoot: "/work/app", feedbackDirectory: "relative/feedback" },
+    path: "feedbackDirectory",
   },
   { schema: "daemonErrorCodeSchema", valid: "store_locked", invalid: "teapot", path: "" },
   {

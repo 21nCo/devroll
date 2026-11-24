@@ -97,6 +97,8 @@ export interface FeedbackStore {
   setStatus(feedbackId: string, status: FeedbackStatus): Promise<Feedback>;
   /** Deletes an item and its attachments; throws `not_found` when it does not exist. */
   delete(feedbackId: string): Promise<void>;
+  /** Deletes every item with its attachments; resolves with the deleted ids. */
+  deleteAll(): Promise<string[]>;
   /** Waits for pending writes, then releases the lock. Idempotent. */
   close(): Promise<void>;
 }
@@ -461,7 +463,30 @@ class FileFeedbackStore implements FeedbackStore {
   async delete(feedbackId: string): Promise<void> {
     this.#assertOpen();
     assertSafeId(feedbackId, "feedback id");
+    return this.#exclusive(() => this.#delete(feedbackId, true));
+  }
+
+  /** Deletes every item, one durable delete at a time. Resolves with the ids that were deleted. */
+  async deleteAll(): Promise<string[]> {
+    this.#assertOpen();
     return this.#exclusive(async () => {
+      const deleted: string[] = [];
+      for (const entry of await listDirectory(this.paths.feedbackDirectory)) {
+        if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
+        try {
+          // No batch to shrink: every member goes.
+          await this.#delete(entry.name, false);
+          deleted.push(entry.name);
+        } catch (error) {
+          if (!(error instanceof IterbarStoreError && error.code === "not_found")) throw error;
+        }
+      }
+      return deleted;
+    });
+  }
+
+  async #delete(feedbackId: string, shrinkBatch: boolean): Promise<void> {
+    {
       const record = await this.#read(feedbackId);
       // No record, but its directory is still there: an earlier delete removed the record and could not sync. A retry
       // finishes that delete (syncs, then cleans up) instead of reporting it gone before it is durable.
@@ -481,8 +506,8 @@ class FileFeedbackStore implements FeedbackStore {
       } catch {
         // Left for the sweep.
       }
-      if (record?.feedback.batchId !== undefined) await this.#shrinkBatch(record.feedback).catch(() => undefined);
-    });
+      if (shrinkBatch && record?.feedback.batchId !== undefined) await this.#shrinkBatch(record.feedback).catch(() => undefined);
+    }
   }
 
   /**

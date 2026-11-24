@@ -176,6 +176,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
       }
       await handleRoute(route.name, {
         request, response, url: url as URL, params: route.params, headers: cors, store, origins, slots, events, statusChanges,
+        info: daemon!.info,
+        shutdown: () => void daemon?.close(),
       });
     } catch (error) {
       const httpError = toHttpError(error);

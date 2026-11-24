@@ -1,13 +1,19 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IterbarAbout } from "./about.js";
 import { originOf } from "./origins.js";
 
 /** The dev server path, below Vite's `base`, that hands the bar its daemon URL and token. */
 export const CONFIG_PATH = "__iterbar/config";
 
+/** The dev server path, below Vite's `base`, where the bar's settings check the registry for newer versions. */
+export const UPDATES_PATH = "__iterbar/updates";
+
 /** The answer of the config endpoint. */
 export interface BarConfigResponse {
   readonly daemonUrl: string;
   readonly token: string;
+  /** The installed Iterbar packages and the CLI the daemon runs from. */
+  readonly about?: IterbarAbout;
 }
 
 export type ConfigRequestCheck =

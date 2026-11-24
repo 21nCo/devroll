@@ -114,7 +114,8 @@ Result: `{ feedback }`. Setting the current status again changes nothing.
 ## `list_slots`
 
 No inputs. Result: `{ pages }`, one entry per page URL that reported its slots, most recently reported last:
-`{ pageUrl, reportedAt, slots: [{ slot, variants, defaultVariant, activeVariant, mounts }] }`. Pages report while
+`{ pageUrl, reportedAt, slots: [{ slot, variants, defaultVariant, activeVariant, mounts, descriptions? }] }`, where
+`descriptions` maps variant names to the short descriptions the page gave them. Pages report while
 they are open in a browser with the bar; the list is kept in the daemon's memory and starts empty when it restarts.
 
 ## `wait_for_feedback`

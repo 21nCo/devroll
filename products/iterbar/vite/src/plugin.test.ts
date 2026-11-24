@@ -167,7 +167,8 @@ describe("iterbar() in vite dev", () => {
     expect(client.body).toMatch(/import \{ mountIterbarBar \} from "[^"]*bar\/dist\/index\.js"/);
     expect(client.body).toContain('fetch("/__iterbar/config"');
     // The bar is told the project's root, to keep its place per project and fill in "Use with your agent".
-    expect(client.body).toMatch(/mountIterbarBar\(\{ daemonUrl, token, project: "[^"]+" \}\)/u);
+    expect(client.body).toMatch(/mountIterbarBar\(\{ daemonUrl, token, project: "[^"]+", devServer: devServer\(about\) \}\)/u);
+    expect(client.body).toContain('"/__iterbar/updates"');
   });
 
   it("serves the token to the dev server's own pages only, under Vite's base", async () => {
@@ -179,7 +180,11 @@ describe("iterbar() in vite dev", () => {
     expect(own.status).toBe(200);
     expect(own.headers["cache-control"]).toBe("no-store");
     const info = await readMatchingDaemonFile(root);
-    expect(JSON.parse(own.body)).toEqual({ daemonUrl: `http://127.0.0.1:${info?.port}`, token: info?.token });
+    const config = JSON.parse(own.body) as { daemonUrl: string; token: string; about: { packages: { name: string }[]; cli: { path: string } | null } };
+    expect(config).toMatchObject({ daemonUrl: `http://127.0.0.1:${info?.port}`, token: info?.token });
+    // What the bar's settings and setup steps use: the installed packages and the CLI the daemon runs from.
+    expect(config.about.packages.map((pkg) => pkg.name)).toEqual(["@iterbar/vite", "@iterbar/cli"]);
+    expect(config.about.cli?.path).toMatch(/cli[\\/]dist[\\/]cli\.js$/u);
 
     const refused = [
       await get(port, "/app/__iterbar/config", { "sec-fetch-site": "cross-site" }),
@@ -188,6 +193,8 @@ describe("iterbar() in vite dev", () => {
       await get(port, "/app/__iterbar/config", {}, "POST"),
     ];
     expect(refused.map(({ status }) => status)).toEqual([403, 403, 403, 405]);
+    // The update check answers the dev server's own pages only, like the config.
+    expect((await get(port, "/app/__iterbar/updates", { "sec-fetch-site": "cross-site" })).status).toBe(403);
     expect(refused[3]?.headers.allow).toBe("GET");
     for (const { body } of refused) expect(body).not.toContain(info?.token);
   });
@@ -657,7 +664,7 @@ describe("iterbar() in vite dev", () => {
     const after = await get(port, "/__iterbar/config");
     expect(after.status).toBe(200);
     const info = await readMatchingDaemonFile(root);
-    expect(JSON.parse(after.body)).toEqual({ daemonUrl: `http://127.0.0.1:${info?.port}`, token: info?.token });
+    expect(JSON.parse(after.body)).toMatchObject({ daemonUrl: `http://127.0.0.1:${info?.port}`, token: info?.token });
     await server.close();
     // Neither the first server's daemon nor the restarted server's is left running.
     expect(await readMatchingDaemonFile(root)).toBeNull();

@@ -83,7 +83,7 @@ export const BAR_CSS = String.raw`
 }
 
 @media (prefers-color-scheme: dark) {
-  .bar, .composer, .pin-layer {
+  :is(.bar, .composer, .pin-layer):not([data-theme="light"]) {
     /* tidigit iris dark (cs_tidigit_dark_iris). */
     --ib-bg: hsl(228 26% 11%);
     --ib-surface: hsl(229 19% 15%);
@@ -109,6 +109,33 @@ export const BAR_CSS = String.raw`
     --ib-shadow: 0 10px 32px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
   }
+}
+/* Dark whatever the system says, when the settings choose it. */
+:is(.bar, .composer, .pin-layer)[data-theme="dark"] {
+  /* tidigit iris dark (cs_tidigit_dark_iris). */
+  --ib-bg: hsl(228 26% 11%);
+  --ib-surface: hsl(229 19% 15%);
+  --ib-hover: hsl(229 19% 18%);
+  --ib-fg: hsl(0 0% 95%);
+  --ib-fg2: hsl(0 0% 79%);
+  --ib-muted: hsl(0 0% 65%);
+  --ib-border: hsl(229 19% 25%);
+  --ib-accent: hsl(239 55% 58%);
+  --ib-accent-fg: hsl(0 0% 99%);
+  --ib-accent-soft: hsl(245 57% 25%);
+  /* aps1 lightened so link text passes 4.5:1 on the dark surfaces. */
+  --ib-link: hsl(239 70% 74%);
+  --ib-focus: hsl(239 70% 72%);
+  --ib-success: hsl(151 66% 42%);
+  --ib-success-text: hsl(151 66% 48%);
+  --ib-danger: hsl(0 89% 71%);
+  --ib-danger-text: hsl(0 89% 71%);
+  --ib-warn: rgb(226 170 90);
+  --ib-warn-fg: hsl(228 26% 11%);
+  --ib-tip-bg: hsl(0 0% 95%);
+  --ib-tip-fg: hsl(228 26% 11%);
+  --ib-shadow: 0 10px 32px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -204,6 +231,8 @@ export const BAR_CSS = String.raw`
 .dock[data-awake][data-align="end"] .logo { margin-right: 0; margin-left: 2px; }
 
 .divider { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--ib-border); }
+/* Widened to the Variants popover: the room goes between the two groups of controls. */
+.dock[data-matched] .divider { margin-left: auto; }
 
 button, select {
   font: inherit;
@@ -253,10 +282,12 @@ button:disabled { cursor: default; opacity: 0.55; }
   font-weight: 500;
   line-height: 16px;
   text-align: center;
-  background: var(--ib-accent);
-  color: var(--ib-accent-fg);
+  /* Counts are neutral, never the accent: foreground text on a muted fill. */
+  background: color-mix(in srgb, var(--ib-fg) 11%, transparent);
+  color: var(--ib-fg);
 }
-[data-role=drafts-toggle] .count { background: var(--ib-warn); color: var(--ib-warn-fg); }
+/* Drafts not sent yet: the dashed outline of a draft pin. */
+.count.draft-count { background: transparent; border: 1px dashed var(--ib-fg2); line-height: 14px; }
 
 /* The connection, at the top of the setup sheet: a dot, its label, what it means and any detail. */
 .connection { display: grid; gap: 4px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--ib-border); border-radius: 8px; background: var(--ib-surface); }
@@ -352,6 +383,14 @@ button:disabled { cursor: default; opacity: 0.55; }
   border-bottom: 1px solid var(--ib-border);
 }
 .panel-title { margin: 0 auto 0 0; font-size: var(--ib-text-sm); font-weight: 500; }
+/* Inbox | Drafts: a segmented control in place of the title. */
+.segmented { display: inline-flex; gap: 2px; margin-right: auto; padding: 2px; border-radius: 8px; background: var(--ib-surface); border: 1px solid var(--ib-border); }
+.segmented[hidden] { display: none; }
+.segment { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 6px; background: transparent; padding: 3px 10px; font-weight: 500; color: var(--ib-fg2); }
+.segment[aria-selected="true"] { background: var(--ib-bg); color: var(--ib-fg); box-shadow: 0 1px 2px rgba(15, 20, 30, 0.12); }
+button.segment[aria-selected="true"]:hover:not(:disabled) { background: var(--ib-bg); }
+.tab-count { min-width: 18px; padding: 0 5px; border-radius: 999px; font-size: var(--ib-text-2xs); line-height: 16px; text-align: center;
+  background: color-mix(in srgb, var(--ib-fg) 11%, transparent); color: var(--ib-fg); font-variant-numeric: tabular-nums; }
 .panel-body {
   overflow: auto;
   /* Room for a scrollbar is kept whether or not one shows, so opening a thread never shifts the content sideways. */
@@ -417,7 +456,10 @@ p { margin: 0 0 6px; }
 }
 .variants .variant[aria-pressed="true"] { background: var(--ib-accent-soft); border-color: var(--ib-accent); color: var(--ib-fg); }
 .variants .variant[aria-pressed="true"]:hover:not(:disabled) { filter: none; }
+.variant-text { display: grid; gap: 2px; min-width: 0; text-align: left; }
+.variant-head { display: flex; align-items: center; gap: 6px; }
 .variant-name { font-weight: 500; overflow-wrap: anywhere; }
+.variant-description { font-size: var(--ib-text-xs); font-weight: 400; line-height: 1.4; color: var(--ib-muted); overflow-wrap: anywhere; }
 .variant-tag { font-size: var(--ib-text-xs); line-height: 16px; padding: 0 7px; border-radius: 999px; background: var(--ib-hover); color: var(--ib-muted); }
 .variant-check { margin-left: auto; color: var(--ib-accent); visibility: hidden; }
 .variant-check .glyph { width: var(--ib-icon); height: var(--ib-icon); }
@@ -445,6 +487,7 @@ p { margin: 0 0 6px; }
 .pages-note { margin: 8px 0 0; font-size: var(--ib-text-xs); }
 
 /* Comment pins: a full-viewport top-layer layer that takes pointer events only on its pins. */
+.pin-layer[data-off] { display: none !important; }
 .pin-layer {
   position: fixed;
   inset: 0;
@@ -480,8 +523,11 @@ p { margin: 0 0 6px; }
 }
 /* The pin draws at 22px; its hit area reaches 28px. */
 .pin::before { content: ""; position: absolute; inset: -5px; border-radius: 999px; }
+/* A draft's pin: neutral and dashed, so drafts and sent threads tell apart at a glance. */
+.pin.draft-pin { background: var(--ib-bg); color: var(--ib-fg2); border: 2px dashed var(--ib-fg2); }
+button.pin.draft-pin:hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { background: var(--ib-hover); color: var(--ib-fg); filter: none; }
 /* The general button hover colour never applies to a pin: it keeps its accent fill and brightens. */
-button.pin:hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { background: var(--ib-accent); filter: brightness(1.1); }
+button.pin:not(.draft-pin):hover:not(:disabled):not(.primary):not([aria-pressed="true"]) { background: var(--ib-accent); filter: brightness(1.1); }
 .pin .glyph { width: var(--ib-icon-xs); height: var(--ib-icon-xs); }
 .pin-count {
   position: absolute;
@@ -613,6 +659,7 @@ label.thread-gutter { width: var(--ib-hit); min-height: var(--ib-hit); margin: -
   background: var(--ib-surface);
 }
 .draft[data-state="failed"] { border-color: var(--ib-danger); }
+.draft[data-revealed] { border-color: var(--ib-fg2); border-style: dashed; box-shadow: 0 0 0 3px var(--ib-hover); }
 .draft[data-state="sending"] { opacity: 0.7; }
 .draft-index {
   flex: none;
@@ -702,6 +749,29 @@ button.link {
 /* The copy command's text area (only where the Clipboard API is missing), out of sight inside the shadow root. */
 .copy-buffer { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .copy[data-copied] { color: var(--ib-success-text); border-color: var(--ib-success); }
+
+/* The settings sheet. */
+.settings { display: grid; gap: 16px; }
+.settings-status { margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--ib-surface); border: 1px solid var(--ib-border); font-size: var(--ib-text-xs); }
+.settings-section { display: grid; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--ib-border); }
+.settings-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.settings-section .section-title { margin: 0; }
+.settings-group { display: grid; gap: 8px; }
+.settings-line { margin: 0; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings-packages { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.settings-package { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline; gap: 10px; font-size: var(--ib-text-xs); }
+.settings-package code { font: var(--ib-text-xs)/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.settings-label { font-weight: 500; }
+.settings-choice { margin-right: 0; }
+.settings-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; min-height: var(--ib-hit); cursor: pointer; }
+.settings-toggle input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--ib-accent); cursor: pointer; }
+.settings-toggle > span { display: grid; gap: 2px; }
+.settings-detail { font-size: var(--ib-text-xs); }
+.settings-confirm { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--ib-danger); border-radius: 8px; background: var(--ib-surface); }
+.settings-confirm p { margin: 0; }
+button.danger { color: var(--ib-danger-text); border-color: color-mix(in srgb, var(--ib-danger) 55%, var(--ib-border)); }
 
 /* The composer: a popover anchored next to the picked element. */
 .composer {

@@ -35,6 +35,9 @@ export const activeVariantsSchema = z.array(activeVariantSchema).max(256).refine
   "each slot may appear only once",
 );
 
+/** The longest variant description, in characters: a line or two under the name. */
+export const MAX_VARIANT_DESCRIPTION_LENGTH = 200;
+
 /** One slot as the page registry currently sees it. */
 export const slotStateSchema = z.object({
   slot: slotNameSchema,
@@ -43,7 +46,17 @@ export const slotStateSchema = z.object({
   activeVariant: variantNameSchema,
   /** How many mounted `Variants` instances share this slot name. */
   mounts: z.number().int().positive(),
+  /**
+   * A short description of each variant, by name, that the bar shows under the variant's name: what it tries, so the
+   * user can choose without switching to each. Optional, for any of the variants.
+   */
+  descriptions: z.record(variantNameSchema, z.string().trim().min(1).max(MAX_VARIANT_DESCRIPTION_LENGTH)).optional(),
 }).superRefine((slot, context) => {
+  for (const name of Object.keys(slot.descriptions ?? {})) {
+    if (!slot.variants.includes(name)) {
+      context.addIssue({ code: "custom", path: ["descriptions", name], message: "describes a variant the slot does not have" });
+    }
+  }
   if (new Set(slot.variants).size !== slot.variants.length) {
     context.addIssue({ code: "custom", path: ["variants"], message: "variants must be unique" });
   }

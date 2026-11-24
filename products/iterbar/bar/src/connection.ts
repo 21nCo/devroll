@@ -12,6 +12,9 @@ import {
   safeParseMessage,
   SCHEMA_VERSION,
   slotListResponseSchema,
+  deleteAllFeedbackResponseSchema,
+  daemonStatusSchema,
+  type DaemonStatus,
   slotReportSchema,
   tokenSchema,
   webSocketProtocols,
@@ -285,6 +288,25 @@ export class DaemonConnection {
     }
   }
 
+  /** Deletes every item in the project's store (the settings' "Delete all Iterbar data"); resolves with how many went. */
+  async deleteAll(): Promise<number> {
+    const parsed = safeParseMessage(deleteAllFeedbackResponseSchema, await this.#userRequest("deleteAllFeedback", {}), "delete all");
+    if (!parsed.success) throw new DaemonRequestError("The daemon's answer did not match the contract.");
+    return parsed.data.deleted;
+  }
+
+  /** The daemon's process, start time and store folder (`GET /info`). */
+  async info(): Promise<DaemonStatus> {
+    const parsed = safeParseMessage(daemonStatusSchema, await this.#userRequest("getInfo", {}), "daemon info");
+    if (!parsed.success) throw new DaemonRequestError("The daemon's answer did not match the contract.");
+    return parsed.data;
+  }
+
+  /** Asks the daemon to stop. It answers first; the connection then sees it go. */
+  async shutdown(): Promise<void> {
+    await this.#userRequest("shutdown", {});
+  }
+
   /** Lists the threads again (now, or once the listing in flight ends), as when a delete left room for older ones. */
   refresh(): void {
     this.#refreshThreads();
@@ -310,7 +332,8 @@ export class DaemonConnection {
 
   /** A request the user started from the inbox: refused while stopped, and a `401` stops the connection. */
   async #userRequest(
-    endpoint: "setStatus" | "deleteFeedback", params: Readonly<Record<string, string>>, body?: string, detached = false,
+    endpoint: "setStatus" | "deleteFeedback" | "deleteAllFeedback" | "getInfo" | "shutdown",
+    params: Readonly<Record<string, string>>, body?: string, detached = false,
   ): Promise<unknown> {
     if (this.#stopped) throw new DaemonRequestError("The bar is not connected to the daemon.");
     try {

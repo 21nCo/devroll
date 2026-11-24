@@ -10,17 +10,17 @@
   import { untrack } from "svelte";
   import Variant from "./Variant.svelte";
 
-  let { slot, variants, default: defaultVariant }: ResolvedVariantsProps<Readonly<Record<string, VariantContent>>> = $props();
+  let { slot, variants, default: defaultVariant, descriptions }: ResolvedVariantsProps<Readonly<Record<string, VariantContent>>> = $props();
 
   const readProvided = providedRegistry();
   // Derived, so the effect below re-registers only when the provided registry itself changes.
   const provided = $derived(readProvided());
   // A string, so new props with the same slot, variant names and default do not register the slot again.
-  const key = $derived(JSON.stringify([slot, Object.keys(variants), defaultVariant]));
-  // Throws `invalid_message` for an invalid slot, variant name or default.
+  const key = $derived(JSON.stringify([slot, Object.keys(variants), defaultVariant, descriptions ?? null]));
+  // Throws `invalid_message` for an invalid slot, variant name, default or description.
   const definition = $derived.by(() => {
-    const [name, names, initial] = JSON.parse(key) as [string, string[], string];
-    return validateSlotDefinition({ slot: name, variants: names, defaultVariant: initial });
+    const [name, names, initial, described] = JSON.parse(key) as [string, string[], string, Record<string, string> | null];
+    return validateSlotDefinition({ slot: name, variants: names, defaultVariant: initial, ...(described ? { descriptions: described } : {}) });
   });
   // Svelte gives an instance that hydrates server markup the server's id (`s1`, or `prefix-s1`) and a new
   // client instance `c1`, `c2`, ...: unlike a DOM query, this holds for any hydration target and id prefix.

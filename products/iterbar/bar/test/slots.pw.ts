@@ -224,3 +224,28 @@ test.describe("switching a variant", () => {
     await expect(inBar(page, "[data-role=variants]")).toBeHidden();
   });
 });
+
+test("the Variants popover and the toolbar have one width, variants show their descriptions, and counts are neutral", async ({ page, openFixture }) => {
+  await openFixture();
+  await registerSlots(page, [{ ...PRICING, descriptions: { v1: "The current table", v3: "One dense row per plan" } }]);
+  await mountBar(page);
+  await openPanel(page, "variants");
+  const toolbar = (await inBar(page, ".toolbar").boundingBox())!;
+  const popover = (await inBar(page, "[data-role=panel]").boundingBox())!;
+  expect(Math.round(popover.width)).toBe(Math.round(toolbar.width));
+  expect(Math.round(popover.x)).toBe(Math.round(toolbar.x));
+  await expect(inBar(page, "[data-variant=v1] [data-role=variant-description]")).toHaveText("The current table");
+  await expect(inBar(page, "[data-variant=v2] [data-role=variant-description]")).toHaveCount(0);
+  await expect(inBar(page, "[data-variant=v3] [data-role=variant-description]")).toHaveText("One dense row per plan");
+  // The slot count is foreground on a muted fill, not the accent.
+  const count = await inBar(page, "[data-role=slot-count]").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color };
+  });
+  const accent = await inBar(page, ".logo").evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(count.background).not.toBe(accent);
+  // Closed, the toolbar goes back to its own width.
+  await inBar(page, "[data-role=variants-toggle]").click();
+  await expect(inBar(page, ".dock")).not.toHaveAttribute("data-matched", "");
+  expect(await inBar(page, ".dock").evaluate((element) => (element as HTMLElement).style.minWidth)).toBe("");
+});
