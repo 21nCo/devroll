@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
-import { iterbarPaths } from "@iterbar/core/node";
+import { iterbarPaths } from "iterbar/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { temporaryProject } from "../store/test-support/helpers.js";
 import { DaemonClient } from "./daemon-client.js";

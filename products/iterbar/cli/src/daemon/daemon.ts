@@ -11,7 +11,7 @@ import {
   tokenFromAuthorization,
   tokenFromWebSocketProtocols,
   type DaemonInfo,
-} from "@iterbar/core";
+} from "iterbar";
 import { openFeedbackStore, type FeedbackStore } from "../store/index.js";
 import { authorize, authorizePreflight, isPreflight, OriginAllowList } from "./access.js";
 import { removeDaemonFile, writeDaemonFile } from "./daemon-file.js";

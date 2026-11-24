@@ -1,4 +1,4 @@
-import { SLOT_ATTRIBUTE, SOURCE_ATTRIBUTE } from "@iterbar/core";
+import { SLOT_ATTRIBUTE, SOURCE_ATTRIBUTE } from "iterbar";
 
 /** Longest selector the feedback contract accepts. */
 export const MAX_SELECTOR_LENGTH = 2048;

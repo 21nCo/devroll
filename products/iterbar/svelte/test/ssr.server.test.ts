@@ -1,4 +1,4 @@
-import { PAGE_API_GLOBAL, VARIANT_STORAGE_KEY } from "@iterbar/core";
+import { PAGE_API_GLOBAL, VARIANT_STORAGE_KEY } from "iterbar";
 import { render } from "svelte/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Variants } from "../src/index.js";

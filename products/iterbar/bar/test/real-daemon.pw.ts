@@ -1,9 +1,9 @@
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startDaemon, type RunningDaemon } from "iterbar/daemon";
-import { attachmentFileName, bearerAuthorization, SCHEMA_VERSION, type Feedback } from "@iterbar/core";
-import { attachmentsDirectoryPath, feedbackRecordPath } from "@iterbar/core/node";
+import { startDaemon, type RunningDaemon } from "@iterbar/cli/daemon";
+import { attachmentFileName, bearerAuthorization, SCHEMA_VERSION, type Feedback } from "iterbar";
+import { attachmentsDirectoryPath, feedbackRecordPath } from "iterbar/node";
 import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 import { pngSize } from "./support/png.js";
 

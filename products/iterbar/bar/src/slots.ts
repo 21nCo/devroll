@@ -12,7 +12,7 @@ import {
   type RegistrySnapshot,
   type SlotReport,
   type SlotState,
-} from "@iterbar/core";
+} from "iterbar";
 import { h } from "./dom.js";
 import { icon } from "./icons.js";
 

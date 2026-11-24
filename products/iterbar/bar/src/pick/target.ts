@@ -10,7 +10,7 @@ import {
   type BoundingBox,
   type FeedbackTarget,
   type SourceLocation,
-} from "@iterbar/core";
+} from "iterbar";
 import { stableSelector } from "./selector.js";
 
 /**

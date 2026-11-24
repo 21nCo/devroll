@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENT_BYTES } from "@iterbar/core";
+import { MAX_ATTACHMENT_BYTES } from "iterbar";
 import { createContext, destroyContext, domToBlob } from "modern-screenshot";
 
 /** Most pixels in one screenshot (4 MP); larger elements are captured at a lower scale. */

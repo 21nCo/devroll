@@ -27,14 +27,14 @@ import {
   type IterbarPaths,
   type ScreenshotAttachment,
   upgradeMessage,
-} from "@iterbar/core";
+} from "iterbar";
 import {
   attachmentPath,
   attachmentsDirectoryPath,
   feedbackDirectoryPath,
   feedbackRecordPath,
   iterbarPaths,
-} from "@iterbar/core/node";
+} from "iterbar/node";
 import { errnoCode, IterbarStoreError } from "./errors.js";
 import { createFileAtomic, syncDirectory, writeFileAtomic } from "./files.js";
 import { formatId, formatTimestamp, StoreClock } from "./ids.js";

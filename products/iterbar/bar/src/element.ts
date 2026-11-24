@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackStatus, type FeedbackTarget, type SlotState } from "@iterbar/core";
+import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackStatus, type FeedbackTarget, type SlotState } from "iterbar";
 import { Composer } from "./composer.js";
 import { DaemonConnection, DaemonRequestError, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
 import { h, isRendered } from "./dom.js";

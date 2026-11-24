@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Feedback, FeedbackListQuery } from "@iterbar/core";
+import type { Feedback, FeedbackListQuery } from "iterbar";
 import { afterEach, describe, expect, it } from "vitest";
 import { MAX_CURSOR_SEEN, MAX_CURSOR_TIME_MS } from "./cursor.js";
 import type { DaemonClient } from "./daemon-client.js";

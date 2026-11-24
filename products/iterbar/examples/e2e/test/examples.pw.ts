@@ -1,9 +1,9 @@
 import { access, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { startDaemon } from "iterbar/daemon";
+import { startDaemon } from "@iterbar/cli/daemon";
 import { expect, test, type Page } from "@playwright/test";
-import { bearerAuthorization, daemonInfoSchema, parseMessage, type DaemonInfo } from "@iterbar/core";
-import { iterbarPaths } from "@iterbar/core/node";
+import { bearerAuthorization, daemonInfoSchema, parseMessage, type DaemonInfo } from "iterbar";
+import { iterbarPaths } from "iterbar/node";
 import { APPS, buildApp, projectRoot, readTree, startVite, type ExampleApp } from "./support/apps.js";
 
 /** Text the bar's own code contains; a build that has the bar has these, a build without it does not. */

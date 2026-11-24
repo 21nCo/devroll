@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { attachmentPath, attachmentsDirectoryPath, feedbackDirectoryPath, feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
+import { attachmentPath, attachmentsDirectoryPath, feedbackDirectoryPath, feedbackRecordPath, iterbarPaths } from "iterbar/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openFeedbackStore } from "./store.js";
 import { commentDraft, EVIDENCE, PNG, StoreProcess, temporaryProject } from "./test-support/helpers.js";

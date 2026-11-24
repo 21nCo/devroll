@@ -1,5 +1,5 @@
 {
-  "name": "@iterbar/core",
+  "name": "iterbar",
   "version": "0.0.1",
   "description": "Versioned feedback, page and daemon protocol contracts for Iterbar.",
   "type": "module",

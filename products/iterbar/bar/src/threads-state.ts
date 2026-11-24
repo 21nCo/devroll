@@ -1,4 +1,4 @@
-import type { Feedback } from "@iterbar/core";
+import type { Feedback } from "iterbar";
 
 /** What the bar remembers about every thread it knows of, shown or not: enough to count it and to judge staleness. */
 interface Known {

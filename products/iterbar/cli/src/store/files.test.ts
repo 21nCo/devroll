@@ -1,6 +1,6 @@
 import { mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { iterbarPaths } from "@iterbar/core/node";
+import { iterbarPaths } from "iterbar/node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFileAtomic, writeFileAtomic } from "./files.js";
 import { acquireStoreLock } from "./lock.js";

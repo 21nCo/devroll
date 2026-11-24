@@ -1,6 +1,6 @@
 import { chmod, readFile, rename } from "node:fs/promises";
-import { daemonInfoSchema, iterbarLayout, parseMessage, safeParseMessage, type DaemonInfo } from "@iterbar/core";
-import type { IterbarPaths } from "@iterbar/core/node";
+import { daemonInfoSchema, iterbarLayout, parseMessage, safeParseMessage, type DaemonInfo } from "iterbar";
+import type { IterbarPaths } from "iterbar/node";
 import { errnoCode } from "../store/errors.js";
 import { removeFile, syncDirectory, temporaryPath, writeNewFile } from "../store/files.js";
 

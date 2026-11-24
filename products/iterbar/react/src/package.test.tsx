@@ -1,5 +1,5 @@
 import { act, cleanup, render } from "@testing-library/react";
-import { PAGE_API_GLOBAL, readPageApi, VARIANT_STORAGE_KEY } from "@iterbar/core";
+import { PAGE_API_GLOBAL, readPageApi, VARIANT_STORAGE_KEY } from "iterbar";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

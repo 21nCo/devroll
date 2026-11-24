@@ -1,6 +1,6 @@
 import { readFile, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
-import { startDaemon, type RunningDaemon } from "iterbar/daemon";
+import { startDaemon, type RunningDaemon } from "@iterbar/cli/daemon";
 import {
   bearerAuthorization,
   DAEMON_HOST,
@@ -9,8 +9,8 @@ import {
   type DaemonInfo,
   safeParseMessage,
   SCHEMA_VERSION,
-} from "@iterbar/core";
-import { iterbarPaths } from "@iterbar/core/node";
+} from "iterbar";
+import { iterbarPaths } from "iterbar/node";
 
 /** What the bar needs to reach a daemon. */
 export interface DaemonAccess {

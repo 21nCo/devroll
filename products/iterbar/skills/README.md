@@ -5,8 +5,8 @@
   It uses the tools of `iterbar mcp`; [iterbar/references/setup.md](iterbar/references/setup.md) shows how to put
   the command on `PATH` and register the server.
 
-Users install the skill from the `iterbar` package, which carries it (the build copies `iterbar/` into the
-package's `skills/` folder): `npx iterbar init --agent claude` (or `codex`, `cursor`, `all`) copies it into the
+Users install the skill from the `@iterbar/cli` package, which carries it (the build copies `iterbar/` into the
+package's `skills/` folder): `npx @iterbar/cli init --agent claude` (or `codex`, `cursor`, `all`) copies it into the
 agent's skills folder and registers the MCP server. See [iterbar/references/setup.md](iterbar/references/setup.md).
 
 Working on the skill itself, link it from the monorepo root instead, so the installed copy follows the checkout.

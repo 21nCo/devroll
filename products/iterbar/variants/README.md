@@ -3,7 +3,7 @@
 Framework-neutral slot registry for Iterbar. A slot is a part of the page
 with several variants, such as `pricing` with `v1` and `v2`; the registry
 decides which variant each slot shows and lets the Iterbar bar switch it in
-place through `window.__ITERBAR__` (the page API from `@iterbar/core`, protocol version 2).
+place through `window.__ITERBAR__` (the page API from `iterbar`, protocol version 2).
 
 Framework bindings such as `@iterbar/react` use it; you rarely call it
 directly. It is meant for development builds only.

@@ -1,4 +1,4 @@
-import { PAGE_API_GLOBAL, readPageApi, VARIANT_STORAGE_KEY } from "@iterbar/core";
+import { PAGE_API_GLOBAL, readPageApi, VARIANT_STORAGE_KEY } from "iterbar";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runInThisContext } from "node:vm";

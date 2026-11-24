@@ -16,7 +16,7 @@ const result = await build({
       'import { reviewManifestSchema } from "diffpanel";',
       'import { generationContract } from "@diffpanel/generation";',
       'import { chapterLabels } from "@diffpanel/presentation";',
-      'import * as iterbar from "@iterbar/core";',
+      'import * as iterbar from "iterbar";',
       "globalThis.__diffpanelBrowserVerification = [tools, reviewManifestSchema, generationContract, chapterLabels, iterbar];",
       ...(probeNodeGlobal ? ["globalThis.__diffpanelProbe = process;"] : []),
     ].join("\n"),

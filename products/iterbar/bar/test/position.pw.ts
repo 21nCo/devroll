@@ -172,9 +172,9 @@ test("explains every toolbar control in a tooltip; help opens the setup sheet wi
   const viewport = page.viewportSize()!;
   expect(Math.round(sheet.y)).toBe(12);
   expect(Math.round(sheet.x + sheet.width)).toBe(viewport.width - 12);
-  await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText("cd /work/shop\nnpx iterbar init --agent claude");
+  await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText("cd /work/shop\nnpx @iterbar/cli init --agent claude");
   await inBar(page, "[data-role=agent-manual] summary").click();
-  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- npx -y iterbar mcp --root /work/shop");
+  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- npx -y @iterbar/cli mcp --root /work/shop");
   await inBar(page, "#iterbar-agent-codex").click();
   await expect(inBar(page, "[data-step=init] .snippet-text")).toContainText("init --agent codex");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: fixtureServer.origin });
@@ -348,7 +348,7 @@ test("copies without the Clipboard API from inside the bar, keeping focus on the
   // Cursor's manual snippet names the project's own folder when the bar knows it.
   await inBar(page, "#iterbar-agent-cursor").click();
   await inBar(page, "[data-role=agent-manual] summary").click();
-  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toContainText('"args": ["-y", "iterbar", "mcp", "--root", "/work/shop"]');
+  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toContainText('"args": ["-y", "@iterbar/cli", "mcp", "--root", "/work/shop"]');
 });
 
 test("a project with nothing stored yet starts from the state the origin kept", async ({ page, openFixture }) => {

@@ -1,4 +1,4 @@
-import type { Feedback } from "@iterbar/core";
+import type { Feedback } from "iterbar";
 import { z } from "zod";
 import { IterbarToolError } from "./errors.js";
 

@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
-import { WEBSOCKET_SUBPROTOCOL, type DaemonEvent } from "@iterbar/core";
+import { WEBSOCKET_SUBPROTOCOL, type DaemonEvent } from "iterbar";
 import { WebSocket, WebSocketServer } from "ws";
 
 /** Largest message a client may send; clients send no application messages, so anything bigger is abuse. */

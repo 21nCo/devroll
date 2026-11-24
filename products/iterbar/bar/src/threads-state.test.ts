@@ -1,4 +1,4 @@
-import type { Feedback } from "@iterbar/core";
+import type { Feedback } from "iterbar";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";

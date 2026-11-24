@@ -1,4 +1,4 @@
-import { daemonEventSchema, safeParseMessage, type Feedback } from "@iterbar/core";
+import { daemonEventSchema, safeParseMessage, type Feedback } from "iterbar";
 import type WebSocket from "ws";
 import {
   baselineCursor,

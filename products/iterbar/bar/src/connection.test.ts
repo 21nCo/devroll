@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, type Feedback, type FeedbackDraft, type SlotReport, type SlotState } from "@iterbar/core";
+import { SCHEMA_VERSION, type Feedback, type FeedbackDraft, type SlotReport, type SlotState } from "iterbar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonConnection, parseDaemonConfig, REQUEST_TIMEOUT_MS } from "./connection.js";
 import { ThreadsState } from "./threads-state.js";

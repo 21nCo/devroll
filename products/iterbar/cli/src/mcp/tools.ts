@@ -9,8 +9,8 @@ import {
   type AttachmentRef,
   type Feedback,
   type ReplyAuthor,
-} from "@iterbar/core";
-import { attachmentPath } from "@iterbar/core/node";
+} from "iterbar";
+import { attachmentPath } from "iterbar/node";
 import { z } from "zod";
 import { cursorProvenBy, decodeCursor, encodeCursor, observe, type FeedbackEvent } from "./cursor.js";
 import type { DaemonClient } from "./daemon-client.js";

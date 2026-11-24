@@ -4,7 +4,7 @@ import {
   registrySnapshotSchema,
   VARIANT_STORAGE_KEY,
   type RegistrySnapshot,
-} from "@iterbar/core";
+} from "iterbar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   browserEnvironment,

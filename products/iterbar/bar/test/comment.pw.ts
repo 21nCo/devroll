@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import type { FeedbackDraft } from "@iterbar/core";
+import type { FeedbackDraft } from "iterbar";
 import { fakeDaemon, type FakeDaemon } from "./support/fake-daemon.js";
 import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
 import { darkPixels, pngPixels, pngSize, quadrantColourCounts } from "./support/png.js";

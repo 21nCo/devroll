@@ -1,4 +1,4 @@
-import type { DaemonErrorCode } from "@iterbar/core";
+import type { DaemonErrorCode } from "iterbar";
 
 /**
  * The `error.code` of a failed Iterbar tool call. `daemon_unavailable` means no daemon serves the project (or the
