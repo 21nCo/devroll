@@ -215,7 +215,8 @@ async function linkedParent(base: string, path: string): Promise<string | null> 
 /** Whether `path` lies under `folder` (not the folder itself). */
 function isInside(folder: string, path: string): boolean {
   const rel = relative(folder, path);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  // A first component of exactly "..", not a name that only starts with it ("..config" is inside).
+  return rel !== "" && rel.split(sep)[0] !== ".." && !isAbsolute(rel);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

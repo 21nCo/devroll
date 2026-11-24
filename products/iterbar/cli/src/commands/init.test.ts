@@ -141,6 +141,14 @@ describe("iterbar init", () => {
     expect(await runInit(["--root", root, "--agent", "codex"], nested.io, { home, codexHome: join(home, ".config", "codex"), skillSource: skill })).toBe(0);
     expect(nested.out()).toContain(`${join(home, ".config")} is a link`);
     await expect(readFile(join(dotfiles, "codex", "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
+    // A folder whose name only starts with ".." is inside the home too.
+    const dotted = join(base, "dotted");
+    await mkdir(join(dotted, "codex"), { recursive: true });
+    await symlink(dotted, join(home, "..config"));
+    const odd = capture();
+    expect(await runInit(["--root", root, "--agent", "codex", "--force"], odd.io, { home, codexHome: join(home, "..config", "codex"), skillSource: skill })).toBe(0);
+    expect(odd.out()).toContain(`${join(home, "..config")} is a link`);
+    await expect(readFile(join(dotted, "codex", "skills/iterbar/SKILL.md"), "utf8")).rejects.toThrow();
   });
 
   it("registers the running CLI with node when the package is neither installed in the project nor fetched by npx", async () => {
