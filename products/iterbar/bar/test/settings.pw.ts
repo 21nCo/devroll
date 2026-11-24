@@ -213,3 +213,33 @@ test("a remount for another dev server while Start waits voids it: nothing stays
   await page.waitForTimeout(200);
   await expect(inBar(page, "[data-role=settings-message]")).toBeHidden();
 });
+
+test("a Start whose dev server answers after the bar was pointed at another daemon changes nothing", async ({ page, openFixture, fixtureServer }) => {
+  const other = await fakeDaemon(page, fixtureServer.origin);
+  await openFixture();
+  await page.evaluate(() => {
+    const w = window as unknown as { release?: () => void };
+    const bar = window.fixture.mountIterbarBar({
+      devServer: {
+        about: null,
+        reconnect: () => new Promise((resolve) => {
+          w.release = () => resolve({ daemonUrl: "http://127.0.0.1:9", token: "1".repeat(64) });
+        }),
+        checkUpdates: async () => ({ packages: [] }),
+      },
+    });
+    bar.expanded = true;
+  });
+  await openPanel(page, "settings");
+  await inBar(page, "[data-role=daemon-start]").click();
+  // The same dev server and project, pointed at daemon B before the dev server answers about A.
+  await page.evaluate(({ url, token }) => {
+    const bar = document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string; token: string };
+    bar.daemonUrl = url;
+    bar.token = token;
+  }, { url: other.url, token: other.token });
+  await expect(inBar(page, "[data-role=status]")).toHaveText("Connected");
+  await page.evaluate(() => (window as unknown as { release: () => void }).release());
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe(other.url);
+});

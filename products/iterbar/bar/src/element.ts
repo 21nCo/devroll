@@ -86,6 +86,15 @@ const PANEL_TITLES: Readonly<Record<PanelName, string>> = {
 /** The Variants popover's smallest width; the toolbar widens to it while the popover is open. */
 const VARIANTS_MIN_WIDTH_PX = 340;
 
+/**
+ * A daemon as the bar identifies it: its origin and token as parsed, so a URL written differently is the same daemon;
+ * a configuration that does not parse is identified as given.
+ */
+function connectionKey(daemonUrl: string | null, token: string | null): string {
+  const parsed = parseDaemonConfig(daemonUrl, token);
+  return JSON.stringify(parsed.ok ? [parsed.config.url, parsed.config.token] : [daemonUrl, token]);
+}
+
 /** Hovering a control shows its tooltip after this delay; keyboard focus shows it at once. */
 const TOOLTIP_DELAY_MS = 400;
 
@@ -416,8 +425,11 @@ export class IterbarBarElement extends ElementBase {
         // The dev server and project the restart began with: set up again for another one meanwhile, it stops there.
         const dev = this.#devServer;
         const project = this.#project;
+        const key = connectionKey(this.#daemonUrl, this.#token);
         await this.#stopDaemon();
-        if (this.#devServer !== dev || this.#project !== project) throw new Error("The bar was set up again meanwhile; nothing was started.");
+        if (this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== key) {
+          throw new Error("The bar was set up again meanwhile; nothing was started.");
+        }
         await this.#startDaemon();
       },
       deleteAll: () => this.#requireConnection().deleteAll(),
@@ -1230,18 +1242,30 @@ export class IterbarBarElement extends ElementBase {
     const dev = this.#devServer;
     if (!dev) throw new Error("This page has no Iterbar dev-server plugin to start the daemon.");
     const project = this.#project;
+    const before = connectionKey(this.#daemonUrl, this.#token);
     const config = await dev.reconnect();
-    // Mounted again meanwhile (another dev server or project): this answer is for the bar as it was.
-    if (this.#devServer !== dev || this.#project !== project) throw new Error("The bar was set up again meanwhile; nothing was changed.");
+    // Set up again meanwhile (another dev server, project or daemon): this answer is for the bar as it was.
+    if (this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== before) {
+      throw new Error("The bar was set up again meanwhile; nothing was changed.");
+    }
     if (!config.daemonUrl || !config.token) throw new Error("The dev server could not start the daemon. Its terminal says why.");
     if (config.about) this.devServer = { ...dev, about: config.about };
-    // This change of daemon is the action's own: the settings keep it running.
-    this.#settings.expectOwnReconnect();
+    const expected = connectionKey(config.daemonUrl, config.token);
+    // This change of daemon is the action's own: the settings keep it running. The same daemon as now (the dev server
+    // still has it) makes no change, so nothing is announced.
+    if (expected !== before) this.#settings.expectOwnReconnect();
     this.daemonUrl = config.daemonUrl;
     this.token = config.token;
+    // Connected to that daemon, not just to whatever the bar talks to by then.
     const until = Date.now() + 5000;
-    while (this.#connectionKind !== "connected" && Date.now() < until) await new Promise((done) => setTimeout(done, 100));
-    if (this.#connectionKind !== "connected") throw new Error("The daemon started, but the bar has not connected to it yet.");
+    const connected = () => this.#connectionKey === expected && this.#connectionKind === "connected";
+    while (!connected() && Date.now() < until) {
+      await new Promise((done) => setTimeout(done, 100));
+      if (this.#connectionKey !== null && this.#connectionKey !== expected && this.#connectionKey !== before) {
+        throw new Error("The bar was set up again meanwhile.");
+      }
+    }
+    if (!connected()) throw new Error("The daemon started, but the bar has not connected to it yet.");
   }
 
   /** The dev server that mounted the bar, for the settings (daemon controls, versions) and the setup steps. */
@@ -1394,8 +1418,7 @@ export class IterbarBarElement extends ElementBase {
   /** Opens a connection for the current URL and token, unless one for them is already open. */
   #reconnect(): void {
     const parsed = parseDaemonConfig(this.#daemonUrl, this.#token);
-    // A daemon is identified as parsed (its origin and token), so a URL written differently keeps the connection.
-    const key = JSON.stringify(parsed.ok ? [parsed.config.url, parsed.config.token] : [this.#daemonUrl, this.#token]);
+    const key = connectionKey(this.#daemonUrl, this.#token);
     if (this.#connection && key === this.#connectionKey) return;
     this.#connection?.stop();
     this.#connection = null;
