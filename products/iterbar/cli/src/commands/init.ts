@@ -82,11 +82,12 @@ interface McpLaunch {
 function mcpLaunch(root: string, cliPath: string | null): McpLaunch {
   const manifest = join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json");
   if (hasIterbarCommand(manifest)) return MCP_COMMAND;
-  const fromNpx = cliPath === null || cliPath.split(sep).includes("_npx");
-  // Something without the command is installed under the name (the contracts package once published as iterbar):
-  // npx would run that, so the entry names this CLI's version, which npx then fetches instead.
-  if (fromNpx && existsSync(manifest)) return { command: "npx", args: ["-y", `${CLI_PACKAGE}@${packageVersion()}`, "mcp"] };
-  if (fromNpx) return MCP_COMMAND;
+  // Run some other way (not as cli.js, such as from a test): the plain npx entry.
+  if (cliPath === null) return MCP_COMMAND;
+  // Fetched by npx, with no CLI in the project: the entry names this CLI's version, so npx fetches it even when
+  // something without the command holds the name nearby (the contracts package once published as iterbar, here or
+  // hoisted to a workspace root, where an unversioned npx would run it).
+  if (cliPath.split(sep).includes("_npx")) return { command: "npx", args: ["-y", `${CLI_PACKAGE}@${packageVersion()}`, "mcp"] };
   return { command: "node", args: [cliPath, "mcp"] };
 }
 
@@ -359,7 +360,7 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
     if (rootLink !== null) throw new Error(`${root} is a link to ${rootLink}; run init with --root set to the folder it points to.`);
     const source = env.skillSource ?? await bundledSkill();
     const launch = mcpLaunch(root, env.cliPath === undefined ? runningCli() : env.cliPath);
-    if (launch !== MCP_COMMAND) say(`The MCP server runs this CLI with node (${launch.args[0]}): ${CLI_PACKAGE} is not installed in the project.`);
+    if (launch.command === "node") say(`The MCP server runs this CLI with node (${launch.args[0]}): ${CLI_PACKAGE} is not installed in the project.`);
     say(`Setting up Iterbar in ${root}${parsed.dryRun ? " (dry run: nothing is written)" : ""}`);
     for (const agent of parsed.agents) {
       say(`\n${{ claude: "Claude Code", codex: "Codex", cursor: "Cursor" }[agent]}`);
