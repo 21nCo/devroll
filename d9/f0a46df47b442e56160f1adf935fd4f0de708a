@@ -1,0 +1,35 @@
+products/iterbar/bar/src/pins.ts
+  s_4ded9ba77a0730::t_af97491b09878b 54-55,58-74
+products/iterbar/cli/src/store/store.test.ts
+  s_4ded9ba77a0730::t_fbff4f93373ab1 288-289
+products/iterbar/cli/src/store/store.ts
+  s_4ded9ba77a0730::t_b9f84ff2ccc31f 3,127-136,285,468
+products/iterbar/core/src/contract.test.ts
+  s_4ded9ba77a0730::t_efe24173360533 731,740,746-755,757
+products/iterbar/core/src/daemon.ts
+  s_4ded9ba77a0730::t_d4ed06cecc34a2 2,157-172
+products/iterbar/core/src/errors.ts
+  s_4ded9ba77a0730::t_ef38f34610fdcd 112-115,117-151,153,156-158,160-162,166-171,173,176-177,188
+products/iterbar/core/src/feedback.ts
+  s_4ded9ba77a0730::t_c17411451aef55 2,222-236
+products/iterbar/core/src/registry.ts
+  s_4ded9ba77a0730::t_29758e253de48c 2,95-101
+products/iterbar/variants/src/registry.ts
+  s_4ded9ba77a0730::t_b03c50859b5d2b 11,259,496,501
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d9f0a46df47b442e56160f1adf935fd4f0de708a",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
