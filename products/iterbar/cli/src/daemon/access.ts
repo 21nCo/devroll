@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http";
-import { DAEMON_HOST } from "iterbar";
+import { DAEMON_HOST } from "@iterbar/core";
 import { DaemonHttpError, invalidRequest, unauthorized } from "./http.js";
 
 /** Most origins the allow-list holds; each `POST /origins` adds at most 32. */

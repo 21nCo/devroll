@@ -1,6 +1,6 @@
 import { createVariantsRegistry, MAX_SLOTS, type VariantsRegistry } from "@iterbar/variants";
 import { render, screen } from "@testing-library/svelte";
-import { PAGE_API_GLOBAL, readPageApi, registrySnapshotSchema, VARIANT_STORAGE_KEY } from "iterbar";
+import { PAGE_API_GLOBAL, readPageApi, registrySnapshotSchema, VARIANT_STORAGE_KEY } from "@iterbar/core";
 import { flushSync, hydrate, unmount, type Component } from "svelte";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { serverRenderAll, type ServerRenderJob } from "./support/bundle.js";

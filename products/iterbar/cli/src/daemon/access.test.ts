@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { daemonInfoSchema, parseMessageJson } from "iterbar";
-import { iterbarPaths } from "iterbar/node";
+import { daemonInfoSchema, parseMessageJson } from "@iterbar/core";
+import { iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { commentDraft, EVIDENCE, PNG, temporaryProject } from "../store/test-support/helpers.js";
 import { startDaemon, type RunningDaemon } from "./daemon.js";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Page, Request, WebSocketRoute } from "@playwright/test";
-import { feedbackDraftSchema, SCHEMA_VERSION, type DaemonEvent, type Feedback, type FeedbackDraft, type SlotReport } from "iterbar";
+import { feedbackDraftSchema, SCHEMA_VERSION, type DaemonEvent, type Feedback, type FeedbackDraft, type SlotReport } from "@iterbar/core";
 
 export const FAKE_TOKEN = "0123456789abcdef".repeat(4);
 

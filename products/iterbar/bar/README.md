@@ -311,9 +311,9 @@ Removing the element closes the stream and cancels every timer.
   comments are saved for a coding agent, which reaches the same daemon on its
   own through `iterbar mcp`; offline, comments stay as drafts, and the Help
   button carries a red dot. Below it, for Claude Code, Codex, Cursor or another
-  MCP client: the one-time `init` command (with the project's path filled in
-  when the bar knows it, and the CLI the dev server runs, as `node <its path>`,
-  when the Iterbar Vite plugin says which), a prompt to paste, and the same setup by
+  MCP client: the one-time `npx iterbar init` command (with the project's path
+  filled in when the bar knows it; in a pnpm project, `pnpm add -D iterbar &&
+  pnpm exec iterbar init`, since pnpm gives a command only to direct dependencies), a prompt to paste, and the same setup by
   hand, each with a copy button. The draft tray links to it too.
 - On a page without variants, Variants lists the pages that have some, with
   each page's variant and slot counts (from the daemon's `GET /slots`: pages
@@ -341,5 +341,5 @@ Removing the element closes the stream and cancels every timer.
   excerpts and screenshot scaling.
 - `pnpm test:browser`: Playwright tests in Chromium, against a fake daemon
   built from Playwright routes and against the real daemon from the
-  `@iterbar/cli` package. Install the browser once with
+  `iterbar` CLI package. Install the browser once with
   `pnpm exec playwright install chromium`.

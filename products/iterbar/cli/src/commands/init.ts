@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath } from "node:url";
 
 /** The npm package that carries the `iterbar` command, the MCP server and the agent skill. */
-export const CLI_PACKAGE = "@iterbar/cli";
+export const CLI_PACKAGE = "iterbar";
 
 /** What the MCP configs run: the package's own command through npx, so nothing has to be on `PATH`. */
 export const MCP_COMMAND = { command: "npx", args: ["-y", CLI_PACKAGE, "mcp"] } as const;

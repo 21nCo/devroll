@@ -24,7 +24,7 @@ import {
   type FeedbackStatus,
   type SlotReport,
   type SlotState,
-} from "iterbar";
+} from "@iterbar/core";
 
 /** Where the daemon listens and the token that authorizes this page; see {@link parseDaemonConfig}. */
 export interface DaemonConfig {

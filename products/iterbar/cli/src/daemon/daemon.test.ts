@@ -8,8 +8,8 @@ import {
   webSocketProtocols,
   type DaemonEvent,
   type Feedback,
-} from "iterbar";
-import { iterbarPaths } from "iterbar/node";
+} from "@iterbar/core";
+import { iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chooseVariantDraft, commentDraft, deadPid, EVIDENCE, PNG, temporaryProject } from "../store/test-support/helpers.js";
 import { startDaemon, type RunningDaemon } from "./daemon.js";

@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /** The attribute each stamped element carries: `<project-relative path>:<line>:<column>`, both 1-based. */
-export { SOURCE_ATTRIBUTE } from "iterbar";
+export { SOURCE_ATTRIBUTE } from "@iterbar/core";
 
 /** Where a project's source files are, so a file's stamp names it relative to the project root. */
 export interface SourceRoot {

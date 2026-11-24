@@ -18,8 +18,8 @@ interface Snippet {
 }
 
 interface AgentSteps {
-  /** The one command that installs the skill and registers the MCP server. */
-  readonly init: Snippet;
+  /** The one command that installs the skill and registers the MCP server (and its pnpm form). */
+  readonly init: readonly Snippet[];
   /** The same by hand: registering the server, and installing the skill. */
   readonly connect: readonly Snippet[];
   readonly skill: readonly Snippet[];
@@ -30,8 +30,8 @@ function shellWord(path: string): string {
   return /^[\w@%+=:,./-]+$/u.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
 }
 
-/** The skill as the installed `@iterbar/cli` package carries it, relative to the project root. */
-const PACKAGED_SKILL = "node_modules/@iterbar/cli/skills/iterbar";
+/** The skill as the installed `iterbar` package carries it, relative to the project root. */
+const PACKAGED_SKILL = "node_modules/iterbar/skills/iterbar";
 
 /** The CLI the dev server runs the daemon from: its `dist/cli.js`. */
 export interface AgentCli {
@@ -39,32 +39,22 @@ export interface AgentCli {
 }
 
 /**
- * How the snippets start the CLI. With the CLI the dev server runs (its path, from the Iterbar Vite plugin), `node`
- * runs that file, which works from a checkout and from an install alike, and its own bundled skill is copied. Without
- * it, the `iterbar` command (setup.md links it from a checkout) and the installed package's skill.
+ * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md gives them: `npx iterbar init`
+ * (the `iterbar` package carries the skill) does both in one go, and in a pnpm project, where only a direct dependency
+ * puts the command on the path, `pnpm add -D iterbar` first; the manual steps register the MCP server and copy the
+ * skill out of the installed package. `root` is the project's absolute path when the bar knows it; otherwise the
+ * snippets keep the references' placeholders.
  */
-function launcher(cli: AgentCli | null): { run: string; command: string; args: readonly string[]; skill: string } {
-  if (!cli) return { run: "iterbar", command: "iterbar", args: [], skill: PACKAGED_SKILL };
-  const packageDir = cli.path.replace(/[\\/]dist[\\/]cli\.js$/u, "");
-  const separator = cli.path.includes("\\") && !cli.path.includes("/") ? "\\" : "/";
-  return { run: `node ${shellWord(cli.path)}`, command: "node", args: [cli.path], skill: shellWord(`${packageDir}${separator}skills${separator}iterbar`) };
-}
-
-/**
- * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md gives them: `iterbar init`
- * (the CLI carries the skill) does both in one go; the manual steps register the MCP server and copy the skill out of
- * the CLI's package. `root` is the project's absolute path when the bar knows it; otherwise the snippets keep the
- * references' placeholders. `cli` is the CLI the dev server runs, when it says.
- */
-export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli | null = null): AgentSteps {
+export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
   const where = root ? `cd ${shellWord(root)}\n` : "";
-  const launch = launcher(cli);
-  const init = (name: string): Snippet => ({
-    caption: cli
-      ? "Run in the project's folder. It installs the iterbar skill and registers the MCP server, with the CLI this dev server runs:"
-      : "Run in the project's folder (with the iterbar command; setup.md shows how to link it). It installs the skill and registers the MCP server:",
-    text: `${where}${launch.run} init --agent ${name}`,
-  });
+  const init = (name: string): readonly Snippet[] => [{
+    caption: "Run in the project's folder. It installs the iterbar skill and registers the MCP server:",
+    text: `${where}npx iterbar init --agent ${name}`,
+  }, {
+    caption: "In a pnpm project, add the CLI to the project first (pnpm gives a package's command only to direct dependencies):",
+    text: `${where}pnpm add -D iterbar && pnpm exec iterbar init --agent ${name}`,
+  }];
+  const launch = { run: "npx -y iterbar", command: "npx", args: ["-y", "iterbar"], skill: PACKAGED_SKILL };
   const copySkill = (folder: string): Snippet => ({
     caption: "Copy the skill out of the CLI's package, in the project's folder:",
     text: `mkdir -p ${folder}\ncp -R ${launch.skill} ${folder}/`,
@@ -105,10 +95,10 @@ export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli 
       };
     case "other":
       return {
-        init: {
+        init: [{
           caption: "Your agent needs an MCP server; the skill is optional. Register a stdio MCP server named iterbar that runs:",
           text: `${launch.run} mcp --root ${root ? shellWord(root) : "/absolute/path/to/project"}`,
-        },
+        }],
         connect: [],
         skill: [{
           caption: "If your agent reads skills, copy this folder (from the CLI's package) into its skills folder:",
@@ -180,11 +170,13 @@ export class AgentHelp {
     this.#render();
   }
 
-  /** The CLI the dev server runs, filled into the setup snippets; `null` names the `iterbar` command instead. */
+  /** The CLI the dev server runs. The steps name the published `iterbar` package, so it changes nothing shown. */
   set cli(value: AgentCli | null) {
-    if (value?.path === this.#cli?.path) return;
     this.#cli = value;
-    this.#render();
+  }
+
+  get cli(): AgentCli | null {
+    return this.#cli;
   }
 
   #choose(agent: AgentName, focus: boolean): void {
@@ -210,10 +202,10 @@ export class AgentHelp {
       button.tabIndex = selected ? 0 : -1;
     }
     this.#body.setAttribute("aria-labelledby", `iterbar-agent-${this.#agent}`);
-    const steps = agentSteps(this.#agent, this.#root, this.#cli);
+    const steps = agentSteps(this.#agent, this.#root);
     const manual = [...steps.connect, ...steps.skill];
     this.#body.replaceChildren(
-      this.#step("1", "Set up (one-time)", [steps.init], "init"),
+      this.#step("1", "Set up (one-time)", steps.init, "init"),
       this.#step("2", "Prompt to paste", [{ caption: "Paste into your agent:", text: AGENT_PROMPT }], "prompt"),
       ...(this.#agent === "other" ? [] : [h("details", { class: "agent-manual", "data-role": "agent-manual" },
         h("summary", {}, "Set it up by hand instead"),

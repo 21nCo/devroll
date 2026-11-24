@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { link, readFile, rename, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { InvalidMessageError, parseMessageJson, SCHEMA_VERSION, storeLockSchema, type StoreLock } from "iterbar";
+import { InvalidMessageError, parseMessageJson, SCHEMA_VERSION, storeLockSchema, type StoreLock } from "@iterbar/core";
 import { errnoCode, IterbarStoreError, StoreLockedError } from "./errors.js";
 import { removeFile, syncDirectory, temporaryPath, writeNewFile } from "./files.js";
 

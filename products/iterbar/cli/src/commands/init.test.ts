@@ -186,6 +186,6 @@ describe("iterbar init", () => {
     expect(await runInit(["--root", root, "--agent", "cursor", "--scope", "project"], run.io, { home, skillSource: skill })).toBe(0);
     expect(await readFile(join(root, ".cursor/skills/iterbar/SKILL.md"), "utf8")).toMatch(/name: iterbar/);
     const config = JSON.parse(await readFile(join(root, ".cursor/mcp.json"), "utf8"));
-    expect(config.mcpServers.iterbar.args).toEqual(["-y", "@iterbar/cli", "mcp", "--root", "${workspaceFolder}"]);
+    expect(config.mcpServers.iterbar.args).toEqual(["-y", "iterbar", "mcp", "--root", "${workspaceFolder}"]);
   });
 });

@@ -1,4 +1,4 @@
-import { isHttpOrigin } from "iterbar";
+import { isHttpOrigin } from "@iterbar/core";
 
 /** Host names that all reach this machine's loopback interface; a page may use any of them for the same server. */
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"]);

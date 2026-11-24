@@ -11,10 +11,10 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@iterbar/cli": "workspace:*",
+    "iterbar": "workspace:*",
     "@playwright/test": "1.64.1",
     "@types/node": "^22.15.30",
-    "iterbar": "workspace:*",
+    "@iterbar/core": "workspace:*",
     "typescript": "^5.8.3"
   }
 }

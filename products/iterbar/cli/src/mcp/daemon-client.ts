@@ -20,8 +20,8 @@ import {
   type FeedbackStatus,
   type ReplyAuthor,
   type SlotReport,
-} from "iterbar";
-import { iterbarPaths, type IterbarPaths } from "iterbar/node";
+} from "@iterbar/core";
+import { iterbarPaths, type IterbarPaths } from "@iterbar/core/node";
 import WebSocket from "ws";
 import { errnoCode } from "../store/errors.js";
 import { daemonUnavailable, IterbarToolError } from "./errors.js";

@@ -1,4 +1,4 @@
-import type { IterbarPageApi } from "iterbar";
+import type { IterbarPageApi } from "@iterbar/core";
 
 declare global {
   interface Window {

@@ -1,6 +1,6 @@
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
 import { connect, type Socket } from "node:net";
-import { daemonEventSchema, parseMessageJson, webSocketProtocols, type DaemonEvent, type DaemonInfo } from "iterbar";
+import { daemonEventSchema, parseMessageJson, webSocketProtocols, type DaemonEvent, type DaemonInfo } from "@iterbar/core";
 import WebSocket from "ws";
 
 export interface RawResponse {

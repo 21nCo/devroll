@@ -1,20 +1,20 @@
-# iterbar
+# @iterbar/core
 
 Versioned (protocol version 2) contracts shared by every Iterbar package: zod schemas and
 TypeScript types for feedback, the page variants registry, the local daemon's
 HTTP and WebSocket messages, and the `.iterbar/` directory layout.
 
 ```ts
-import { feedbackSchema, parseMessage } from "iterbar";
+import { feedbackSchema, parseMessage } from "@iterbar/core";
 
 const feedback = parseMessage(feedbackSchema, JSON.parse(text), "feedback");
 ```
 
 The root export is browser-safe. Node.js path helpers for `.iterbar/` are
-available from `iterbar/node`:
+available from `@iterbar/core/node`:
 
 ```ts
-import { feedbackRecordPath, iterbarPaths } from "iterbar/node";
+import { feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
 ```
 
 ## Versioning
@@ -44,7 +44,7 @@ changes ship as a new major version.
 - **Daemon**: `daemonInfoSchema` (`daemon.json`), `storeLockSchema`, endpoint
   table, request, response, error and WebSocket event schemas, and token
   transport helpers.
-- **Layout**: `iterbarLayout` and, from `iterbar/node`, absolute path helpers
+- **Layout**: `iterbarLayout` and, from `@iterbar/core/node`, absolute path helpers
   that refuse unsafe ids. A project root is valid for `absolutePathSchema`
   when it is at most `MAX_ABSOLUTE_PATH_LENGTH` (4096) characters and POSIX
   absolute, or on Windows drive-qualified (`C:\`) or full UNC
