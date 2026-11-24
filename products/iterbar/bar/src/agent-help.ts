@@ -77,11 +77,15 @@ export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli 
     caption: `Run ${folder}. It installs the iterbar skill and registers the MCP server:`,
     text: `npx iterbar init --agent ${name}`,
   }, {
-    caption: `In a pnpm project, add the CLI to the project first, then run init, ${folder} (pnpm gives a package's command `
-      + "only to direct dependencies; at the root of a pnpm workspace, use pnpm add -Dw iterbar):",
-    text: `pnpm add -D iterbar\npnpm exec iterbar init --agent ${name}`,
+    caption: `In a pnpm project, first add the CLI to the project, ${folder} (pnpm gives a package's command only to direct `
+      + "dependencies; at the root of a pnpm workspace, use pnpm add -Dw iterbar):",
+    text: "pnpm add -D iterbar",
+  }, {
+    caption: "Then, once the install has succeeded, run init with it:",
+    text: `pnpm exec iterbar init --agent ${name}`,
   }, ...(cli ? [{
-    caption: `Or run the CLI this dev server runs (the same version as its daemon, published or not), ${folder}:`,
+    caption: `Or run the CLI this dev server runs (the same version as its daemon, published or not), ${folder}`
+      + (isWindowsPath(cli.path) ? ", in PowerShell:" : ":"),
     text: `node ${quote(cli.path)} init --agent ${name}`,
   }] : [])];
   const copySkill = (folder: string): Snippet => ({

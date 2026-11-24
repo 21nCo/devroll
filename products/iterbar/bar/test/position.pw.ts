@@ -174,7 +174,8 @@ test("explains every toolbar control in a tooltip; help opens the setup sheet wi
   expect(Math.round(sheet.x + sheet.width)).toBe(viewport.width - 12);
   await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText([
     "npx iterbar init --agent claude",
-    "pnpm add -D iterbar\npnpm exec iterbar init --agent claude",
+    "pnpm add -D iterbar",
+    "pnpm exec iterbar init --agent claude",
   ]);
   await inBar(page, "[data-role=agent-manual] summary").click();
   await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- npx -y iterbar mcp --root /work/shop");
@@ -189,7 +190,8 @@ test("explains every toolbar control in a tooltip; help opens the setup sheet wi
   });
   await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText([
     "npx iterbar init --agent claude",
-    "pnpm add -D iterbar\npnpm exec iterbar init --agent claude",
+    "pnpm add -D iterbar",
+    "pnpm exec iterbar init --agent claude",
     "node /repo/products/iterbar/cli/dist/cli.js init --agent claude",
   ]);
   await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first())
