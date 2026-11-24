@@ -173,6 +173,13 @@ try {
     encoding: "utf8", env: { ...process.env, HOME: cliHome, USERPROFILE: cliHome, CODEX_HOME: join(cliHome, ".codex") },
   });
   assert.match(initOutput, /would install/);
+  // Started through the npm bin link (as npx starts it), init knows the CLI it runs from: it names this version.
+  if (process.platform !== "win32") {
+    const viaBin = execFileSync(join(cliConsumer, "node_modules", ".bin", "iterbar"), ["init", "--agent", "claude", "--dry-run", "--root", repository], {
+      encoding: "utf8", env: { ...process.env, HOME: cliHome, USERPROFILE: cliHome, CODEX_HOME: join(cliHome, ".codex") },
+    });
+    assert.match(viaBin, /runs this CLI with node/, "init started through the bin link must find the CLI it runs from");
+  }
   assert(existsSync(join(cliPackage, "skills", "iterbar", "SKILL.md")), "iterbar must carry its skill");
   // Its library entries type-check for a consumer, with no declaration pointing outside the package.
   await writeFile(join(cliConsumer, "check.mts"), [
