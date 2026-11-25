@@ -48,6 +48,8 @@ export class ThreadsState {
    * of them, and only while they belong in view, so the work an event does to keep this current is bounded by `limit`.
    */
   #unreconciled = new Set<string>();
+  /** Threads deleted while the bar ran: an event or a listing that still carries one (it was in flight) is ignored. */
+  #deleted = new Set<string>();
 
   constructor(limit: number) {
     this.#limit = limit;
@@ -83,6 +85,7 @@ export class ThreadsState {
    * anything shown or counted changed, {@link complete} included.
    */
   merge(item: Feedback): MergeResult {
+    if (this.#deleted.has(item.id)) return "stale";
     const known = this.#known.get(item.id);
     const updatedAt = time(item.updatedAt);
     if (known && known.updatedAt > updatedAt) return "stale";
@@ -123,7 +126,7 @@ export class ThreadsState {
     const keptCopies: Feedback[] = [];
     const contentless: string[] = [];
     for (const item of listed) {
-      if (known.has(item.id)) continue;
+      if (known.has(item.id) || this.#deleted.has(item.id)) continue;
       const held = this.#known.get(item.id);
       const listedAt = time(item.updatedAt);
       const heldWins = held !== undefined && (held.updatedAt > listedAt || (touched.has(item.id) && held.updatedAt === listedAt));
@@ -152,6 +155,23 @@ export class ThreadsState {
     return { changed, complete: unreconciled.size === 0 };
   }
 
+  /**
+   * Forgets a deleted thread for good: events and listings that still carry it are ignored from now on. Returns
+   * whether it was known. A gap it leaves in the window fills on the next listing.
+   */
+  remove(id: string): boolean {
+    this.#deleted.add(id);
+    const had = this.#known.delete(id);
+    const held = this.#shownById.get(id);
+    if (held) {
+      this.#shown.splice(this.#shown.indexOf(held), 1);
+      this.#shownById.delete(id);
+    }
+    this.#aside.delete(id);
+    this.#unreconciled.delete(id);
+    return had;
+  }
+
   /** Forgets every thread. Returns whether there was any. */
   clear(): boolean {
     const changed = this.#known.size > 0;
@@ -160,6 +180,7 @@ export class ThreadsState {
     this.#shownById = new Map();
     this.#aside = new Map();
     this.#unreconciled = new Set();
+    this.#deleted = new Set();
     return changed;
   }
 

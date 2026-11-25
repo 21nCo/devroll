@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { comment, fakeDaemon } from "./support/fake-daemon.js";
-import { expect, inBar, mountBar, PRICING, registerSlots, test } from "./support/fixtures.js";
+import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 
 /** Rules that try to restyle the bar from outside: inherited properties, the host element, tag names and variables. */
 const HOSTILE_CSS = `
@@ -28,7 +28,7 @@ const HOSTILE_CSS = `
     all: unset !important; background: rgb(255, 0, 0) !important; border: 9px solid red !important;
     font-size: 40px !important; padding: 30px !important; outline: none !important;
   }
-  .bar, .dock, .toolbar, .panel, .version, .thread, .badge, #iterbar-panel { background: rgb(255, 0, 0) !important; display: none !important; }
+  .bar, .dock, .toolbar, .panel, .version, .variant, .logo, .thread, .badge, #iterbar-panel { background: rgb(255, 0, 0) !important; display: none !important; }
   :focus-visible { outline: none !important; }
 `;
 
@@ -41,8 +41,8 @@ const PROPERTIES = [
 
 const SELECTORS = [
   ".dock", ".toolbar", "[data-role=status]", "[data-role=comment]", "[data-role=inbox-toggle]", "[data-role=open-count]",
-  "[data-role=grab]", "[data-role=toggle]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
-  "[data-version=v1]", "[data-version=v2]", ".thread", ".thread summary", ".badge", ".thread-text",
+  "[data-role=logo]", "#iterbar-panel", ".panel-title", ".section-title", "[data-role=slot-name]",
+  "[data-variant=v1]", "[data-variant=v2]", ".thread", ".thread summary", ".badge", ".thread-text",
 ];
 
 async function barStyles(page: Page) {
@@ -72,14 +72,14 @@ async function pageStyles(page: Page) {
   }, PROPERTIES);
 }
 
-/** Mounts the bar with a thread and a slot, pinned expanded with the versions panel open, the pointer off it. */
+/** Mounts the bar with a thread and a slot, pinned expanded with the variants panel open, the pointer off it. */
 async function mountWithContent(page: Page, daemonUrl: string, token: string) {
-  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ expanded: true, panel: "versions" })));
+  await page.evaluate(() => localStorage.setItem(window.fixture.BAR_STATE_STORAGE_KEY, JSON.stringify({ expanded: true, panel: "variants" })));
   await registerSlots(page, [PRICING]);
   await mountBar(page, { daemonUrl, token });
   await page.mouse.move(0, 0);
   await expect(inBar(page, ".thread")).toHaveCount(1);
-  await expect(inBar(page, "[data-version=v2]")).toBeVisible();
+  await expect(inBar(page, "[data-variant=v2]")).toBeVisible();
 }
 
 test("hostile page CSS does not change how the bar looks", async ({ page, openFixture, fixtureServer }) => {
@@ -101,10 +101,10 @@ test("hostile page CSS does not change how the bar looks", async ({ page, openFi
   expect(await barStyles(page)).toEqual(clean);
 
   // Focus rings survive a page rule that removes outlines.
-  await inBar(page, "[data-version=v2]").focus();
+  await inBar(page, "[data-variant=v2]").focus();
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Tab");
-  const outline = await inBar(page, "[data-version=v2]").evaluate((element) => getComputedStyle(element).outlineStyle);
+  const outline = await inBar(page, "[data-variant=v2]").evaluate((element) => getComputedStyle(element).outlineStyle);
   expect(outline).toBe("solid");
 });
 
@@ -145,11 +145,11 @@ test("hostile ancestor CSS cannot move, scale, hide or cover the bar", async ({ 
     expect(hostile.hit, css).toBe("iterbar-bar");
     expect(hostile.pixels.equals(clean.pixels), css).toBe(true);
     // Still operable where it is drawn.
-    await inBar(page, "[data-version=v2]").click();
-    await expect(inBar(page, "[data-version=v2]"), css).toHaveAttribute("aria-pressed", "true");
+    await inBar(page, "[data-variant=v2]").click();
+    await expect(inBar(page, "[data-variant=v2]"), css).toHaveAttribute("aria-pressed", "true");
     // The choice outlives the page load; switch back so the next case starts from the same pixels.
-    await inBar(page, "[data-version=v1]").click();
-    await expect(inBar(page, "[data-version=v1]"), css).toHaveAttribute("aria-pressed", "true");
+    await inBar(page, "[data-variant=v1]").click();
+    await expect(inBar(page, "[data-variant=v1]"), css).toHaveAttribute("aria-pressed", "true");
     await page.mouse.move(0, 0);
   }
 
@@ -168,7 +168,7 @@ test("the bar's styles do not leak into the page", async ({ page, openFixture, f
   await page.addStyleTag({ content: "button { padding: 1px 2px; } #page-text { color: rgb(1, 2, 3); }" });
   const before = await pageStyles(page);
   await mountWithContent(page, daemon.url, daemon.token);
-  await inBar(page, "[data-version=v2]").click();
+  await inBar(page, "[data-variant=v2]").click();
   expect(await pageStyles(page)).toEqual(before);
 });
 
@@ -194,7 +194,7 @@ test("loads nothing but the page and the daemon", async ({ page, openFixture, fi
   await openFixture();
   await mountWithContent(page, daemon.url, daemon.token);
   await page.emulateMedia({ colorScheme: "dark" });
-  await inBar(page, "[data-version=v2]").click();
+  await inBar(page, "[data-variant=v2]").click();
   await inBar(page, "[data-role=inbox-toggle]").click();
   await inBar(page, ".thread summary").click();
   const allowed = [fixtureServer.origin, daemon.url, daemon.url.replace("http:", "ws:")];
@@ -204,8 +204,7 @@ test("loads nothing but the page and the daemon", async ({ page, openFixture, fi
 test("small muted text and links keep 4.5:1 contrast in both themes", async ({ page, openFixture }) => {
   await openFixture();
   await mountBar(page);
-  await page.locator("iterbar-bar [data-role=comment]").hover();
-  await page.locator("iterbar-bar [data-role=drafts-toggle]").click();
+  await openPanel(page, "drafts");
   const ratio = (selector: string) => page.evaluate((target) => {
     const root = document.querySelector("iterbar-bar")!.shadowRoot!;
     const channel = (value: number) => {
@@ -252,4 +251,47 @@ test("small muted text and links keep 4.5:1 contrast in both themes", async ({ p
     const { value } = await copied(scheme);
     expect(value, `Copied, ${scheme}`).toBeGreaterThanOrEqual(4.5);
   }
+});
+
+test("text sticks to the 12/14px scale (10px counts) and every control has a 28px hit area", async ({ page, openFixture, fixtureServer }) => {
+  await openFixture();
+  await registerSlots(page, [PRICING]);
+  const daemon = await fakeDaemon(page, fixtureServer.origin, [comment("Make the price bolder")]);
+  await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+  const scan = () => page.evaluate(() => {
+    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
+    const fonts: string[] = [];
+    const small: string[] = [];
+    for (const element of root.querySelectorAll<HTMLElement>("*")) {
+      const box = element.getBoundingClientRect();
+      if (!box.width || !box.height || element.closest(".sr-only")) continue;
+      const name = `${element.tagName.toLowerCase()}.${element.getAttribute("class") ?? ""}`;
+      if ([...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim())) {
+        const size = getComputedStyle(element).fontSize;
+        const badge = element.matches(".count, .pin-count, .tab-count");
+        if (badge ? size !== "10px" : size !== "12px" && size !== "14px") fonts.push(`${name} ${size}`);
+      }
+      if (element.matches("button:not(.link), select, summary, input")) {
+        // A checkbox's hit area is the label around it.
+        const target = element.matches("input[type=checkbox]") ? element.closest("label")?.getBoundingClientRect() ?? box : box;
+        if (target.width < 28 || target.height < 28) small.push(`${name} ${Math.round(target.width)}x${Math.round(target.height)}`);
+      }
+    }
+    return { fonts, small };
+  });
+  for (const panel of ["inbox", "drafts", "variants"] as const) {
+    await openPanel(page, panel);
+    if (panel === "inbox") await inBar(page, ".thread summary").click();
+    expect(await scan(), panel).toEqual({ fonts: [], small: [] });
+  }
+  await inBar(page, "[data-role=help-toggle]").click();
+  expect(await scan(), "help").toEqual({ fonts: [], small: [] });
+  await openPanel(page, "settings");
+  expect(await scan(), "settings").toEqual({ fonts: [], small: [] });
+
+  // Clicking the edge of a thread's checkbox label, away from the box itself, selects the thread.
+  await openPanel(page, "inbox");
+  const gutter = (await inBar(page, ".thread .thread-gutter").boundingBox())!;
+  await page.mouse.click(gutter.x + 2, gutter.y + gutter.height - 2);
+  await expect(inBar(page, "[data-role=thread-select]")).toBeChecked();
 });

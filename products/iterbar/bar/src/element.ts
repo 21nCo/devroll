@@ -1,20 +1,22 @@
-import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackTarget, type SlotState } from "iterbar";
+import { SCHEMA_VERSION, type ActiveVariant, type FeedbackDraft, type FeedbackStatus, type FeedbackTarget, type SlotState } from "iterbar";
 import { Composer } from "./composer.js";
 import { DaemonConnection, DaemonRequestError, parseDaemonConfig, type ConnectionStatus } from "./connection.js";
-import { h } from "./dom.js";
+import { h, isRendered } from "./dom.js";
 import { AgentHelp } from "./agent-help.js";
 import { DraftTray, type DraftView } from "./drafts.js";
 import { registerBarFonts } from "./fonts.js";
-import { icon } from "./icons.js";
+import { icon, logoMark } from "./icons.js";
 import {
   anchorPopover,
   BAR_MARGIN_PX,
   barStateStorageKey,
   describePosition,
   formatBarState,
+  leftForPosition,
   parseBarState,
   positionForKey,
   positionForLeft,
+  toolbarLeft,
   type BarState,
   type PanelName,
 } from "./position.js";
@@ -23,6 +25,8 @@ import { applyBarStyles } from "./theme.js";
 import { ElementPicker } from "./pick/picker.js";
 import { captureScreenshot, RenderSlot, type ScreenshotResult } from "./pick/screenshot.js";
 import { describeTarget, labelElement, readActiveVariants, type TargetLabel } from "./pick/target.js";
+import { PinLayer } from "./pins.js";
+import { SettingsPanel, type DevServerLink } from "./settings.js";
 import { ThreadsPanel } from "./threads.js";
 
 /** The bar's tag name. */
@@ -76,8 +80,20 @@ const STATUS_DETAIL: Readonly<Record<ConnectionStatus["kind"], string>> = {
 };
 
 const PANEL_TITLES: Readonly<Record<PanelName, string>> = {
-  inbox: "Inbox", drafts: "Drafts", versions: "Versions", agent: "Use with your agent",
+  inbox: "Inbox", drafts: "Drafts", variants: "Variants", settings: "Iterbar settings", agent: "Set up your agent",
 };
+
+/** The Variants popover's smallest width; the toolbar widens to it while the popover is open. */
+const VARIANTS_MIN_WIDTH_PX = 340;
+
+/**
+ * A daemon as the bar identifies it: its origin and token as parsed, so a URL written differently is the same daemon;
+ * a configuration that does not parse is identified as given.
+ */
+function connectionKey(daemonUrl: string | null, token: string | null): string {
+  const parsed = parseDaemonConfig(daemonUrl, token);
+  return JSON.stringify(parsed.ok ? [parsed.config.url, parsed.config.token] : [daemonUrl, token]);
+}
 
 /** Hovering a control shows its tooltip after this delay; keyboard focus shows it at once. */
 const TOOLTIP_DELAY_MS = 400;
@@ -132,6 +148,18 @@ function isTextEntry(target: EventTarget | undefined): boolean {
   if (target.localName !== "input") return false;
   return !["button", "checkbox", "radio", "range", "color", "file", "image", "reset", "submit"].includes((target as HTMLInputElement).type);
 }
+
+/** Whether a key typed at one of the bar's own elements is text entry, which must never reach the page's shortcuts. */
+function isOwnTextEntry(target: EventTarget | undefined): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLElement && target.isContentEditable) return true;
+  if (target.localName === "textarea" || target.localName === "select") return true;
+  if (target.localName !== "input") return false;
+  return !["button", "checkbox", "radio", "range", "color", "file", "image", "reset", "submit"].includes((target as HTMLInputElement).type);
+}
+
+/** Pointer travel, in CSS pixels, after which a press on the logo moves the toolbar instead of clicking it. */
+const DRAG_THRESHOLD_PX = 4;
 
 function readStoredState(project: string | null): BarState {
   try {
@@ -222,8 +250,8 @@ interface Draft {
  * through the `daemonUrl` and `token` properties (or the `daemon-url` and `token` attributes); without them it still
  * switches slots, but shows no feedback. Everything it renders lives in its shadow root.
  *
- * It sleeps as a compact pill (comment and inbox buttons, the open-feedback count) and wakes on hover or focus, or
- * stays expanded with Ctrl/Cmd+. ; C enters comment mode. The inbox, draft tray and versions open as a panel above it.
+ * Collapsed it shows only the Iterbar logo; clicking the logo (or Ctrl/Cmd+.) expands it, and dragging the logo moves
+ * it along the bottom edge. C enters comment mode. The inbox, draft tray and variants open as a panel above it.
  */
 export class IterbarBarElement extends ElementBase {
   static get observedAttributes(): string[] {
@@ -235,23 +263,39 @@ export class IterbarBarElement extends ElementBase {
   readonly #panel: HTMLDivElement;
   readonly #panelTitle = h("h2", { class: "panel-title", id: "iterbar-panel-title" });
   readonly #panelClose = h("button", { type: "button", class: "icon", "data-role": "panel-close", "aria-label": "Close panel", title: "Close (Esc)" }, icon("close"));
-  /** The connection's label; asleep, only its dot shows and the label is left to assistive technology. */
+  /** The connection's label, at the top of the help sheet. */
   readonly #status = h("span", { class: "status-label", role: "status", "data-role": "status" });
   /** The connection's colour, next to its label. */
   readonly #statusDot = h("span", { class: "status-dot", "aria-hidden": "true", "data-role": "status-dot" });
-  /** The connection as one control: its dot and label, a tooltip that explains them, and "Use with your agent" on click. */
-  readonly #statusButton = h("button", {
-    type: "button", class: "status", "data-role": "status-button", "aria-expanded": "false", "aria-controls": "iterbar-panel",
-  }, this.#statusDot, this.#status);
-  /** The grab handle: drag it (or use the arrow keys on it) to move the toolbar along the bottom edge. */
-  readonly #grab = h("button", {
-    type: "button", class: "grab", "data-role": "grab", role: "slider", "aria-label": "Toolbar position",
-    "aria-orientation": "horizontal", "aria-valuemin": "0", "aria-valuemax": "100", "aria-keyshortcuts": "ArrowLeft ArrowRight Home End",
-  }, icon("grab"));
+  /** What the connection state means. */
+  readonly #statusExplain = h("p", { class: "muted connection-explain", "data-role": "status-explain" });
+  /** The connection, at the top of the help sheet: its dot, label and what they mean, and any detail. */
+  readonly #connectionBox = h("div", { class: "connection", "data-role": "connection" },
+    h("div", { class: "connection-head" }, this.#statusDot, this.#status), this.#statusExplain);
+  /** Iterbar's settings, just before the help button. */
+  readonly #settingsButton = h("button", {
+    type: "button", class: "tool help", "data-role": "settings-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+    "aria-label": "Settings",
+  }, icon("settings"));
+  /** The help button at the toolbar's end: the setup sheet, with the connection at its top. */
+  readonly #helpButton = h("button", {
+    type: "button", class: "tool help", "data-role": "help-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+  }, icon("help"));
+  /**
+   * The Iterbar logo: the whole toolbar while it is collapsed. Clicking it (Enter, Space) expands or collapses the
+   * toolbar; dragging it (or the arrow keys, Home and End on it) moves the toolbar along the bottom edge.
+   */
+  readonly #logo = h("button", {
+    type: "button", class: "logo", "data-role": "logo", "aria-controls": "iterbar-toolbar",
+    "aria-keyshortcuts": "Control+. Meta+. ArrowLeft ArrowRight Home End",
+  }, logoMark());
   readonly #tooltip = h("div", { class: "tooltip", role: "tooltip", id: "iterbar-tooltip", "data-role": "tooltip", hidden: true });
   #tooltipFor: HTMLElement | null = null;
   #tooltipTimer: ReturnType<typeof setTimeout> | null = null;
-  #drag: { pointerId: number; startX: number; startLeft: number; width: number; moved: boolean } | null = null;
+  /** A press on the logo: a drag once it travels past {@link DRAG_THRESHOLD_PX}, otherwise a click. */
+  #drag: { pointerId: number; startX: number; startLeft: number; logoWidth: number; moved: boolean } | null = null;
+  /** A drag just ended on the logo: the click its release makes must not expand or collapse the toolbar. */
+  #swallowLogoClick = false;
   #project: string | null = null;
   #heightObserver: ResizeObserver | null = null;
   readonly #detail = h("p", { class: "detail", "data-role": "status-detail", hidden: true });
@@ -259,31 +303,42 @@ export class IterbarBarElement extends ElementBase {
   readonly #comment = h("button", {
     type: "button", class: "tool", "data-role": "comment", "aria-pressed": "false", "aria-label": "Comment", "aria-keyshortcuts": "C",
   }, icon("comment"));
-  readonly #draftsButton = h("button", {
-    type: "button", class: "tool", "data-role": "drafts-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
-    "aria-label": "Drafts",
-  }, icon("drafts"));
-  readonly #draftCount = h("span", { class: "count", "data-role": "draft-count", hidden: true });
+  /** The inbox and the draft tray share one button and one sheet, switched by the tabs at the sheet's top. */
   readonly #inboxButton = h("button", {
     type: "button", class: "tool", "data-role": "inbox-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
     "aria-label": "Inbox",
-  }, icon("inbox"));
+  }, icon("inbox"), h("span", { class: "tool-label", "aria-hidden": "true" }, "Inbox"));
   readonly #openCount = h("span", { class: "count", "data-role": "open-count", hidden: true });
-  readonly #versionsButton = h("button", {
-    type: "button", class: "tool extra", "data-role": "versions-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
-    "aria-label": "Versions",
-  }, icon("layers"), h("span", { class: "tool-label", "aria-hidden": "true" }, "Versions"));
+  /** Drafts not sent yet, next to the open count, dashed like a draft's pin. */
+  readonly #draftCount = h("span", { class: "count draft-count", "data-role": "draft-count", hidden: true });
+  readonly #inboxTabCount = h("span", { class: "tab-count", "data-role": "inbox-tab-count" });
+  readonly #draftsTabCount = h("span", { class: "tab-count", "data-role": "drafts-tab-count" });
+  readonly #inboxTab = h("button", {
+    type: "button", class: "segment", role: "tab", "data-role": "inbox-tab", "aria-selected": "false", "aria-controls": "iterbar-panel-body",
+  }, "Inbox", this.#inboxTabCount);
+  readonly #draftsTab = h("button", {
+    type: "button", class: "segment", role: "tab", "data-role": "drafts-tab", "aria-selected": "false", "aria-controls": "iterbar-panel-body",
+  }, "Drafts", this.#draftsTabCount);
+  /** Inbox | Drafts, at the top of their shared sheet. */
+  readonly #tabs = h("div", { class: "segmented", role: "tablist", "aria-label": "Inbox or drafts", "data-role": "inbox-tabs" },
+    this.#inboxTab, this.#draftsTab);
+  readonly #variantsButton = h("button", {
+    type: "button", class: "tool", "data-role": "variants-toggle", "aria-expanded": "false", "aria-controls": "iterbar-panel",
+    "aria-label": "Variants",
+  }, icon("layers"), h("span", { class: "tool-label", "aria-hidden": "true" }, "Variants"));
   readonly #slotCount = h("span", { class: "count", "data-role": "slot-count", hidden: true });
-  readonly #toggle = h("button", {
-    type: "button", class: "icon extra", "data-role": "toggle", "aria-controls": "iterbar-toolbar", "aria-keyshortcuts": "Control+. Meta+.",
-  });
   /** Inherits the page's effective `zoom`, which the bar cancels; see {@link #fitZoom}. */
   readonly #zoomProbe = h("span", { class: "zoom-probe", "aria-hidden": "true" });
   #zoomObserver: ResizeObserver | null = null;
   readonly #slots: SlotsPanel;
+  readonly #pins: PinLayer;
   readonly #threads: ThreadsPanel;
   readonly #tray: DraftTray;
   readonly #agentHelp: AgentHelp;
+  readonly #settings: SettingsPanel;
+  /** The dev server that mounted the bar (the Iterbar Vite plugin), when one did. */
+  #devServer: DevServerLink | null = null;
+  #connectionKind: ConnectionStatus["kind"] = "unconfigured";
   readonly #composer = new Composer({
     onSend: (text) => void this.#send(text),
     onDraft: (text) => this.#addDraft(text),
@@ -335,8 +390,21 @@ export class IterbarBarElement extends ElementBase {
     this.#root = this.attachShadow({ mode: "open" });
     applyBarStyles(this.#root);
     registerBarFonts();
-    this.#slots = new SlotsPanel({ onSlots: (slots) => this.#onSlots(slots) });
-    this.#threads = new ThreadsPanel(() => this.#renderCounts(), (filter) => this.#saveState({ ...this.#state, filter }));
+    this.#slots = new SlotsPanel({
+      onSlots: (slots) => this.#onSlots(slots),
+      listPages: () => (this.#connection ? this.#connection.listSlots() : Promise.resolve(null)),
+    });
+    this.#threads = new ThreadsPanel({
+      onChange: () => {
+        this.#renderCounts();
+        this.#pins?.update(this.#threads.threads);
+      },
+      onFilter: (filter) => this.#saveState({ ...this.#state, filter }),
+      onStatus: (ids, status) => this.#setStatuses(ids, status),
+      onDelete: (ids) => this.#deleteThreads(ids),
+      announce: (text) => this.#announce(text),
+      onNeedListing: () => this.#connection?.refresh(),
+    });
     this.#tray = new DraftTray({
       onSendAll: () => void this.#sendAll(),
       onRemove: (id) => this.#removeDraft(id),
@@ -348,27 +416,68 @@ export class IterbarBarElement extends ElementBase {
       copy: (text) => copyText(text, this.#root, this.#panel),
       onAgent: (agent) => this.#saveState({ ...this.#state, agent }),
     });
-    this.#draftsButton.append(this.#draftCount);
-    this.#inboxButton.append(this.#openCount);
-    this.#versionsButton.append(this.#slotCount);
+    this.#settings = new SettingsPanel({
+      onChange: (change) => this.#saveState({ ...this.#state, ...change }),
+      daemonInfo: () => this.#requireConnection().info(),
+      stopDaemon: () => this.#stopDaemon(),
+      startDaemon: (current) => this.#startDaemon(current),
+      restartDaemon: async (current) => {
+        // The dev server and project the restart began with: set up again for another one meanwhile, it stops there.
+        const dev = this.#devServer;
+        const project = this.#project;
+        const key = connectionKey(this.#daemonUrl, this.#token);
+        await this.#stopDaemon();
+        if (!current() || this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== key) {
+          throw new Error("The bar was set up again meanwhile; nothing was started.");
+        }
+        await this.#startDaemon(current);
+      },
+      deleteAll: () => this.#requireConnection().deleteAll(),
+      clearDrafts: () => {
+        if (this.#sendingBatch) return 0;
+        const before = this.#drafts.length;
+        for (const draft of [...this.#drafts]) this.#removeDraft(draft.id);
+        return before - this.#drafts.length;
+      },
+      openSetup: () => this.#openPanel("agent", true),
+      copy: (text) => copyText(text, this.#root, this.#panel),
+    });
+    this.#inboxButton.append(this.#openCount, this.#draftCount);
+    this.#variantsButton.append(this.#slotCount);
     this.#panel = h("div", {
       class: "panel", id: "iterbar-panel", role: "region", "aria-labelledby": "iterbar-panel-title", "data-role": "panel", hidden: true,
     },
-    h("div", { class: "panel-header" }, this.#panelTitle, this.#panelClose),
-    h("div", { class: "panel-body" }, this.#detail, this.#tray.element, this.#threads.element, this.#slots.element, this.#agentHelp.element));
+    h("div", { class: "panel-header" }, this.#panelTitle, this.#tabs, this.#panelClose),
+    h("div", { class: "panel-body", id: "iterbar-panel-body" }, this.#connectionBox, this.#tray.element, this.#threads.element, this.#slots.element, this.#settings.element, this.#agentHelp.element));
+    this.#connectionBox.append(this.#detail);
     const toolbar = h("div", { class: "toolbar", id: "iterbar-toolbar", role: "group", "aria-label": "Iterbar toolbar" },
-      // The grab handle shows at the start while the toolbar is awake (see #holdPlace, which makes room for it so the
-      // sleeping buttons stay under the pointer). Drafts, always shown with its count, sits before the connection
-      // status so it never splits the status's dot from its label, and the label grows away from the other buttons.
-      this.#grab, this.#comment, this.#inboxButton, this.#draftsButton, this.#statusButton,
-      h("span", { class: "divider extra", "aria-hidden": "true" }),
-      this.#versionsButton, this.#toggle);
+      // The logo comes first and stays where it is when the toolbar expands (see #layout); the rest grows away from it.
+      this.#logo, this.#comment, this.#inboxButton,
+      h("span", { class: "divider", "aria-hidden": "true" }),
+      this.#variantsButton, this.#settingsButton, this.#helpButton);
     this.#dock = h("div", { class: "dock bar", role: "region", "aria-label": "Iterbar", popover: "manual" }, toolbar, this.#panel, this.#tooltip);
     const mod = modKey();
     tip(this.#comment, "Comment", "C", "Pick an element and write a comment on it. Esc leaves.");
-    tip(this.#versionsButton, "Versions", null, "Switch the variants of slots on this page");
-    tip(this.#grab, "Drag to move", "← →");
+    tip(this.#variantsButton, "Variants", null, "Switch between the variants of each slot on this page");
+    tip(this.#settingsButton, "Settings", null, "The daemon, updates, the toolbar and this project's Iterbar data");
     this.#toggleKeys = `${mod} .`;
+    this.#pins = new PinLayer({
+      container: this.#root,
+      host: this,
+      pageUrl: () => (/^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null),
+      // Pins never sit on the toolbar or an open panel, so they never take a click meant for the bar.
+      avoid: () => [this.#logo.parentElement!, this.#panel]
+        .filter((element) => !element.hidden && isRendered(element))
+        .map((element) => element.getBoundingClientRect()),
+      onOpen: (ids) => {
+        this.#openPanel("inbox", false);
+        this.#threads.reveal(ids[0]!);
+      },
+      onOpenDraft: (ids) => {
+        this.#openPanel("drafts", false);
+        this.#tray.reveal(ids[0]!);
+      },
+    });
     this.#root.append(this.#zoomProbe, this.#dock, this.#composer.element, this.#announcer);
     this.#picker = new ElementPicker({
       host: this,
@@ -384,14 +493,30 @@ export class IterbarBarElement extends ElementBase {
       },
     });
 
-    this.#toggle.addEventListener("click", () => this.#setExpanded(!this.#state.expanded));
-    this.#statusButton.addEventListener("click", () => this.#togglePanel("agent"));
-    this.#grab.addEventListener("pointerdown", (event) => this.#startDrag(event));
-    this.#grab.addEventListener("pointermove", (event) => this.#moveDrag(event));
-    this.#grab.addEventListener("pointerup", (event) => this.#endDrag(event, true));
-    this.#grab.addEventListener("pointercancel", (event) => this.#endDrag(event, false));
-    this.#grab.addEventListener("lostpointercapture", (event) => this.#endDrag(event, true));
-    this.#grab.addEventListener("keydown", (event) => this.#moveWithKey(event));
+    this.#logo.addEventListener("click", (event) => {
+      if (this.#swallowLogoClick) {
+        this.#swallowLogoClick = false;
+        event.preventDefault();
+        return;
+      }
+      this.#setExpanded(!this.#state.expanded);
+    });
+    this.#helpButton.addEventListener("click", () => this.#togglePanel("agent"));
+    this.#settingsButton.addEventListener("click", () => this.#togglePanel("settings"));
+    this.#logo.addEventListener("pointerdown", (event) => this.#startDrag(event));
+    this.#logo.addEventListener("pointermove", (event) => this.#moveDrag(event));
+    this.#logo.addEventListener("pointerup", (event) => this.#endDrag(event, true));
+    this.#logo.addEventListener("pointercancel", (event) => this.#endDrag(event, false));
+    this.#logo.addEventListener("lostpointercapture", (event) => this.#endDrag(event, true));
+    this.#logo.addEventListener("keydown", (event) => this.#moveWithKey(event));
+    // Keys typed into the bar's own fields (the composer, a draft being edited, the slot list) are the user's text:
+    // they stop at the bar, so the page's shortcuts never see them. The bar's own shortcuts, listening on the window in
+    // the capture phase, skip text entry themselves.
+    for (const type of ["keydown", "keyup", "keypress"] as const) {
+      this.#root.addEventListener(type, (event) => {
+        if (isOwnTextEntry(event.composedPath()[0])) event.stopPropagation();
+      });
+    }
     this.#dock.addEventListener("pointerover", (event) => this.#onTipEnter(event, false));
     this.#dock.addEventListener("pointerout", (event) => this.#onTipLeave(event));
     this.#dock.addEventListener("focusin", (event) => this.#onTipEnter(event, true));
@@ -400,22 +525,30 @@ export class IterbarBarElement extends ElementBase {
     this.#comment.addEventListener("click", () => {
       this.commentMode = !this.#commentMode;
     });
-    this.#draftsButton.addEventListener("click", () => this.#togglePanel("drafts"));
-    this.#inboxButton.addEventListener("click", () => this.#togglePanel("inbox"));
-    this.#versionsButton.addEventListener("click", () => this.#togglePanel("versions"));
+    this.#inboxButton.addEventListener("click", () => {
+      if (this.#state.panel === "inbox" || this.#state.panel === "drafts") this.#closePanel(false);
+      else this.#openPanel("inbox", false);
+    });
+    this.#inboxTab.addEventListener("click", () => this.#openPanel("inbox", false));
+    this.#draftsTab.addEventListener("click", () => this.#openPanel("drafts", false));
+    this.#tabs.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const next = this.#state.panel === "drafts" ? "inbox" : "drafts";
+      this.#openPanel(next, false);
+      (next === "drafts" ? this.#draftsTab : this.#inboxTab).focus();
+    });
+    this.#variantsButton.addEventListener("click", () => this.#togglePanel("variants"));
     this.#panelClose.addEventListener("click", () => this.#closePanel(true));
-    toolbar.addEventListener("pointerenter", () => this.#holdPlace(true));
-    this.addEventListener("pointerdown", (event) => {
-      this.#pressesInside.add(event);
-    });
-    // A touch leaves as the finger lifts; a tap keeps the toolbar awake until the next tap elsewhere instead.
-    this.#dock.addEventListener("pointerleave", (event) => {
-      if (event.pointerType !== "touch") this.#holdPlace(false);
-    });
     this.#dock.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && this.#tooltipFor) this.#hideTooltip();
       if (event.key !== "Escape" || event.isComposing || this.#state.panel === null || this.#commentMode) return;
       event.preventDefault();
+      // Escape first clears an inbox selection, then closes the panel.
+      if (this.#state.panel === "inbox" && this.#threads.selectionSize > 0) {
+        this.#threads.clearSelection();
+        return;
+      }
       this.#closePanel(true);
     });
     this.#applyState();
@@ -487,7 +620,7 @@ export class IterbarBarElement extends ElementBase {
     }));
   }
 
-  /** Whether the full toolbar stays shown; when `false` it sleeps as a pill until hovered or focused. Ctrl/Cmd+. toggles it. */
+  /** Whether the full toolbar shows; when `false` it is collapsed to its logo. Clicking the logo or Ctrl/Cmd+. toggles it. */
   get expanded(): boolean {
     return this.#state.expanded;
   }
@@ -543,6 +676,8 @@ export class IterbarBarElement extends ElementBase {
       delete (this as Record<string, unknown>)[property];
       (this as Record<string, unknown>)[property] = value;
     }
+    // The pins enter the top layer before the toolbar, so the toolbar and its sheet always paint over them.
+    this.#pins.attach();
     this.#raise();
     if (this.#commentMode) {
       this.#picker.start();
@@ -550,18 +685,22 @@ export class IterbarBarElement extends ElementBase {
     }
     this.#watchZoom();
     window.addEventListener("keydown", this.#onKeydown, true);
-    window.addEventListener("pointerdown", this.#onPagePointerDown, true);
-    window.addEventListener("resize", this.#releaseHold);
-    window.visualViewport?.addEventListener("resize", this.#releaseHold);
-    // The panel's height cap leaves room for the toolbar as tall as it is (it wraps on a narrow screen).
+    window.addEventListener("resize", this.#queueLayout);
+    window.addEventListener("pagehide", this.#onPageHide);
+    // The panel's height cap leaves room for the toolbar as tall as it is (it wraps on a narrow screen), and the
+    // toolbar and panel are placed again whenever either changes size.
     if (typeof ResizeObserver === "function" && !this.#heightObserver) {
       this.#heightObserver = new ResizeObserver(() => {
         this.#dock.style.setProperty("--ib-toolbar-height", `${this.#dock.getBoundingClientRect().height}px`);
+        this.#layout();
       });
       this.#heightObserver.observe(this.#dock);
+      this.#heightObserver.observe(this.#panel);
     }
+    this.#layout();
     this.#watchUrl(true);
     this.#slots.attach();
+    this.#pins.update(this.#threads.threads);
     this.#reconnect();
   }
 
@@ -570,26 +709,28 @@ export class IterbarBarElement extends ElementBase {
     this.commentMode = false;
     this.#setCrosshair(false);
     this.#picker.mark(null);
-    // A drag in progress ends here (its pointer capture went with the element), unsaved, so the cleanup below runs.
+    // A drag in progress ends here (its pointer capture went with the element), unsaved.
     if (this.#drag) {
       try {
-        this.#grab.releasePointerCapture(this.#drag.pointerId);
+        this.#logo.releasePointerCapture(this.#drag.pointerId);
       } catch {
         // Already released.
       }
     }
     this.#drag = null;
     this.#dock.removeAttribute("data-dragging");
-    // A wake and a held place belong to this stay on the page; reinserted, the toolbar starts asleep at its place.
-    this.#holdPlace(false);
+    // A delete waiting for its undo is sent rather than lost with the bar.
+    this.#threads.flushDeletes();
     window.removeEventListener("keydown", this.#onKeydown, true);
-    window.removeEventListener("pointerdown", this.#onPagePointerDown, true);
-    window.removeEventListener("resize", this.#releaseHold);
-    window.visualViewport?.removeEventListener("resize", this.#releaseHold);
+    window.removeEventListener("resize", this.#queueLayout);
+    window.removeEventListener("pagehide", this.#onPageHide);
     this.#heightObserver?.disconnect();
     this.#heightObserver = null;
+    if (this.#layoutFrame !== null) cancelAnimationFrame(this.#layoutFrame);
+    this.#layoutFrame = null;
     this.#hideTooltip();
     this.#watchUrl(false);
+    this.#pins.detach();
     this.#zoomObserver?.disconnect();
     this.#zoomObserver = null;
     this.#slots.detach();
@@ -600,42 +741,35 @@ export class IterbarBarElement extends ElementBase {
     this.#followComposer(false);
   }
 
-  /**
-   * A press outside the toolbar ends a wake that a tap began (see the dock's pointerleave listener). Every press is
-   * seen here first, in the capture phase, where a page cannot stop it; whether it was inside is decided once it has
-   * been dispatched, by a listener on the bar itself, since a closed shadow root around the bar would hide the bar
-   * from the event's composed path here.
-   */
-  readonly #pressesInside = new WeakSet<Event>();
-  /** Counts presses, so only the latest one's decision counts: an earlier press never undoes what a later one did. */
-  #pressCount = 0;
-
-  readonly #onPagePointerDown = (event: PointerEvent): void => {
-    const press = ++this.#pressCount;
-    setTimeout(() => {
-      if (press === this.#pressCount && !this.#pressesInside.has(event)) this.#holdPlace(false);
-    }, 0);
+  /** Leaving the page sends a delete still waiting for its undo, so a reload does not bring the threads back. */
+  readonly #onPageHide = (): void => {
+    this.#threads.flushDeletes();
   };
 
-  /** Lets go of the place held for the pointer; the toolbar stays awake. A drag in progress keeps it. */
-  readonly #releaseHold = (): void => {
-    if (this.#drag) return;
-    this.#dock.removeAttribute("data-held");
-    this.#dock.removeAttribute("data-compact");
-    this.#dock.style.removeProperty("--ib-held-left");
-    this.#dock.style.removeProperty("--ib-held-room");
+  #layoutFrame: number | null = null;
+
+  readonly #queueLayout = (): void => {
+    if (this.#layoutFrame !== null) return;
+    this.#layoutFrame = requestAnimationFrame(() => {
+      this.#layoutFrame = null;
+      this.#layout();
+    });
   };
 
   readonly #onKeydown = (event: KeyboardEvent): void => {
     if (event.repeat || event.defaultPrevented) return;
     // Text fields keep both shortcuts: Ctrl/Cmd+. is an editor command in some (Quick Fix), C is a letter.
     if (isTextEntry(event.composedPath()[0])) return;
+    // Turned off in the settings: the page keeps both keys.
+    if (!this.#state.shortcuts) return;
     if (isToggleShortcut(event)) {
       event.preventDefault();
       const focusInside = this.#root.activeElement !== null;
       this.#setExpanded(!this.#state.expanded);
-      // Expanding moves focus into the toolbar so keyboard users can carry on; sleeping keeps focus where it was inside.
-      if (this.#state.expanded || focusInside) this.#comment.focus();
+      // Expanding moves focus into the toolbar so keyboard users can carry on; collapsing moves focus that was inside to
+      // the logo, the one control left (unless a panel or comment mode keeps the toolbar showing).
+      if (this.#state.expanded) this.#comment.focus();
+      else if (focusInside && (!this.#root.activeElement || !isRendered(this.#root.activeElement))) this.#logo.focus();
       return;
     }
     if (event.key !== "c" && event.key !== "C") return;
@@ -656,7 +790,9 @@ export class IterbarBarElement extends ElementBase {
       label: labelElement(element, target),
       pageUrl: /^https?:$/.test(location.protocol) ? reportPageUrl(location.href) : null,
       activeVariants: readActiveVariants(),
-      screenshot: captureScreenshot(element, this, this.#renderSlot, withdraw.signal),
+      screenshot: this.#state.screenshots
+        ? captureScreenshot(element, this, this.#renderSlot, withdraw.signal)
+        : Promise.resolve({ ok: false, reason: "Screenshots are turned off in Iterbar's settings." }),
       withdraw,
     };
     this.#composer.show(this.#pick.label);
@@ -729,7 +865,14 @@ export class IterbarBarElement extends ElementBase {
     this.#composer.element.style.maxHeight = `${Math.max(0, viewport.height - 2 * BAR_MARGIN_PX)}px`;
     const box = this.#composer.element.getBoundingClientRect();
     // The toolbar, and the panel above it when one is open, are kept clear.
-    const barTop = Math.min(this.#dock.getBoundingClientRect().top, this.#panel.hidden ? Infinity : this.#panel.getBoundingClientRect().top);
+    const popover = !this.#panel.hidden && this.#panel.dataset.mode === "popover";
+    const barTop = Math.min(this.#logo.parentElement!.getBoundingClientRect().top, popover ? this.#panel.getBoundingClientRect().top : Infinity);
+    // An open sheet takes the right of the screen: the composer keeps to its left when it fits there. On a screen too
+    // narrow for both, it shows over the sheet (it is above it in the top layer), so the comment stays reachable.
+    if (!this.#panel.hidden && !popover) {
+      const room = this.#panel.getBoundingClientRect().left - offset.left - BAR_MARGIN_PX;
+      if (room >= box.width + BAR_MARGIN_PX) viewport.width = Math.min(viewport.width, room);
+    }
     const reserved = Math.max(0, offset.top + viewport.height - barTop);
     const target = rect
       ? { left: rect.left - offset.left, top: rect.top - offset.top, width: rect.width, height: rect.height }
@@ -986,17 +1129,41 @@ export class IterbarBarElement extends ElementBase {
     }
   }
 
+  /** Sets `status` on each thread through the daemon, merging what it answers; rejects saying how many failed. */
+  async #setStatuses(ids: readonly string[], status: FeedbackStatus): Promise<void> {
+    const connection = this.#connection;
+    if (!connection) throw new Error("The bar is not connected to the Iterbar daemon.");
+    const results = await Promise.allSettled(ids.map((id) => connection.setStatus(id, status)));
+    const failed = results.filter((result) => result.status === "rejected");
+    // The answers are not merged as they are: a reply the event stream already delivered can share the answer's
+    // updatedAt (the store's timestamps are milliseconds), and the older answer would replace it. The daemon announces
+    // each change on the stream; a listing reconciles anything the stream missed.
+    if (results.some((result) => result.status === "fulfilled") && this.#connection === connection) connection.refresh();
+    if (failed.length > 0) {
+      const reason = ((failed[0] as PromiseRejectedResult).reason as Error).message;
+      throw new Error(`${failed.length} of ${ids.length} could not be changed. ${reason}`);
+    }
+  }
+
+  /** Deletes each thread through the daemon; resolves with the ones that failed and why, so the rest go at once. */
+  async #deleteThreads(ids: readonly string[]): Promise<{ failed: readonly string[]; message: string | null }> {
+    const connection = this.#connection;
+    if (!connection) return { failed: ids, message: "The bar is not connected to the Iterbar daemon, so nothing was deleted." };
+    const results = await Promise.allSettled(ids.map((id) => connection.deleteFeedback(id)));
+    const failed = ids.filter((_id, index) => results[index]!.status === "rejected");
+    if (failed.length === 0) return { failed, message: null };
+    const reason = ((results.find((result) => result.status === "rejected") as PromiseRejectedResult).reason as Error).message;
+    return { failed, message: `${failed.length} of ${ids.length} could not be deleted. ${reason}` };
+  }
+
   #renderDrafts(): void {
     this.#tray.render(this.#drafts.map((draft) => ({
       id: draft.id, label: draft.pick.label, text: draft.text, state: draft.state, error: draft.error,
     })), this.#sendingBatch, this.#batchError);
-    const count = this.#drafts.length;
-    this.#draftCount.textContent = String(count);
-    this.#draftCount.hidden = count === 0;
-    this.#draftsButton.toggleAttribute("data-has", count > 0);
-    this.#draftsButton.setAttribute("aria-label", count ? `Drafts, ${count} waiting` : "Drafts");
-    tip(this.#draftsButton, count ? `Drafts: ${count} waiting` : "Drafts", null,
-      count ? "Comments waiting to be sent together. Open the tray to check them and Send all." : "Comments you add as drafts wait here until you send them together.");
+    this.#pins.updateDrafts(this.#drafts.map((draft) => ({ id: draft.id, element: draft.pick.element })));
+    this.#renderCounts();
+    // The settings' Clear drafts follows the drafts and whether a batch is being sent.
+    if (this.#state.panel === "settings") this.#renderSettings(false);
   }
 
   /** Updates the toolbar's open-feedback count from the inbox. */
@@ -1004,18 +1171,118 @@ export class IterbarBarElement extends ElementBase {
     // The inbox renders once while it is being constructed, before it is assigned.
     if (!this.#threads) return;
     const open = this.#threads.openCount;
+    const drafts = this.#drafts.length;
     this.#openCount.textContent = String(open);
     this.#openCount.hidden = open === 0;
-    this.#inboxButton.setAttribute("aria-label", open ? `Inbox, ${open} open` : "Inbox");
-    tip(this.#inboxButton, open ? `Inbox: ${open} open` : "Inbox", null, "Sent comments, their status and your agent's replies");
+    this.#draftCount.textContent = String(drafts);
+    this.#draftCount.hidden = drafts === 0;
+    this.#inboxTabCount.textContent = String(open);
+    this.#draftsTabCount.textContent = String(drafts);
+    this.#draftsTab.setAttribute("aria-label", `Drafts, ${drafts} not sent`);
+    this.#inboxTab.setAttribute("aria-label", `Inbox, ${open} open`);
+    const parts = [open ? `${open} open` : "", drafts ? `${drafts} ${drafts === 1 ? "draft" : "drafts"}` : ""].filter(Boolean);
+    this.#inboxButton.setAttribute("aria-label", parts.length ? `Inbox, ${parts.join(", ")}` : "Inbox");
+    tip(this.#inboxButton, parts.length ? `Inbox: ${parts.join(", ")}` : "Inbox", null,
+      drafts ? "Sent comments with your agent's replies, and the drafts waiting to be sent together" : "Sent comments, their status and your agent's replies");
+    this.#renderLogoTip();
+  }
+
+  /** The logo's tooltip: what clicking does, how to move it, and (collapsed) what the hidden toolbar would show. */
+  #renderLogoTip(): void {
+    const expanded = this.#state.expanded;
+    const open = this.#threads?.openCount ?? 0;
+    const status = STATUS_TEXT[(this.#dock?.dataset.status ?? "unconfigured") as ConnectionStatus["kind"]] ?? "";
+    const parts = [open ? `${open} open in the inbox` : "", status].filter(Boolean).join(" · ");
+    this.#logo.setAttribute("aria-label", expanded ? "Iterbar: collapse the toolbar" : "Iterbar: expand the toolbar");
+    this.#logo.setAttribute("aria-expanded", String(expanded));
+    tip(this.#logo, expanded ? "Collapse Iterbar" : "Expand Iterbar", this.#toggleKeys, `${parts ? `${parts}. ` : ""}Drag to move it.`);
+    if (this.#tooltipFor === this.#logo) this.#showTooltip(this.#logo);
   }
 
   #onSlots(slots: readonly SlotState[]): void {
     this.#slotCount.textContent = String(slots.length);
     this.#slotCount.hidden = slots.length === 0;
-    this.#versionsButton.toggleAttribute("data-has", slots.length > 0);
-    this.#versionsButton.setAttribute("aria-label", slots.length ? `Versions, ${slots.length} ${slots.length === 1 ? "slot" : "slots"}` : "Versions");
+    this.#variantsButton.toggleAttribute("data-has", slots.length > 0);
+    this.#pins.setActiveVariants(slots.map((slot) => ({ slot: slot.slot, variant: slot.activeVariant })));
+    this.#variantsButton.setAttribute("aria-label", slots.length ? `Variants, ${slots.length} ${slots.length === 1 ? "slot" : "slots"}` : "Variants");
     this.#queueReport(slots);
+  }
+
+  #settingsWasOpen = false;
+
+  /** Renders the settings sheet with what the bar knows now; `refreshInfo` asks the daemon for its details again. */
+  #renderSettings(refreshInfo: boolean): void {
+    const { x, theme, shortcuts, screenshots, pins } = this.#state;
+    this.#settings.render({
+      values: { x, theme, shortcuts, screenshots, pins },
+      connected: this.#connectionKind === "connected",
+      connectionLabel: STATUS_TEXT[this.#connectionKind],
+      threadCount: this.#threads.threads.length,
+      draftCount: this.#drafts.length,
+      sending: this.#sendingBatch,
+      devServer: this.#devServer,
+    }, refreshInfo);
+  }
+
+  #requireConnection(): DaemonConnection {
+    if (!this.#connection) throw new Error("The bar is not connected to the Iterbar daemon.");
+    return this.#connection;
+  }
+
+  /** Asks the daemon to stop, and waits (a few seconds at most) until the bar has seen it go. */
+  async #stopDaemon(): Promise<void> {
+    await this.#requireConnection().shutdown();
+    const until = Date.now() + 5000;
+    while (this.#connectionKind === "connected" && Date.now() < until) await new Promise((done) => setTimeout(done, 100));
+  }
+
+  /**
+   * Asks the dev server for the daemon again (it starts one when none runs) and connects to what it answers. `current`
+   * says whether the settings action that asked is still theirs; nothing is applied once it isn't.
+   */
+  async #startDaemon(current: () => boolean = () => true): Promise<void> {
+    const dev = this.#devServer;
+    if (!dev) throw new Error("This page has no Iterbar dev-server plugin to start the daemon.");
+    const project = this.#project;
+    const before = connectionKey(this.#daemonUrl, this.#token);
+    const config = await dev.reconnect();
+    // Set up again meanwhile (another dev server, project or daemon, even one switched back since: the action was voided
+    // then): this answer is for the bar as it was.
+    if (!current() || this.#devServer !== dev || this.#project !== project || connectionKey(this.#daemonUrl, this.#token) !== before) {
+      throw new Error("The bar was set up again meanwhile; nothing was changed.");
+    }
+    if (!config.daemonUrl || !config.token) throw new Error("The dev server could not start the daemon. Its terminal says why.");
+    if (config.about) this.devServer = { ...dev, about: config.about };
+    const expected = connectionKey(config.daemonUrl, config.token);
+    // This change of daemon is the action's own: the settings keep it running. The same daemon as now (the dev server
+    // still has it) makes no change, so nothing is announced.
+    if (expected !== before) this.#settings.expectOwnReconnect();
+    this.daemonUrl = config.daemonUrl;
+    this.token = config.token;
+    // Connected to that daemon, not just to whatever the bar talks to by then.
+    const until = Date.now() + 5000;
+    const connected = () => this.#connectionKey === expected && this.#connectionKind === "connected";
+    while (!connected() && Date.now() < until) {
+      await new Promise((done) => setTimeout(done, 100));
+      if (this.#connectionKey !== null && this.#connectionKey !== expected && this.#connectionKey !== before) {
+        throw new Error("The bar was set up again meanwhile.");
+      }
+    }
+    if (!connected()) throw new Error("The daemon started, but the bar has not connected to it yet.");
+  }
+
+  /** The dev server that mounted the bar, for the settings (daemon controls, versions) and the setup steps. */
+  get devServer(): DevServerLink | null {
+    return this.#devServer;
+  }
+
+  set devServer(value: DevServerLink | null) {
+    // Another dev server (a remount), not the same one with fresh versions: a settings action begun with the earlier
+    // one is void.
+    if (value?.reconnect !== this.#devServer?.reconnect) this.#settings?.voidAction();
+    this.#devServer = value;
+    this.#agentHelp.cli = value?.about?.cli ?? null;
+    if (this.#state.panel === "settings") this.#renderSettings(false);
   }
 
   /** Says `text` to screen readers through a polite live region. */
@@ -1043,15 +1310,19 @@ export class IterbarBarElement extends ElementBase {
     const panel = this.#state.panel;
     if (panel === null) return;
     this.#saveState({ ...this.#state, panel: null });
-    if (refocus) this.#panelButton(panel).focus();
+    if (!refocus) return;
+    // The toolbar may have collapsed with the panel (it was opened from a comment pin): then the logo takes focus.
+    const button = this.#panelButton(panel);
+    (isRendered(button) ? button : this.#logo).focus();
   }
 
   #panelButton(panel: PanelName): HTMLButtonElement {
     switch (panel) {
-      case "drafts": return this.#draftsButton;
+      case "drafts":
       case "inbox": return this.#inboxButton;
-      case "versions": return this.#versionsButton;
-      case "agent": return this.#statusButton;
+      case "variants": return this.#variantsButton;
+      case "settings": return this.#settingsButton;
+      case "agent": return this.#helpButton;
     }
   }
 
@@ -1078,6 +1349,8 @@ export class IterbarBarElement extends ElementBase {
   }
 
   readonly #onUrlChange = (): void => {
+    // Pins belong to the page they were left on.
+    this.#pins.update(this.#threads.threads);
     if (this.#slotsForReport && reportPageUrl(location.href) !== this.#reportedUrl) this.#queueReport(this.#slotsForReport);
   };
 
@@ -1118,6 +1391,7 @@ export class IterbarBarElement extends ElementBase {
     this.#composer.element.style.zoom = inverse;
     // The pick layer outlines viewport rectangles, so it cancels the inherited zoom too.
     this.#picker.setZoom(inverse);
+    this.#pins.setZoom(inverse);
     this.#placeComposer();
   }
 
@@ -1147,13 +1421,16 @@ export class IterbarBarElement extends ElementBase {
   /** Opens a connection for the current URL and token, unless one for them is already open. */
   #reconnect(): void {
     const parsed = parseDaemonConfig(this.#daemonUrl, this.#token);
-    // A daemon is identified as parsed (its origin and token), so a URL written differently keeps the connection.
-    const key = JSON.stringify(parsed.ok ? [parsed.config.url, parsed.config.token] : [this.#daemonUrl, this.#token]);
+    const key = connectionKey(this.#daemonUrl, this.#token);
     if (this.#connection && key === this.#connectionKey) return;
     this.#connection?.stop();
     this.#connection = null;
     // Threads belong to the daemon that listed them; another daemon (or none) must not show them.
-    if (key !== this.#connectionKey) this.#threads.clear();
+    if (key !== this.#connectionKey) {
+      this.#threads.clear();
+      // The page list came from the old daemon (or none): drop it, and any answer still on its way.
+      this.#slots.resetPages();
+    }
     this.#connectionKey = key;
     if (parsed.ok) {
       // A batch lives in one daemon's store: drafts waiting to be retried start a new batch with another daemon. The
@@ -1169,15 +1446,26 @@ export class IterbarBarElement extends ElementBase {
       }
       this.#batchStore = store;
     }
+    // Whatever the settings showed or were about to do concerned the earlier daemon (also when there is none now).
+    this.#settings.resetForConnection();
     if (!parsed.ok) {
       this.#renderStatus(parsed.status);
       return;
     }
     const connection = new DaemonConnection(parsed.config, {
       onStatus: (status) => {
-        if (this.#connection === connection) this.#renderStatus(status);
+        if (this.#connection !== connection) return;
+        this.#renderStatus(status);
+        // A page list asked for before the connection opened comes from this daemon now.
+        if (status.kind === "connected" && this.#state.panel === "variants") void this.#slots.refreshPages();
       },
       onFeedback: (item): boolean => this.#connection === connection && this.#threads.merge(item),
+      onDeleted: (feedbackId) => {
+        if (this.#connection === connection) this.#threads.remove(feedbackId);
+      },
+      onSlotsReported: () => {
+        if (this.#connection === connection && this.#state.panel === "variants") void this.#slots.refreshPages();
+      },
       onListing: (items, touched): boolean => this.#connection !== connection || this.#threads.replace(items, touched),
       isComplete: (): boolean => this.#connection !== connection || this.#threads.complete,
     });
@@ -1187,6 +1475,8 @@ export class IterbarBarElement extends ElementBase {
   }
 
   #renderStatus(status: ConnectionStatus): void {
+    this.#connectionKind = status.kind;
+    if (this.#state.panel === "settings") this.#renderSettings(status.kind === "connected");
     this.#status.dataset.status = status.kind;
     this.#statusDot.dataset.status = status.kind;
     this.#status.textContent = STATUS_TEXT[status.kind];
@@ -1195,10 +1485,12 @@ export class IterbarBarElement extends ElementBase {
       : status.kind === "unconfigured" ? "No daemon URL and token were given, so feedback is unavailable." : "";
     this.#detail.textContent = detail;
     this.#detail.hidden = !detail;
-    this.#statusButton.setAttribute("aria-label", `${STATUS_TEXT[status.kind]}. Use with your agent`);
-    tip(this.#statusButton, STATUS_TEXT[status.kind], null,
-      `${STATUS_DETAIL[status.kind]}${detail && status.kind !== "unconfigured" ? ` ${detail}` : ""} Click for how to use it with your agent.`);
-    if (this.#tooltipFor === this.#statusButton) this.#showTooltip(this.#statusButton);
+    this.#statusExplain.textContent = STATUS_DETAIL[status.kind];
+    this.#helpButton.setAttribute("aria-label", `Help and setup. ${STATUS_TEXT[status.kind]}`);
+    tip(this.#helpButton, "Help and setup", null, `${STATUS_TEXT[status.kind]}. How to connect your coding agent.`);
+    if (this.#tooltipFor === this.#helpButton) this.#showTooltip(this.#helpButton);
+    this.#pins.enabled = status.kind === "connected" || status.kind === "retrying" || status.kind === "connecting";
+    this.#renderLogoTip();
   }
 
   #queueReport(slots: readonly SlotState[]): void {
@@ -1234,37 +1526,131 @@ export class IterbarBarElement extends ElementBase {
     const { x, expanded, panel } = this.#state;
     this.#setPosition(x);
     this.#dock.toggleAttribute("data-expanded", expanded);
-    this.#toggle.setAttribute("aria-expanded", String(expanded));
-    this.#toggle.setAttribute("aria-label", expanded ? "Let the toolbar sleep" : "Keep the toolbar expanded");
-    tip(this.#toggle, expanded ? "Let it sleep" : "Keep expanded", this.#toggleKeys);
-    this.#toggle.replaceChildren(icon(expanded ? "collapse" : "expand"));
-    this.#grab.setAttribute("aria-valuenow", String(Math.round(x * 100)));
-    this.#grab.setAttribute("aria-valuetext", describePosition(x));
+    this.#renderLogoTip();
     this.#agentHelp.agent = this.#state.agent;
     this.#panel.hidden = panel === null;
     this.#panelTitle.textContent = panel ? PANEL_TITLES[panel] : "";
+    // Inbox and drafts show their tabs instead of a title; the title stays for assistive technology.
+    const tabbed = panel === "inbox" || panel === "drafts";
+    this.#tabs.hidden = !tabbed;
+    this.#panelTitle.classList.toggle("sr-only", tabbed);
+    this.#inboxTab.setAttribute("aria-selected", String(panel === "inbox"));
+    this.#draftsTab.setAttribute("aria-selected", String(panel === "drafts"));
+    this.#inboxTab.tabIndex = panel === "drafts" ? -1 : 0;
+    this.#draftsTab.tabIndex = panel === "drafts" ? 0 : -1;
     this.#tray.element.hidden = panel !== "drafts";
     this.#threads.element.hidden = panel !== "inbox";
-    this.#slots.element.hidden = panel !== "versions";
+    this.#slots.element.hidden = panel !== "variants";
     this.#agentHelp.element.hidden = panel !== "agent";
+    this.#settings.element.hidden = panel !== "settings";
+    if (panel === "settings") this.#renderSettings(this.#settingsWasOpen !== true);
+    this.#settingsWasOpen = panel === "settings";
+    // The colours the settings choose, on each of the bar's top-level boxes (the host's attributes are the page's).
+    for (const box of [this.#dock, this.#composer.element]) box.dataset.theme = this.#state.theme;
+    this.#pins.theme = this.#state.theme;
+    this.#pins.visible = this.#state.pins;
     // An open composer keeps clear of the panel, which may just have opened or closed.
     if (this.#composer.open) this.#queuePlaceComposer();
-    // The connection's details belong with "Use with your agent", where the status opens to.
+    // Inbox, drafts and setup open as a full-height sheet on the right; variants as a popover above the toolbar.
     this.#panel.dataset.panel = panel ?? "";
-    for (const name of ["drafts", "inbox", "versions", "agent"] as const) {
-      this.#panelButton(name).setAttribute("aria-expanded", String(panel === name));
+    this.#panel.dataset.mode = panel === "variants" ? "popover" : "sheet";
+    this.#connectionBox.hidden = panel !== "agent";
+    if (panel === "variants") void this.#slots.refreshPages();
+    for (const name of ["inbox", "variants", "settings", "agent"] as const) {
+      const open = name === "inbox" ? panel === "inbox" || panel === "drafts" : panel === name;
+      this.#panelButton(name).setAttribute("aria-expanded", String(open));
     }
     this.#applyAwake();
   }
 
   /**
-   * Places the toolbar and its panel at position `x` (see theme.ts: both share out their room between the margins, so
-   * neither leaves the viewport). Past two thirds the toolbar runs right to left, so it wakes away from the edge.
+   * Puts the logo at position `x` along the bottom edge (see {@link #layout}). Past two thirds the toolbar runs right
+   * to left, so it expands away from the edge.
    */
   #setPosition(x: number): void {
     this.#dock.style.setProperty("--ib-x", String(x));
     this.#dock.dataset.align = x > 2 / 3 ? "end" : "start";
+    this.#layout();
   }
+
+  /**
+   * Places the toolbar so its logo sits at the state's position, collapsed or expanded: the logo never moves when the
+   * toolbar expands, and the rest grows away from it, kept inside the margins. The panel opens above, lined up with
+   * the toolbar's start (its end when the toolbar runs right to left), and also kept inside the margins.
+   */
+  #layout(): void {
+    if (!this.isConnected) return;
+    const viewport = this.#viewport();
+    const { anchor } = this.#anchor();
+    const x = this.#drag?.moved ? positionForLeft(this.#dragLogoLeft - viewport.left, anchor, viewport.width) : this.#state.x;
+    // Expanded, the toolbar grows from its logo toward the side it runs to (right, or left past two thirds). When it
+    // does not fit there and fits on the other side, it runs the other way; when it fits on neither, it wraps within
+    // the larger room. Either way the logo stays where it is.
+    const logoLeft = leftForPosition(x, anchor, viewport.width);
+    const rightRoom = viewport.width - BAR_MARGIN_PX - logoLeft;
+    const leftRoom = logoLeft + anchor - BAR_MARGIN_PX;
+    let end = x > 2 / 3;
+    // With Variants open, the toolbar and the popover above it have one width: the toolbar's, at least the popover's
+    // smallest useful width.
+    const matched = !this.#panel.hidden && this.#panel.dataset.mode === "popover";
+    this.#dock.style.minWidth = matched ? `${Math.min(VARIANTS_MIN_WIDTH_PX, viewport.width - 2 * BAR_MARGIN_PX)}px` : "";
+    this.#dock.toggleAttribute("data-matched", matched);
+    if (this.#dock.hasAttribute("data-awake")) {
+      this.#dock.style.maxWidth = "";
+      this.#dock.removeAttribute("data-narrow");
+      let natural = this.#dock.getBoundingClientRect().width;
+      // Too narrow for the whole toolbar on either side: text labels go (each control keeps its name for assistive
+      // technology and its tooltip), so every control can fit a row.
+      if (natural > Math.max(leftRoom, rightRoom)) {
+        this.#dock.toggleAttribute("data-narrow", true);
+        natural = this.#dock.getBoundingClientRect().width;
+      }
+      if (natural > (end ? leftRoom : rightRoom) && natural <= (end ? rightRoom : leftRoom)) end = !end;
+      if (natural > Math.max(leftRoom, rightRoom)) end = leftRoom > rightRoom;
+      const room = end ? leftRoom : rightRoom;
+      if (natural > room) this.#dock.style.maxWidth = `${Math.max(anchor, Math.floor(room))}px`;
+    } else {
+      this.#dock.style.maxWidth = "";
+      this.#dock.removeAttribute("data-narrow");
+    }
+    this.#dock.dataset.align = end ? "end" : "start";
+    const width = this.#dock.getBoundingClientRect().width;
+    const left = this.#dock.hasAttribute("data-awake")
+      ? toolbarLeft(x, anchor, width, viewport.width, end)
+      : leftForPosition(x, anchor, viewport.width);
+    this.#dock.style.setProperty("--ib-left", `${Math.round(viewport.left + left)}px`);
+    if (matched) {
+      this.#panel.style.width = `${Math.round(width)}px`;
+      this.#panel.style.left = "0px";
+    } else {
+      this.#panel.style.removeProperty("width");
+      this.#panel.style.removeProperty("left");
+    }
+    if (!this.#panel.hidden && this.#panel.dataset.mode === "sheet") {
+      // The sheet runs the full height on the right, stopping above the toolbar where the toolbar is under it.
+      const sheet = this.#panel.getBoundingClientRect();
+      const toolbar = this.#logo.parentElement!.getBoundingClientRect();
+      const height = document.documentElement.clientHeight || window.innerHeight;
+      const under = toolbar.right > sheet.left && toolbar.left < sheet.right;
+      this.#panel.style.setProperty("--ib-sheet-bottom", `${under ? Math.round(height - toolbar.top + 8) : BAR_MARGIN_PX}px`);
+    }
+    if (this.#tooltipFor) this.#showTooltip(this.#tooltipFor);
+    // Pins keep off the toolbar and the panel wherever they are now.
+    this.#pins?.refresh();
+  }
+
+  /**
+   * The collapsed toolbar's width (the logo with the toolbar's padding and border around it), which the stored position
+   * places, and that inset: the expanded toolbar keeps the logo exactly where the collapsed one shows it.
+   */
+  #anchor(): { anchor: number; inset: number } {
+    const toolbar = getComputedStyle(this.#logo.parentElement!);
+    const inset = (Number.parseFloat(toolbar.paddingLeft) || 0) + (Number.parseFloat(toolbar.borderLeftWidth) || 0);
+    return { anchor: this.#logo.getBoundingClientRect().width + 2 * inset, inset };
+  }
+
+  /** Where a drag has the collapsed toolbar's left edge (the logo's, less the inset), in viewport pixels. */
+  #dragLogoLeft = 0;
 
   /**
    * The layout viewport, which the toolbar's CSS places it in (a fixed, top-layer box), in the coordinates element
@@ -1277,52 +1663,51 @@ export class IterbarBarElement extends ElementBase {
 
   #startDrag(event: PointerEvent): void {
     if (event.button !== 0 || this.#drag) return;
-    event.preventDefault();
-    this.#hideTooltip();
-    // The drag holds the toolbar exactly as it is shown (the dock is the toolbar alone; the panel is placed on its
-    // own): its width is frozen, so a toolbar a pointer wake wrapped on a narrow screen stays wrapped, and that one
-    // width clamps the drag and settles the drop.
-    const rect = this.#dock.getBoundingClientRect();
-    this.#dock.style.setProperty("--ib-held-room", `${rect.width}px`);
-    this.#drag = { pointerId: event.pointerId, startX: event.clientX, startLeft: rect.left, width: rect.width, moved: false };
+    const logo = this.#logo.getBoundingClientRect();
+    const { anchor, inset } = this.#anchor();
+    this.#drag = { pointerId: event.pointerId, startX: event.clientX, startLeft: logo.left - inset, logoWidth: anchor, moved: false };
     try {
-      this.#grab.setPointerCapture(event.pointerId);
+      this.#logo.setPointerCapture(event.pointerId);
     } catch {
-      // Without capture the drag still follows the pointer while it stays over the handle.
+      // Without capture the drag still follows the pointer while it stays over the logo.
     }
-    this.#dock.style.setProperty("--ib-held-left", `${rect.left}px`);
-    this.#dock.toggleAttribute("data-held", true);
-    this.#dock.toggleAttribute("data-dragging", true);
   }
 
   #moveDrag(event: PointerEvent): void {
     const drag = this.#drag;
     if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.moved) {
+      if (Math.abs(event.clientX - drag.startX) <= DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      this.#hideTooltip();
+      this.#dock.toggleAttribute("data-dragging", true);
+    }
     const viewport = this.#viewport();
     const min = viewport.left + BAR_MARGIN_PX;
-    const max = Math.max(min, viewport.left + viewport.width - BAR_MARGIN_PX - drag.width);
-    const left = Math.min(max, Math.max(min, drag.startLeft + event.clientX - drag.startX));
-    if (Math.abs(event.clientX - drag.startX) > 2) drag.moved = true;
-    this.#dock.style.setProperty("--ib-held-left", `${left}px`);
-    const x = positionForLeft(left - viewport.left, drag.width, viewport.width);
-    // The panel and the toolbar's direction follow the drag as it goes, so nothing jumps when it is dropped.
-    this.#setPosition(x);
-    this.#grab.setAttribute("aria-valuenow", String(Math.round(x * 100)));
-    this.#grab.setAttribute("aria-valuetext", describePosition(x));
+    const max = Math.max(min, viewport.left + viewport.width - BAR_MARGIN_PX - drag.logoWidth);
+    this.#dragLogoLeft = Math.min(max, Math.max(min, drag.startLeft + event.clientX - drag.startX));
+    const x = positionForLeft(this.#dragLogoLeft - viewport.left, drag.logoWidth, viewport.width);
+    // The toolbar's direction and the panel follow the drag as it goes, so nothing jumps when it is dropped.
+    this.#dock.style.setProperty("--ib-x", String(x));
+    this.#dock.dataset.align = x > 2 / 3 ? "end" : "start";
+    this.#layout();
   }
 
-  /** Ends a drag; `keep` saves where it was dropped (as a position, so it fits other widths), otherwise it springs back. */
+  /** Ends a press on the logo; a drag (`keep`) saves where it was dropped, as a position, so it fits other widths. */
   #endDrag(event: PointerEvent, keep: boolean): void {
     const drag = this.#drag;
     if (!drag || event.pointerId !== drag.pointerId) return;
     this.#drag = null;
+    if (!drag.moved) return;
     this.#dock.removeAttribute("data-dragging");
-    const left = Number.parseFloat(this.#dock.style.getPropertyValue("--ib-held-left"));
-    this.#dock.removeAttribute("data-held");
-    this.#dock.style.removeProperty("--ib-held-left");
-    if (keep && drag.moved && Number.isFinite(left)) {
+    // The release's click must not also expand or collapse the toolbar.
+    this.#swallowLogoClick = true;
+    setTimeout(() => {
+      this.#swallowLogoClick = false;
+    }, 0);
+    if (keep) {
       const viewport = this.#viewport();
-      const x = positionForLeft(left - viewport.left, drag.width, viewport.width);
+      const x = positionForLeft(this.#dragLogoLeft - viewport.left, drag.logoWidth, viewport.width);
       this.#saveState({ ...this.#state, x });
       this.#announce(`Toolbar moved to the ${describePosition(x)}.`);
     } else {
@@ -1392,79 +1777,22 @@ export class IterbarBarElement extends ElementBase {
     this.#tooltip.hidden = true;
   }
 
-  /**
-   * The pointer (or a tap) wakes the sleeping toolbar. Docked left or right it grows away from its edge; centred, its
-   * left edge holds still while it wakes, shifting left only as far as staying in view needs, so the sleeping buttons
-   * stay under the pointer.
-   */
-  #holdPlace(on: boolean): void {
-    const dock = this.#dock;
-    if (!on) {
-      // A drag keeps the toolbar awake and held until it is dropped, wherever the pointer goes meanwhile.
-      if (this.#drag) return;
-      dock.removeAttribute("data-hovered");
-      dock.removeAttribute("data-held");
-      dock.removeAttribute("data-compact");
-      dock.style.removeProperty("--ib-held-left");
-      dock.style.removeProperty("--ib-held-room");
-      return;
-    }
-    if (dock.hasAttribute("data-hovered")) return;
-    if (dock.hasAttribute("data-awake") || dock.matches(":focus-within")) {
-      dock.toggleAttribute("data-hovered", true);
-      return;
-    }
-    // Measured before it wakes; the dock cancels any page zoom, so its CSS pixels are viewport pixels. The sleeping
-    // buttons stay under the pointer: the toolbar grows away from its edge, and controls that do not fit wrap onto a
-    // row above instead of moving them.
-    const viewport = this.#viewport();
-    const min = viewport.left + BAR_MARGIN_PX;
-    const maxRight = viewport.left + viewport.width - BAR_MARGIN_PX;
-    const pill = dock.getBoundingClientRect();
-    const before = this.#comment.getBoundingClientRect().left;
-    dock.style.setProperty("--ib-held-left", `${pill.left}px`);
-    dock.toggleAttribute("data-held", true);
-    dock.toggleAttribute("data-hovered", true);
-    if (dock.dataset.align === "end") {
-      // Right to left: the pill's right edge holds still and the woken controls (the grab handle last) go leftward.
-      dock.style.setProperty("--ib-held-room", `${Math.max(0, pill.right - min)}px`);
-      this.#compactIfWrapped(pill.height);
-      dock.style.setProperty("--ib-held-left", `${pill.right - dock.getBoundingClientRect().width}px`);
-      return;
-    }
-    // Left to right: the grab handle comes before the sleeping buttons (asleep, the toolbar keeps room for it from
-    // the margin), so the dock moves left by as much, and the rest grows rightward.
-    const offset = this.#comment.getBoundingClientRect().left - dock.getBoundingClientRect().left;
-    const left = Math.max(min, before - offset);
-    dock.style.setProperty("--ib-held-left", `${left}px`);
-    dock.style.setProperty("--ib-held-room", `${Math.max(0, maxRight - left)}px`);
-    this.#compactIfWrapped(pill.height);
-  }
-
-  /**
-   * Short of room, the woken toolbar wraps onto a row above. Then the status keeps to its dot (its label stays for
-   * assistive technology and in its tooltip), so it, like every sleeping control, stays on the bottom row.
-   */
-  #compactIfWrapped(rowHeight: number): void {
-    this.#dock.toggleAttribute("data-compact", this.#dock.getBoundingClientRect().height > rowHeight + 1);
-  }
-
-  /** The toolbar is awake (full) when expanded, with a panel or the composer open, or in comment mode. */
+  /** The toolbar shows in full when expanded, with a panel or the composer open, or in comment mode. */
   #applyAwake(): void {
     const awake = this.#state.expanded || this.#state.panel !== null || this.#commentMode || this.#composer.open;
-    // A panel, the composer or comment mode needs the toolbar placed as usual: the place held for the pointer goes.
-    if (this.#state.panel !== null || this.#commentMode || this.#composer.open) this.#releaseHold();
     this.#dock.toggleAttribute("data-awake", awake);
+    this.#layout();
   }
 
-  /** Arrow keys (Shift for bigger steps), Home and End on the grab handle move the toolbar along the bottom edge. */
+  /** Arrow keys (Shift for bigger steps), Home and End on the logo move the toolbar along the bottom edge. */
   #moveWithKey(event: KeyboardEvent): void {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const x = positionForKey(this.#state.x, event.key, event.shiftKey);
     if (x === null) return;
     event.preventDefault();
-    this.#releaseHold();
-    if (x !== this.#state.x) this.#saveState({ ...this.#state, x });
+    if (x === this.#state.x) return;
+    this.#saveState({ ...this.#state, x });
+    this.#announce(`Toolbar moved to the ${describePosition(x)}.`);
   }
 }
 
@@ -1494,6 +1822,8 @@ export interface MountIterbarBarOptions {
   readonly project?: string | null;
   /** Where to add the bar when the page has none; defaults to `document.body`. */
   readonly target?: Element;
+  /** The dev server's side (the Iterbar Vite plugin passes it): versions, the CLI, and starting the daemon again. */
+  readonly devServer?: DevServerLink | null;
 }
 
 /**
@@ -1506,6 +1836,7 @@ export function mountIterbarBar(options: MountIterbarBarOptions = {}): IterbarBa
   if (options.project !== undefined) bar.project = options.project;
   bar.daemonUrl = options.daemonUrl ?? null;
   bar.token = options.token ?? null;
+  if (options.devServer !== undefined) bar.devServer = options.devServer;
   if (!bar.isConnected) (options.target ?? document.body ?? document.documentElement).append(bar);
   return bar;
 }

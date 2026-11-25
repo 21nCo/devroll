@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { crc32 } from "node:zlib";
 import { feedbackSchema, MAX_ATTACHMENT_BYTES, parseMessageJson, type AttachmentRef, type Feedback } from "iterbar";
 import { attachmentPath, feedbackRecordPath, iterbarPaths } from "iterbar/node";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openFeedbackStore, type FeedbackStore, type OpenFeedbackStoreOptions } from "./store.js";
 import { chooseVariantDraft, commentDraft, EVIDENCE, PNG, temporaryProject } from "./test-support/helpers.js";
 
@@ -95,7 +95,7 @@ describe("records", () => {
     const choice = await store.create(chooseVariantDraft);
     expect(choice).toMatchObject({
       kind: "choose_variant",
-      choice: { slot: "pricing", version: "v2" },
+      choice: { slot: "pricing", variant: "v2" },
       screenshot: null,
       evidence: null,
       screenshotUnavailableReason: "Capture was blocked by the page",
@@ -255,6 +255,63 @@ describe("records", () => {
     expect(await store.get(item.id)).toEqual(updated);
   });
 
+  it("saves a version 1 record as version 2 on its next write, keeping fields it does not know", async () => {
+    let store = await open();
+    const item = await store.create(chooseVariantDraft);
+    const recordPath = feedbackRecordPath(root, item.id);
+    const v2 = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown> & { choice: { slot: string; variant: string } };
+    const { variant, ...choice } = v2.choice;
+    const activeVariants = (v2.activeVariants as Array<{ slot: string; variant: string }>).map(({ slot, variant: name }) => ({ slot, version: name }));
+    await writeFile(recordPath, JSON.stringify({ ...v2, schemaVersion: 1, choice: { ...choice, version: variant }, activeVariants, labels: ["ui"] }));
+
+    store = await reopen(store);
+    expect((await store.get(item.id)).kind === "choose_variant" && (await store.get(item.id))).toMatchObject({ choice: { variant } });
+    await store.setStatus(item.id, "archived");
+    const onDisk = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+    expect(onDisk).toMatchObject({ schemaVersion: 2, status: "archived", choice: { variant }, labels: ["ui"] });
+    expect(JSON.stringify(onDisk)).not.toContain('"version"');
+  });
+
+  it("deletes an item and its attachments", async () => {
+    const store = await open();
+    const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
+    await store.delete(item.id);
+    expect(await readdir(iterbarPaths(root).feedbackDirectory)).toEqual([]);
+    await expect(store.get(item.id)).rejects.toMatchObject({ code: "not_found" });
+    await expect(store.delete(item.id)).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  // A read-only folder stops nobody running as root (CAP_DAC_OVERRIDE), so there the case can't be set up this way.
+  it.skipIf(process.getuid?.() === 0)("opens even when a folder left by a delete can't be removed, and says so", async () => {
+    const store = await open();
+    const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
+    await rm(feedbackRecordPath(root, item.id));
+    await store.close();
+    const { feedbackDirectory } = iterbarPaths(root);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    // The feedback folder is read-only, so the leftover folder in it can't be removed.
+    await chmod(feedbackDirectory, 0o555);
+    try {
+      const reopened = await open();
+      expect(await reopened.list()).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("left by a deleted item"));
+      await reopened.close();
+    } finally {
+      await chmod(feedbackDirectory, 0o755);
+      warn.mockRestore();
+    }
+  });
+
+  it("finishes a delete whose record is gone but whose directory is still there", async () => {
+    const store = await open();
+    const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
+    await rm(feedbackRecordPath(root, item.id));
+    // Even with nothing left in it (an item without attachments restored without its empty folder).
+    await rm(join(feedbackRecordPath(root, item.id), "..", "attachments"), { recursive: true });
+    await store.delete(item.id);
+    expect(await readdir(iterbarPaths(root).feedbackDirectory)).toEqual([]);
+  });
+
   it("reports corrupt_store for a referenced attachment that is missing or altered", async () => {
     const store = await open();
     const item = await store.create(commentDraft, { screenshot: PNG, evidence: EVIDENCE });
@@ -309,7 +366,7 @@ describe("rejected requests", () => {
     const rejects = (promise: Promise<unknown>, code: string) => expect(promise).rejects.toMatchObject({ code });
 
     await rejects(store.create({ ...commentDraft, text: "  " }), "invalid_message");
-    await rejects(store.create({ ...commentDraft, schemaVersion: 2 } as never), "unsupported_schema_version");
+    await rejects(store.create({ ...commentDraft, schemaVersion: 3 } as never), "unsupported_schema_version");
     await rejects(store.create(commentDraft, { screenshot: PNG }), "invalid_request");
     await rejects(store.create(chooseVariantDraft, { evidence: EVIDENCE }), "invalid_request");
     await rejects(store.create(chooseVariantDraft, { screenshot: PNG }), "invalid_request");

@@ -7,7 +7,7 @@ import { attachmentsDirectoryPath, feedbackRecordPath } from "iterbar/node";
 import { expect, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 import { pngSize } from "./support/png.js";
 
-// The bar against the real daemon from @iterbar/cli: its token check, origin allow-list, CORS preflights and
+// The bar against the real daemon from iterbar: its token check, origin allow-list, CORS preflights and
 // WebSocket subprotocols, as Chromium enforces them. The test plays the agent with Node.js fetch.
 
 let root: string;
@@ -51,14 +51,14 @@ test("connects once its origin is registered, reports slots and follows an agent
   await expect.poll(async () => (await call<{ pages: unknown[] }>("GET", "/slots")).pages).toEqual([
     expect.objectContaining({
       pageUrl: `${fixtureServer.origin}/shop`,
-      slots: [{ slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 }],
+      slots: [{ slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1", activeVariant: "v2", mounts: 1 }],
     }),
   ]);
 
   const form = new FormData();
   form.append("feedback", JSON.stringify({
     schemaVersion: SCHEMA_VERSION, kind: "comment", text: "The price is unreadable", pageUrl: `${fixtureServer.origin}/shop`,
-    target: null, activeVariants: [{ slot: "pricing", version: "v2" }], screenshotUnavailableReason: null, evidenceWindow: null,
+    target: null, activeVariants: [{ slot: "pricing", variant: "v2" }], screenshotUnavailableReason: null, evidenceWindow: null,
   }));
   const created = await call<Feedback>("POST", "/feedback", form);
   const thread = inBar(page, `[data-feedback-id="${created.id}"]`);
@@ -77,12 +77,12 @@ test("connects once its origin is registered, reports slots and follows an agent
   await thread.locator("summary").click();
   await expect(thread.locator(".reply")).toHaveText("Agent (Codex)Raised the contrast.");
 
-  // Switching a version reaches the daemon too.
-  await openPanel(page, "versions");
-  await inBar(page, "[data-version=v3]").click();
+  // Switching a variant reaches the daemon too.
+  await openPanel(page, "variants");
+  await inBar(page, "[data-variant=v3]").click();
   await expect.poll(async () => {
-    const { pages } = await call<{ pages: { slots: { activeVersion: string }[] }[] }>("GET", "/slots");
-    return pages[0]?.slots[0]?.activeVersion;
+    const { pages } = await call<{ pages: { slots: { activeVariant: string }[] }[] }>("GET", "/slots");
+    return pages[0]?.slots[0]?.activeVariant;
   }).toBe("v3");
 });
 
@@ -120,7 +120,7 @@ test("sends a picked element's comment with its screenshot, which the store keep
     text: "Make the heading friendlier",
     pageUrl: `${fixtureServer.origin}/shop`,
     status: "open",
-    activeVariants: [{ slot: "pricing", version: "v2" }],
+    activeVariants: [{ slot: "pricing", variant: "v2" }],
     screenshotUnavailableReason: null,
     target: {
       selector: "#page-heading",

@@ -15,6 +15,10 @@ export interface FakeDaemon {
   rejectToken: boolean;
   readonly requests: { method: string; path: string; authorization: string | undefined }[];
   readonly slotReports: SlotReport[];
+  /** How many `POST /shutdown` requests arrived. */
+  shutdowns: number;
+  /** When true, `GET /slots` fails with a 500. */
+  failSlots: boolean;
   /** Every `POST /feedback`: the parsed draft, the screenshot part's bytes, if one was sent, and when it arrived (`Date.now()`, before any hold). */
   readonly posts: { draft: FeedbackDraft; screenshot: Buffer | null; receivedAt: number }[];
   /** A status to answer `POST /feedback` with instead of storing it. */
@@ -34,7 +38,6 @@ export interface FakeDaemon {
   send(event: DaemonEvent | string): void;
 }
 
-/** A daemon answered by Playwright routes: `GET /feedback`, `POST /feedback`, `POST /slots` and the `/events` WebSocket. */
 /** The error body the fake daemon refuses or fails a `POST /feedback` with, by status. */
 const FEEDBACK_ERRORS: Readonly<Record<number, { code: string; message: string }>> = {
   409: { code: "store_locked", message: "The store is locked" },
@@ -42,6 +45,10 @@ const FEEDBACK_ERRORS: Readonly<Record<number, { code: string; message: string }
   503: { code: "internal", message: "The store is unavailable" },
 };
 
+/**
+ * A daemon answered by Playwright routes: `GET` and `DELETE /feedback`, `POST /feedback`, `POST /feedback/:id/status`,
+ * `DELETE /feedback/:id`, `GET /info`, `POST /shutdown`, `GET` and `POST /slots`, and the `/events` WebSocket.
+ */
 export async function fakeDaemon(
   page: Page,
   origin: string,
@@ -58,6 +65,8 @@ export async function fakeDaemon(
     rejectToken: false,
     requests: [],
     slotReports: [],
+    shutdowns: 0,
+    failSlots: false,
     posts: [],
     failFeedback: null,
     holdFeedback: null,
@@ -78,7 +87,7 @@ export async function fakeDaemon(
     if (request.method() === "OPTIONS") {
       await route.fulfill({
         status: 204,
-        headers: { ...cors, "access-control-allow-methods": "GET, POST", "access-control-allow-headers": "authorization, content-type" },
+        headers: { ...cors, "access-control-allow-methods": "GET, POST, DELETE", "access-control-allow-headers": "authorization, content-type" },
       });
       return;
     }
@@ -121,6 +130,57 @@ export async function fakeDaemon(
         return;
       }
       await route.fulfill({ status: 201, headers: cors, contentType: "application/json", body: JSON.stringify(stored) });
+      return;
+    }
+    const statusPath = /^\/feedback\/([^/]+)\/status$/.exec(path);
+    if (request.method() === "POST" && statusPath) {
+      const item = daemon.items.find((each) => each.id === statusPath[1]);
+      if (!item) {
+        await route.fulfill({ status: 404, headers: cors });
+        return;
+      }
+      const { status } = request.postDataJSON() as { status: Feedback["status"] };
+      const updated = { ...item, status, updatedAt: new Date(Date.parse(item.updatedAt) + 1000).toISOString() };
+      daemon.items = daemon.items.map((each) => (each.id === item.id ? updated : each));
+      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify(updated) });
+      return;
+    }
+    const itemPath = /^\/feedback\/([^/]+)$/.exec(path);
+    if (request.method() === "DELETE" && itemPath) {
+      const before = daemon.items.length;
+      daemon.items = daemon.items.filter((each) => each.id !== itemPath[1]);
+      await route.fulfill({ status: daemon.items.length < before ? 204 : 404, headers: cors });
+      return;
+    }
+    if (request.method() === "DELETE" && path === "/feedback") {
+      const deleted = daemon.items.length;
+      for (const item of daemon.items) daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId: item.id });
+      daemon.items = [];
+      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, deleted, failed: 0, leftover: 0 }) });
+      return;
+    }
+    if (request.method() === "GET" && path === "/info") {
+      await route.fulfill({
+        status: 200, headers: cors, contentType: "application/json",
+        body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, pid: 4242, startedAt: "2026-01-01T00:00:00.000Z", projectRoot: "/work/shop", feedbackDirectory: "/work/shop/.iterbar/feedback" }),
+      });
+      return;
+    }
+    if (request.method() === "POST" && path === "/shutdown") {
+      daemon.shutdowns += 1;
+      await route.fulfill({ status: 202, headers: cors });
+      for (const socket of daemon.sockets) socket.close();
+      return;
+    }
+    if (request.method() === "GET" && path === "/slots") {
+      if (daemon.failSlots) {
+        await route.fulfill({ status: 500, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, error: { code: "internal", message: "The store is unavailable" } }) });
+        return;
+      }
+      // The latest report per page, as the daemon keeps them.
+      const pages = new Map<string, SlotReport>();
+      for (const report of daemon.slotReports) pages.set(report.pageUrl, report);
+      await route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: JSON.stringify({ schemaVersion: SCHEMA_VERSION, pages: [...pages.values()] }) });
       return;
     }
     if (request.method() === "POST" && path === "/slots") {

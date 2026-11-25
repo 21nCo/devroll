@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { legacyUpgrade, withLegacyUpgrade } from "./errors.js";
 import { activeVariantSchema, activeVariantsSchema } from "./registry.js";
 import { idSchema, pageUrlSchema, schemaVersionSchema, sha256Schema, timestampSchema } from "./primitives.js";
 
@@ -17,8 +18,12 @@ export const EVIDENCE_WINDOW_AFTER_MS = 5_000;
 
 export const feedbackKindSchema = z.enum(["comment", "choose_variant"]);
 
-/** `open` until an agent picks it up; `resolved` closes the thread. */
-export const feedbackStatusSchema = z.enum(["open", "working", "needs-info", "done", "resolved"]);
+/**
+ * `open` until an agent picks it up. `done` closes the thread: the agent made the change or nothing more is needed.
+ * `resolved` is an older name for `done` that agents may still send; the bar shows both as Done. `archived` is set
+ * by the user in the bar, to put a thread away; agents never set it.
+ */
+export const feedbackStatusSchema = z.enum(["open", "working", "needs-info", "done", "resolved", "archived"]);
 
 /** Element bounds in CSS pixels, relative to the top-left corner of the document. */
 export const boundingBoxSchema = z.object({
@@ -136,7 +141,7 @@ const contentFields = {
 };
 
 const commentFields = { kind: z.literal("comment"), text: nonBlankText };
-/** `choice` is the winning version; `text` is an optional note. */
+/** `choice` is the winning variant; `text` is an optional note. */
 const chooseVariantFields = {
   kind: z.literal("choose_variant"),
   text: z.string().max(20_000),
@@ -214,3 +219,18 @@ export function parseSourceLocation(value: string | null | undefined): SourceLoc
   const result = sourceLocationSchema.safeParse({ path: match[1], line: Number(match[2]), column: Number(match[3]) });
   return result.success ? result.data : null;
 }
+
+/**
+ * A version 1 feedback record or draft: its active variants, and the choice of a variant choice, take the version 2
+ * field names. Nothing else is renamed (a comment's extension field named `choice` keeps its fields).
+ */
+function upgradeLegacyFeedback(input: unknown): unknown {
+  const kind = (input as { kind?: unknown } | null)?.kind;
+  return legacyUpgrade.message(input, {
+    activeVariants: legacyUpgrade.each(legacyUpgrade.variantField),
+    ...(kind === "choose_variant" ? { choice: legacyUpgrade.variantField } : {}),
+  });
+}
+
+withLegacyUpgrade(feedbackDraftSchema, upgradeLegacyFeedback);
+withLegacyUpgrade(feedbackSchema, upgradeLegacyFeedback);

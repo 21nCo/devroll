@@ -2,8 +2,15 @@
   "name": "@iterbar/cli",
   "version": "0.0.0",
   "private": true,
-  "description": "Iterbar command line, daemon and local feedback store.",
+  "description": "Iterbar command line: the daemon, the MCP server for coding agents, `iterbar init`, and the bundled agent skill.",
   "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "iterbar": "./dist/cli.js"
   },
@@ -22,16 +29,21 @@
   "engines": {
     "node": ">=22.13"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/21nCo/devroll.git",
+    "directory": "products/iterbar/cli"
+  },
   "scripts": {
-    "build": "tsup --entry.store src/store/index.ts --entry.daemon src/daemon/index.ts --entry.cli src/cli.ts --format esm --dts --sourcemap --clean",
-    "clean": "rm -rf dist coverage",
+    "build": "tsup --entry.store src/store/index.ts --entry.daemon src/daemon/index.ts --entry.cli src/cli.ts --format esm --dts --sourcemap --clean && node scripts/bundle-skill.mjs",
+    "clean": "rm -rf dist coverage skills",
     "lint": "eslint src",
     "test": "pnpm --filter @iterbar/cli... build && vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.2",
     "iterbar": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "ws": "^8.22.1",
     "zod": "^4.6.7"
   },

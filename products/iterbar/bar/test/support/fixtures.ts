@@ -40,8 +40,9 @@ async function bundleFixture(): Promise<string> {
 
 export interface SlotDefinitionInput {
   readonly slot: string;
-  readonly versions: readonly string[];
-  readonly defaultVersion: string;
+  readonly variants: readonly string[];
+  readonly defaultVariant: string;
+  readonly descriptions?: Readonly<Record<string, string>>;
 }
 
 export const test = base.extend<{ openFixture: (path?: string) => Promise<void> }, { fixtureServer: FixtureServer }>({
@@ -87,19 +88,34 @@ export async function registerSlots(page: Page, slots: readonly SlotDefinitionIn
   }, slots);
 }
 
-/** Adds the bar with an optional daemon configuration. */
-export async function mountBar(page: Page, options: { daemonUrl?: string; token?: string; project?: string } = {}): Promise<void> {
-  await page.evaluate((config) => {
-    window.fixture.mountIterbarBar(config);
-  }, options);
+/**
+ * Mounts the bar with an optional daemon configuration. It expands the toolbar, so its controls can be clicked, unless
+ * `expanded` is `false`: then the toolbar is left as it is (collapsed for a new bar, which shows only its logo).
+ */
+export async function mountBar(
+  page: Page, options: { daemonUrl?: string; token?: string; project?: string; expanded?: boolean } = {},
+): Promise<void> {
+  const { expanded = true, ...config } = options;
+  await page.evaluate(({ config, expanded }) => {
+    const bar = window.fixture.mountIterbarBar(config);
+    if (expanded) bar.expanded = true;
+  }, { config, expanded });
 }
 
-/** Opens the toolbar's `inbox`, `drafts` or `versions` panel, unless it is already open. */
-export async function openPanel(page: Page, panel: "inbox" | "drafts" | "versions"): Promise<void> {
-  const button = page.locator(`iterbar-bar [data-role=${panel}-toggle]`);
-  // Asleep, the versions button shows only on hover; the toolbar wakes for the keyboard too.
-  await page.locator("iterbar-bar [data-role=comment]").hover();
+/**
+ * Opens the toolbar's `inbox`, `drafts`, `variants` or `settings` panel, unless it is already open. Inbox and drafts
+ * share the Inbox button and sheet; the sheet's tabs switch between them.
+ */
+export async function openPanel(page: Page, panel: "inbox" | "drafts" | "variants" | "settings"): Promise<void> {
+  const toggle = panel === "drafts" ? "inbox" : panel;
+  const button = page.locator(`iterbar-bar [data-role=${toggle}-toggle]`);
+  // Collapsed, the toolbar shows only its logo; clicking it expands the toolbar.
+  if (!(await button.isVisible())) await page.locator("iterbar-bar [data-role=logo]").click();
   if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+  if (panel === "inbox" || panel === "drafts") {
+    const tab = page.locator(`iterbar-bar [data-role=${panel}-tab]`);
+    if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  }
   await page.mouse.move(0, 0);
 }
 
@@ -108,5 +124,5 @@ export function inBar(page: Page, selector: string) {
   return page.locator(`iterbar-bar ${selector}`);
 }
 
-export const PRICING = { slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1" } as const;
-export const HERO = { slot: "hero", versions: ["a", "b"], defaultVersion: "a" } as const;
+export const PRICING = { slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1" } as const;
+export const HERO = { slot: "hero", variants: ["a", "b"], defaultVariant: "a" } as const;

@@ -294,10 +294,11 @@ export function registerTools(context: ToolContext): void {
     title: "Set Iterbar feedback status",
     description:
       "Post a feedback item's status, shown live in the dev bar: \"working\" when you start on it, \"needs-info\" when " +
-      "you asked a question, \"done\" when the change is made, \"resolved\" to close the thread.",
+      "you asked a question, \"done\" when the change is made or nothing more is needed. \"resolved\" is an older " +
+      "name for \"done\"; the bar shows both as Done.",
     inputSchema: {
       feedbackId,
-      status: z.enum(AGENT_STATUSES).describe("working, needs-info, done or resolved."),
+      status: z.enum(AGENT_STATUSES).describe("working, needs-info or done (resolved is an older name for done)."),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, (input) => run(context, async () => {
@@ -308,8 +309,8 @@ export function registerTools(context: ToolContext): void {
   server.registerTool("list_slots", {
     title: "List Iterbar slots",
     description:
-      "List the variant slots that dev-bar pages reported, per page URL: each slot's versions, default version, the " +
-      "version currently shown and how many times it is mounted.",
+      "List the variant slots that dev-bar pages reported, per page URL: each slot's variants, default variant, the " +
+      "variant currently shown and how many times it is mounted.",
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, () => run(context, async () => success({ pages: await client.listSlots() })));
 

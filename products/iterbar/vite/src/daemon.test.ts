@@ -239,6 +239,21 @@ describe("DaemonLink", () => {
     }
   });
 
+  it("says to stop a running daemon from the previous protocol version, and replaces one whose process is gone", async () => {
+    const root = await tempRoot();
+    const old = await external(root);
+    await old.close();
+    // daemon.json as a protocol version 1 daemon writes it, naming a process that still runs (this one).
+    await writeFile(iterbarPaths(root).daemonFile, JSON.stringify({ ...old.info, schemaVersion: 1, pid: process.pid }));
+    await expect(link(root).connect(ORIGINS)).rejects.toThrow(`daemon from an earlier version is running for this project (process ${process.pid})`);
+    // Its process gone, the file is stale: the link starts a daemon of its own.
+    const pid = spawnSync(process.execPath, ["-e", ""]).pid;
+    await writeFile(iterbarPaths(root).daemonFile, JSON.stringify({ ...old.info, schemaVersion: 1, pid }));
+    const access = await link(root).connect(ORIGINS);
+    expect(access.started).toBe(true);
+    expect(await readMatchingDaemonFile(root)).toMatchObject({ token: access.token, pid: process.pid, schemaVersion: SCHEMA_VERSION });
+  });
+
   it("replaces its own daemon once it has shut down, whether in use or just started", async () => {
     const root = await tempRoot();
     const created = link(root);

@@ -29,7 +29,7 @@ it("files slot reports without the fragment or the iterbar parameter", () => {
     expect(reportPageUrl(`http://localhost:5173${unchanged}#frag`)).toBe(`http://localhost:5173${unchanged}`);
   }
   expect(reportPageUrl("http://localhost:5173/a?iterbar=x:y&?tenant=acme")).toBe("http://localhost:5173/a??tenant=acme");
-  // A bare "?" files like no query, as the URL after switching a version there and removing iterbar does.
+  // A bare "?" files like no query, as the URL after switching a variant there and removing iterbar does.
   for (const same of ["/a?", "/a?iterbar=pricing:v2", "/a?iterbar=pricing:v2&"]) {
     expect(reportPageUrl(`http://localhost:5173${same}`)).toBe("http://localhost:5173/a");
   }

@@ -114,7 +114,8 @@ try {
     assert(tools.length >= 1);
 
     assert.equal(parseMessage(statusRequestSchema, { schemaVersion: 1, status: "done" }).status, "done");
-    assert.throws(() => parseMessage(statusRequestSchema, { schemaVersion: 2, status: "done" }), UnsupportedSchemaVersionError);
+    assert.equal(parseMessage(statusRequestSchema, { schemaVersion: 2, status: "done" }).status, "done");
+    assert.throws(() => parseMessage(statusRequestSchema, { schemaVersion: 3, status: "done" }), UnsupportedSchemaVersionError);
     assert.equal(typeof feedbackSchema.safeParse, "function");
     assert.equal(iterbarPaths(repository).daemonFile, join(repository, ".iterbar", "daemon.json"));
     assert.equal(feedbackRecordPath(repository, "fb_1"), join(repository, ".iterbar", "feedback", "fb_1", "feedback.json"));

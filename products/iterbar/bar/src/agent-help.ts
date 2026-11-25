@@ -18,6 +18,9 @@ interface Snippet {
 }
 
 interface AgentSteps {
+  /** The one command that installs the skill and registers the MCP server. */
+  readonly init: Snippet;
+  /** The same by hand: registering the server, and installing the skill. */
   readonly connect: readonly Snippet[];
   readonly skill: readonly Snippet[];
 }
@@ -27,59 +30,89 @@ function shellWord(path: string): string {
   return /^[\w@%+=:,./-]+$/u.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
 }
 
+/** The skill as the installed `@iterbar/cli` package carries it, relative to the project root. */
+const PACKAGED_SKILL = "node_modules/@iterbar/cli/skills/iterbar";
+
+/** The CLI the dev server runs the daemon from: its `dist/cli.js`. */
+export interface AgentCli {
+  readonly path: string;
+}
+
 /**
- * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md (registering the MCP server)
- * and products/iterbar/skills/README.md (installing the skill) give them. `root` is the project's absolute path when
- * the bar knows it; otherwise the snippets keep the references' placeholders.
+ * How the snippets start the CLI. With the CLI the dev server runs (its path, from the Iterbar Vite plugin), `node`
+ * runs that file, which works from a checkout and from an install alike, and its own bundled skill is copied. Without
+ * it, the `iterbar` command (setup.md links it from a checkout) and the installed package's skill.
  */
-export function agentSteps(agent: AgentName, root: string | null): AgentSteps {
-  const skillFrom = "Run from your Devroll checkout:";
+function launcher(cli: AgentCli | null): { run: string; command: string; args: readonly string[]; skill: string } {
+  if (!cli) return { run: "iterbar", command: "iterbar", args: [], skill: PACKAGED_SKILL };
+  const packageDir = cli.path.replace(/[\\/]dist[\\/]cli\.js$/u, "");
+  const separator = cli.path.includes("\\") && !cli.path.includes("/") ? "\\" : "/";
+  return { run: `node ${shellWord(cli.path)}`, command: "node", args: [cli.path], skill: shellWord(`${packageDir}${separator}skills${separator}iterbar`) };
+}
+
+/**
+ * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md gives them: `iterbar init`
+ * (the CLI carries the skill) does both in one go; the manual steps register the MCP server and copy the skill out of
+ * the CLI's package. `root` is the project's absolute path when the bar knows it; otherwise the snippets keep the
+ * references' placeholders. `cli` is the CLI the dev server runs, when it says.
+ */
+export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli | null = null): AgentSteps {
+  const where = root ? `cd ${shellWord(root)}\n` : "";
+  const launch = launcher(cli);
+  const init = (name: string): Snippet => ({
+    caption: cli
+      ? "Run in the project's folder. It installs the iterbar skill and registers the MCP server, with the CLI this dev server runs:"
+      : "Run in the project's folder (with the iterbar command; setup.md shows how to link it). It installs the skill and registers the MCP server:",
+    text: `${where}${launch.run} init --agent ${name}`,
+  });
+  const copySkill = (folder: string): Snippet => ({
+    caption: "Copy the skill out of the CLI's package, in the project's folder:",
+    text: `mkdir -p ${folder}\ncp -R ${launch.skill} ${folder}/`,
+  });
+  const mcpArgs = (rootArg: string) => [...launch.args, "mcp", "--root", rootArg];
+  /** A JSON (or TOML) array of strings, spaced as people write it. */
+  const list = (items: readonly string[]) => `[${items.map((item) => JSON.stringify(item)).join(", ")}]`;
   switch (agent) {
     case "claude":
       return {
+        init: init("claude"),
         connect: [{
-          caption: "Run in the project's folder:",
-          text: `claude mcp add iterbar -- iterbar mcp --root ${root ? shellWord(root) : '"$PWD"'}`,
+          caption: "Register the server, in the project's folder:",
+          text: `claude mcp add iterbar -- ${launch.run} mcp --root ${root ? shellWord(root) : '"$PWD"'}`,
         }],
-        skill: [{
-          caption: skillFrom,
-          text: 'mkdir -p "$HOME/.claude/skills"\nln -s "$PWD/products/iterbar/skills/iterbar" "$HOME/.claude/skills/iterbar"',
-        }],
+        skill: [copySkill('"$HOME/.claude/skills"')],
       };
     case "codex":
       return {
+        init: init("codex"),
         connect: [{
           caption: "Add to ~/.codex/config.toml:",
-          text: `[mcp_servers.iterbar]\ncommand = "iterbar"\nargs = ["mcp", "--root", ${JSON.stringify(root ?? "/absolute/path/to/project")}]\n`
+          text: `[mcp_servers.iterbar]\ncommand = ${JSON.stringify(launch.command)}\nargs = ${list(mcpArgs(root ?? "/absolute/path/to/project"))}\n`
             + "# Long enough for the longest wait_for_feedback you use (at most 1,800 seconds).\ntool_timeout_sec = 1900",
         }],
-        skill: [{
-          caption: skillFrom,
-          text: 'mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"\nln -s "$PWD/products/iterbar/skills/iterbar" "${CODEX_HOME:-$HOME/.codex}/skills/iterbar"',
-        }],
+        skill: [copySkill('"${CODEX_HOME:-$HOME/.codex}/skills"')],
       };
     case "cursor":
       return {
+        init: init("cursor"),
         connect: [{
           caption: "Add to the project's .cursor/mcp.json:",
           // The project's own path when the bar knows it, so the server serves the daemon the bar talks to even when
           // Cursor's workspace folder is another one; otherwise the reference's ${workspaceFolder}.
-          text: `{\n  "mcpServers": {\n    "iterbar": { "command": "iterbar", "args": ["mcp", "--root", ${JSON.stringify(root ?? "${workspaceFolder}")}] }\n  }\n}`,
+          text: `{\n  "mcpServers": {\n    "iterbar": { "command": ${JSON.stringify(launch.command)}, "args": ${list(mcpArgs(root ?? "${workspaceFolder}"))} }\n  }\n}`,
         }],
-        skill: [{
-          caption: skillFrom,
-          text: 'mkdir -p "$HOME/.cursor/skills"\nln -s "$PWD/products/iterbar/skills/iterbar" "$HOME/.cursor/skills/iterbar"',
-        }],
+        skill: [copySkill('"$HOME/.cursor/skills"')],
       };
     case "other":
       return {
-        connect: [{
-          caption: "Register a stdio MCP server named iterbar that runs:",
-          text: `iterbar mcp --root ${root ? shellWord(root) : "/absolute/path/to/project"}`,
-        }],
+        init: {
+          caption: "Your agent needs an MCP server; the skill is optional. Register a stdio MCP server named iterbar that runs:",
+          text: `${launch.run} mcp --root ${root ? shellWord(root) : "/absolute/path/to/project"}`,
+        },
+        connect: [],
         skill: [{
-          caption: "Link the skill folder into your agent's skills folder, from your Devroll checkout:",
-          text: "products/iterbar/skills/iterbar",
+          caption: "If your agent reads skills, copy this folder (from the CLI's package) into its skills folder:",
+          text: launch.skill,
         }],
       };
   }
@@ -97,8 +130,8 @@ const COPIED_MS = 1600;
 
 /**
  * "Use with your agent": how to get the bar's comments into a coding agent. Tabs for Claude Code, Codex, Cursor and
- * other MCP clients, each with the one-time command that registers the iterbar MCP server, the optional skill install
- * and a prompt to paste, every one with a copy button.
+ * other MCP clients, each with the one-time `iterbar init` command (skill and MCP server), a prompt to paste, and the
+ * same setup by hand, every snippet with a copy button.
  */
 export class AgentHelp {
   readonly element: HTMLElement;
@@ -108,6 +141,7 @@ export class AgentHelp {
   readonly #buttons = new Map<AgentName, HTMLButtonElement>();
   #agent: AgentName = "claude";
   #root: string | null = null;
+  #cli: AgentCli | null = null;
 
   constructor(options: AgentHelpOptions) {
     this.#options = options;
@@ -124,7 +158,7 @@ export class AgentHelp {
     this.element = h("section", { class: "section agent-help", "data-section": "agent", "aria-labelledby": "iterbar-agent-title" },
       h("h2", { class: "sr-only", id: "iterbar-agent-title" }, "Use with your agent"),
       h("p", { class: "muted agent-intro" },
-        "Comments you send are saved for your coding agent. Connect it once, then paste the prompt."),
+        "Comments you send are saved for your coding agent. Set it up once, then paste the prompt."),
       this.#tabs, this.#body);
     this.#render();
   }
@@ -143,6 +177,13 @@ export class AgentHelp {
   set root(value: string | null) {
     if (value === this.#root) return;
     this.#root = value;
+    this.#render();
+  }
+
+  /** The CLI the dev server runs, filled into the setup snippets; `null` names the `iterbar` command instead. */
+  set cli(value: AgentCli | null) {
+    if (value?.path === this.#cli?.path) return;
+    this.#cli = value;
     this.#render();
   }
 
@@ -169,11 +210,17 @@ export class AgentHelp {
       button.tabIndex = selected ? 0 : -1;
     }
     this.#body.setAttribute("aria-labelledby", `iterbar-agent-${this.#agent}`);
-    const steps = agentSteps(this.#agent, this.#root);
+    const steps = agentSteps(this.#agent, this.#root, this.#cli);
+    const manual = [...steps.connect, ...steps.skill];
     this.#body.replaceChildren(
-      this.#step("1", "Connect (one-time)", steps.connect, "connect"),
-      this.#step("2", "Install the skill (optional)", steps.skill, "skill"),
-      this.#step("3", "Prompt to paste", [{ caption: "Paste into your agent:", text: AGENT_PROMPT }], "prompt"),
+      this.#step("1", "Set up (one-time)", [steps.init], "init"),
+      this.#step("2", "Prompt to paste", [{ caption: "Paste into your agent:", text: AGENT_PROMPT }], "prompt"),
+      ...(this.#agent === "other" ? [] : [h("details", { class: "agent-manual", "data-role": "agent-manual" },
+        h("summary", {}, "Set it up by hand instead"),
+        ...manual.flatMap((snippet, index) => [
+          h("p", { class: "muted agent-caption" }, snippet.caption),
+          this.#snippet(snippet.text, index < steps.connect.length ? "connect" : "skill", snippet.caption),
+        ]))]),
     );
   }
 

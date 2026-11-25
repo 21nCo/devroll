@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { crc32 } from "node:zlib";
 import {
@@ -24,7 +24,9 @@ import {
   type FeedbackListQuery,
   type FeedbackStatus,
   type ReplyAuthor,
+  type IterbarPaths,
   type ScreenshotAttachment,
+  upgradeMessage,
 } from "iterbar";
 import {
   attachmentPath,
@@ -32,7 +34,6 @@ import {
   feedbackDirectoryPath,
   feedbackRecordPath,
   iterbarPaths,
-  type IterbarPaths,
 } from "iterbar/node";
 import { errnoCode, IterbarStoreError } from "./errors.js";
 import { createFileAtomic, syncDirectory, writeFileAtomic } from "./files.js";
@@ -55,7 +56,7 @@ export interface ReplyInput {
 
 /**
  * A record as read: the feedback, and the JSON object it was parsed from, which also holds any fields this
- * version does not know (additive v1 fields from a newer writer), so that rewriting the record keeps them.
+ * variant does not know (additive v1 fields from a newer writer), so that rewriting the record keeps them.
  */
 interface StoredRecord {
   readonly feedback: Feedback;
@@ -94,6 +95,13 @@ export interface FeedbackStore {
   reply(feedbackId: string, input: ReplyInput): Promise<Feedback>;
   /** Changes an item's status; setting the current status changes nothing. */
   setStatus(feedbackId: string, status: FeedbackStatus): Promise<Feedback>;
+  /** Deletes an item and its attachments; throws `not_found` when it does not exist. */
+  delete(feedbackId: string): Promise<void>;
+  /**
+   * Deletes every item with its attachments, one at a time. Resolves with the ids deleted and those that could not be
+   * (an unreadable record, a failed write), so every delete that happened can be announced.
+   */
+  deleteAll(): Promise<{ deleted: string[]; failed: string[]; leftover: string[] }>;
   /** Waits for pending writes, then releases the lock. Idempotent. */
   close(): Promise<void>;
 }
@@ -118,6 +126,16 @@ async function ensureGitignore(paths: IterbarPaths): Promise<void> {
       // ENOENT: the store's owner swept `tmp/` while the temporary file was in it.
       if (errnoCode(error) !== "ENOENT" || attempt >= 3) throw error;
     }
+  }
+}
+
+/** Whether `path` is a directory (empty or not); `false` when it does not exist. */
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    if (errnoCode(error) === "ENOENT") return false;
+    throw error;
   }
 }
 
@@ -267,8 +285,9 @@ class FileFeedbackStore implements FeedbackStore {
     let json: Record<string, unknown>;
     try {
       feedback = parseMessageJson(feedbackSchema, text, "feedback");
-      // A valid record is a JSON object.
-      json = JSON.parse(text) as Record<string, unknown>;
+      // A valid record is a JSON object. A version 1 record is upgraded here too, so a write (a reply, a status) saves
+      // it as version 2, unknown fields kept.
+      json = upgradeMessage(JSON.parse(text), feedbackSchema) as Record<string, unknown>;
     } catch (error) {
       if (error instanceof InvalidMessageError) {
         throw new IterbarStoreError("corrupt_store", `${path} is not a valid feedback record: ${error.message}`, { cause: error });
@@ -337,7 +356,11 @@ class FileFeedbackStore implements FeedbackStore {
     try {
       data = await readFile(path);
     } catch (error) {
-      if (errnoCode(error) === "ENOENT") throw new IterbarStoreError("corrupt_store", `${path} is missing`, { cause: error });
+      if (errnoCode(error) === "ENOENT") {
+        // Deleted meanwhile (the read does not wait for writes): the item is gone, not the store broken.
+        if (!(await this.#read(feedbackId))) throw new IterbarStoreError("not_found", `Feedback ${feedbackId} does not exist`, { cause: error });
+        throw new IterbarStoreError("corrupt_store", `${path} is missing`, { cause: error });
+      }
       throw error;
     }
     if (data.byteLength !== attachment.byteLength || sha256(data) !== attachment.sha256) {
@@ -440,6 +463,67 @@ class FileFeedbackStore implements FeedbackStore {
     });
   }
 
+  async delete(feedbackId: string): Promise<void> {
+    this.#assertOpen();
+    assertSafeId(feedbackId, "feedback id");
+    return this.#exclusive(() => this.#delete(feedbackId));
+  }
+
+  /** Deletes every item, one durable delete at a time, going on past one that fails. */
+  async deleteAll(): Promise<{ deleted: string[]; failed: string[]; leftover: string[] }> {
+    this.#assertOpen();
+    return this.#exclusive(async () => {
+      const deleted: string[] = [];
+      const failed: string[] = [];
+      for (const entry of await listDirectory(this.paths.feedbackDirectory)) {
+        if (!entry.isDirectory() || !isSafeId(entry.name)) continue;
+        try {
+          await this.#delete(entry.name);
+          deleted.push(entry.name);
+        } catch (error) {
+          if (!(error instanceof IterbarStoreError && error.code === "not_found")) failed.push(entry.name);
+        }
+      }
+      // Items whose record went but whose folder (attachments) could not be removed: deleted, yet files remain. One
+      // more try now; the next start's sweep removes what is still there.
+      const leftover: string[] = [];
+      for (const feedbackId of deleted) {
+        try {
+          if (!(await directoryExists(feedbackDirectoryPath(this.#root, feedbackId)))) continue;
+          await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
+        } catch {
+          leftover.push(feedbackId);
+        }
+      }
+      if (deleted.length > 0) await syncDirectory(this.paths.feedbackDirectory).catch(() => undefined);
+      return { deleted, failed, leftover };
+    });
+  }
+
+  async #delete(feedbackId: string): Promise<void> {
+    {
+      const record = await this.#read(feedbackId);
+      // No record, but its directory is still there: an earlier delete removed the record and could not sync. A retry
+      // finishes that delete (syncs, then cleans up) instead of reporting it gone before it is durable.
+      const unfinished = !record && await directoryExists(feedbackDirectoryPath(this.#root, feedbackId));
+      if (!record && !unfinished) throw new IterbarStoreError("not_found", `Feedback ${feedbackId} does not exist`);
+      // The record goes first: a crash after it leaves a directory without feedback.json, which the next open sweeps,
+      // so the item never comes back half deleted.
+      await rm(feedbackRecordPath(this.#root, feedbackId), { force: true });
+      // The delete is made durable before it is reported: if the sync fails, the removal could still be lost to a
+      // crash, so the delete fails (the record may or may not be back after a restart; a listing shows which).
+      await syncDirectory(feedbackDirectoryPath(this.#root, feedbackId));
+      // The record is gone for good: what follows is cleanup. If it fails, the next open sweeps the directory, which no
+      // longer has a record.
+      try {
+        await rm(feedbackDirectoryPath(this.#root, feedbackId), { recursive: true, force: true });
+        await syncDirectory(this.paths.feedbackDirectory);
+      } catch {
+        // Left for the sweep.
+      }
+    }
+  }
+
   close(): Promise<void> {
     // Every call shares one shutdown, so none resolves before the writes drain and the lock is released.
     this.#closed = true;
@@ -468,7 +552,13 @@ async function sweep(paths: IterbarPaths, clock: StoreClock): Promise<void> {
       text = await readFile(feedbackRecordPath(paths.projectRoot, feedbackId), "utf8");
     } catch (error) {
       if (errnoCode(error) !== "ENOENT") throw error;
-      await rm(directory, { recursive: true, force: true });
+      // A folder without a record (a delete that could not clean up): removed now if it can be. One that still
+      // can't be (a permission problem) is reported and left, and the store opens all the same.
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.warn(`[iterbar] Could not remove ${directory}, left by a deleted item: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      }
       continue;
     }
     let feedback: Feedback;

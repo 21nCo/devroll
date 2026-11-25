@@ -40,34 +40,41 @@ test.describe("threads from the daemon", () => {
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.created", feedback: second });
     await expect(threads).toHaveCount(2);
     await expect(threads.first().locator(".thread-text")).toHaveText("Typo in the heading");
-    await expect(inBar(page, "[data-section=threads] h2")).toHaveText("Feedback (2)");
+    // The panel title says Inbox; the count lives on the filter, with no heading of its own.
+    await expect(inBar(page, "[data-section=threads] h2")).toHaveCount(0);
+    await expect(inBar(page, "[data-filter=all]")).toHaveAttribute("aria-label", "All, 2");
   });
 
-  test("shows the newest threads of a long history and keeps the counts exact as events arrive", async ({ page, openFixture, fixtureServer }) => {
-    const history = Array.from({ length: 250 }, (_, index) => comment(`Thread ${index}`));
+  test("lists a long history a page at a time, keeps the newest 500 and the counts exact as events arrive", async ({ page, openFixture, fixtureServer }) => {
+    const history = Array.from({ length: 520 }, (_, index) => comment(`Thread ${index}`));
     // Listed in an order unrelated to creation.
     const daemon = await fakeDaemon(page, fixtureServer.origin, history.map((_, index) => history[(index * 7) % history.length]!));
     await openFixture();
     await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
+    await openPanel(page, "inbox");
     const threads = inBar(page, ".thread");
-    const heading = inBar(page, "[data-section=threads] h2");
-    const more = inBar(page, "[data-section=threads] > p.muted:not([data-role])");
-    await expect(heading).toHaveText("Feedback (250)");
-    await expect(threads).toHaveCount(100);
-    await expect(threads.first().locator(".thread-text")).toHaveText("Thread 249");
-    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 150");
-    await expect(more).toHaveText("150 older not shown.");
+    const count = inBar(page, "[data-role=inbox-count]");
+    const older = inBar(page, "[data-role=threads-older]");
+    const more = inBar(page, "[data-role=threads-more]");
+    await expect(inBar(page, "[data-filter=all]")).toHaveAttribute("aria-label", "All, 500");
+    await expect(threads).toHaveCount(25);
+    await expect(count).toHaveText("25 of 500");
+    await expect(threads.first().locator(".thread-text")).toHaveText("Thread 519");
+    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 495");
+    await expect(more).toHaveText("Show 25 more");
+    await expect(older).toHaveText("20 older threads not loaded. The bar keeps the newest 500.");
+    await more.click();
+    await expect(threads).toHaveCount(50);
+    await expect(count).toHaveText("50 of 500");
 
-    // An update to a hidden thread adds no row; a new thread comes first and pushes the oldest shown one out.
+    // An update to a hidden thread adds no row; a new thread comes first and pushes the oldest kept one out.
     const hidden = history[10]!;
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: { ...hidden, status: "done", updatedAt: new Date(Date.parse(hidden.updatedAt) + 1000).toISOString() } });
     const newest = comment("Newest thread");
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.created", feedback: newest });
     await expect(threads.first().locator(".thread-text")).toHaveText("Newest thread");
-    await expect(heading).toHaveText("Feedback (251)");
-    await expect(threads).toHaveCount(100);
-    await expect(threads.last().locator(".thread-text")).toHaveText("Thread 151");
-    await expect(more).toHaveText("151 older not shown.");
+    await expect(threads).toHaveCount(50);
+    await expect(older).toHaveText("21 older threads not loaded. The bar keeps the newest 500.");
     await expect(inBar(page, `[data-feedback-id="${hidden.id}"]`)).toHaveCount(0);
   });
 
@@ -79,7 +86,7 @@ test.describe("threads from the daemon", () => {
     await expect(inBar(page, ".thread .badge")).toHaveText("In progress");
 
     daemon.send("not json");
-    daemon.send({ schemaVersion: 2, type: "feedback.updated", feedback: { ...item, status: "done" } } as never);
+    daemon.send({ schemaVersion: 3, type: "feedback.updated", feedback: { ...item, status: "done" } } as never);
     daemon.send({ schemaVersion: SCHEMA_VERSION, type: "feedback.updated", feedback: { ...item, status: "bogus" } } as never);
     daemon.send({
       schemaVersion: SCHEMA_VERSION, type: "feedback.updated",
@@ -167,13 +174,13 @@ test.describe("threads from the daemon", () => {
     await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
     await expect.poll(() => daemon.slotReports.length).toBe(1);
     expect(daemon.slotReports[0]).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       pageUrl: `${fixtureServer.origin}/shop`,
-      slots: [{ slot: "pricing", versions: ["v1", "v2", "v3"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 }],
+      slots: [{ slot: "pricing", variants: ["v1", "v2", "v3"], defaultVariant: "v1", activeVariant: "v2", mounts: 1 }],
     });
-    await openPanel(page, "versions");
-    await inBar(page, "[data-version=v3]").click();
-    await expect.poll(() => daemon.slotReports.at(-1)?.slots[0]?.activeVersion).toBe("v3");
+    await openPanel(page, "variants");
+    await inBar(page, "[data-variant=v3]").click();
+    await expect.poll(() => daemon.slotReports.at(-1)?.slots[0]?.activeVariant).toBe("v3");
     expect(daemon.slotReports.at(-1)?.pageUrl).toBe(`${fixtureServer.origin}/shop`);
   });
 
@@ -203,8 +210,8 @@ test.describe("threads from the daemon", () => {
     await page.evaluate(() => {
       // A page API the test drives by hand.
       const valid = {
-        schemaVersion: 1,
-        slots: [{ slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v1", mounts: 1 }],
+        schemaVersion: 2,
+        slots: [{ slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v1", mounts: 1 }],
         warnings: [{ code: "unknown_slot", source: "url", value: "hero:b", message: "Unknown slot hero in the URL." }],
       };
       let current: unknown = valid;
@@ -217,7 +224,7 @@ test.describe("threads from the daemon", () => {
       Object.defineProperty(window, "__ITERBAR__", {
         configurable: true,
         value: {
-          schemaVersion: 1, getSnapshot: () => current, select: () => undefined,
+          schemaVersion: 2, getSnapshot: () => current, select: () => undefined,
           subscribe: (listener: (snapshot: unknown) => void) => {
             listeners.add(listener);
             return () => listeners.delete(listener);
@@ -230,7 +237,7 @@ test.describe("threads from the daemon", () => {
     await expect(warnings).toHaveText("Unknown slot hero in the URL.");
     await expect.poll(() => daemon.slotReports.at(-1)?.slots.length).toBe(1);
 
-    await page.evaluate(() => (window as unknown as { emitSnapshot(value: unknown): void }).emitSnapshot({ schemaVersion: 1, slots: "bad" }));
+    await page.evaluate(() => (window as unknown as { emitSnapshot(value: unknown): void }).emitSnapshot({ schemaVersion: 2, slots: "bad" }));
     await expect(inBar(page, "[data-role=slots-message]")).toContainText("invalid snapshot");
     await expect(warnings).toBeHidden();
     await expect(warnings.locator("li")).toHaveCount(0);

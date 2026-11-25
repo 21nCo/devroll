@@ -1,13 +1,15 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HtmlTagDescriptor, Plugin, ResolvedConfig, ViteDevServer } from "vite";
+import { checkUpdates, readAbout, type IterbarAbout } from "./about.js";
 import { DaemonLink } from "./daemon.js";
-import { checkConfigRequest, CONFIG_PATH, sendJson, type BarConfigResponse } from "./endpoint.js";
+import { checkConfigRequest, CONFIG_PATH, sendJson, UPDATES_PATH, type BarConfigResponse } from "./endpoint.js";
 import { checkExtraOrigins, devServerOrigins, originOf } from "./origins.js";
 import { addReactSourcePlugin, sourceRoot, stampsSources, stampSvelteModule, type ReactBabelOptions, type SourceRoot } from "./source/index.js";
 import { isLoadOfStore, STORE_DENY_PATTERN, storeGuard, type Store } from "./store.js";
 
 export type { BarConfigResponse } from "./endpoint.js";
+export type { IterbarAbout, PackageUpdate, UpdatesResponse } from "./about.js";
 
 export interface IterbarPluginOptions {
   /**
@@ -45,7 +47,7 @@ function withBase(base: string, path: string): string {
  * The client module: mounts the bar once the dev server has answered with the daemon's URL and token. `project` is the
  * project's root folder: the bar keeps its place per project and fills it into "Use with your agent".
  */
-function clientModule(configUrl: string, project: string): string {
+function clientModule(configUrl: string, updatesUrl: string, project: string): string {
   return `import { mountIterbarBar } from ${JSON.stringify(BAR_ID)};
 
 async function readConfig() {
@@ -60,9 +62,25 @@ async function readConfig() {
   return { daemonUrl: null, token: null };
 }
 
+// What the bar's settings use: the installed versions, a fresh config (which starts the daemon again after a stop) and
+// the update check, which asks the registry only when the user presses its button.
+function devServer(about) {
+  return {
+    about: about ?? null,
+    reconnect: readConfig,
+    async checkUpdates() {
+      const response = await fetch(${JSON.stringify(updatesUrl)}, { cache: "no-store", credentials: "same-origin" });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(body?.packages)) throw new Error(body?.error ?? "HTTP " + response.status);
+      return body;
+    },
+  };
+}
+
 if (typeof document !== "undefined") {
   // Not awaited at the top level, so an app that imports this module never waits on it to start.
-  void readConfig().then(({ daemonUrl, token }) => mountIterbarBar({ daemonUrl, token, project: ${JSON.stringify(project)} }));
+  void readConfig().then(({ daemonUrl, token, about }) =>
+    mountIterbarBar({ daemonUrl, token, project: ${JSON.stringify(project)}, devServer: devServer(about) }));
 }
 `;
 }
@@ -120,6 +138,9 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
    * and Vite creates the new server before it closes the old one, so each close must release its own server's link.
    */
   const servers = new Map<ResolvedConfig, ServerState>();
+  /** The installed versions and the CLI's path, read once. */
+  let aboutCache: IterbarAbout | null = null;
+  const about = (): IterbarAbout => (aboutCache ??= readAbout(PLUGIN_FILE));
 
   // Every close path of a server waits for the same shutdown: Vite exits the process once the awaited ones resolve.
   // The state stays findable until the shutdown ends, so a close path that comes second still waits for it.
@@ -174,7 +195,9 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
       order: "pre",
       async handler(id) {
         const config = this.environment.getTopLevelConfig();
-        if (id === RESOLVED_CLIENT_ID) return clientModule(withBase(config.base, CONFIG_PATH), resolve(config.root, options.projectRoot ?? "."));
+        if (id === RESOLVED_CLIENT_ID) {
+          return clientModule(withBase(config.base, CONFIG_PATH), withBase(config.base, UPDATES_PATH), resolve(config.root, options.projectRoot ?? "."));
+        }
         if (await isLoadOfStore(id, { publicDir: config.publicDir, store: storeOf(config) })) {
           throw new Error(`Iterbar: ${id} is in an Iterbar store, which the dev server does not serve`);
         }
@@ -218,6 +241,20 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
 
       // Ahead of every middleware Vite adds to serve files, so none of them can serve the store.
       server.middlewares.use(storeGuard({ root: key.root, base: key.base, publicDir: key.publicDir, alias: key.resolve.alias, store: storeOf(key) }));
+      // The update check: the dev server asks the npm registry, only when the bar's settings ask it to.
+      const updatesPath = withBase(key.base, UPDATES_PATH);
+      server.middlewares.use((request, response, next) => {
+        if ((request.url ?? "").split("?")[0] !== updatesPath) return next();
+        const check = checkConfigRequest(request, {
+          https: Boolean(key.server.https),
+          allowedOrigins: serverOrigins(server, extraOrigins),
+          configuredOrigins: configuredOrigins(server, extraOrigins),
+        });
+        if (!check.allowed) return sendJson(response, check.status, { error: check.error }, check.headers);
+        checkUpdates(about()).then((body) => sendJson(response, 200, body), (error: unknown) => {
+          sendJson(response, 502, { error: error instanceof Error ? error.message : String(error) });
+        });
+      });
       server.middlewares.use((request, response, next) => {
         if ((request.url ?? "").split("?")[0] !== configPath) return next();
         const origins = serverOrigins(server, extraOrigins);
@@ -235,7 +272,7 @@ export function iterbar(options: IterbarPluginOptions = {}): Plugin {
             state.lastProblem = null;
             logger.info(`Iterbar daemon: ${described}`, { timestamp: true });
           }
-          const body: BarConfigResponse = { daemonUrl: access.daemonUrl, token: access.token };
+          const body: BarConfigResponse = { daemonUrl: access.daemonUrl, token: access.token, about: about() };
           sendJson(response, 200, body);
         }, (error: unknown) => {
           const problem = error instanceof Error ? error.message : String(error);

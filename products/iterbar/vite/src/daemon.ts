@@ -7,6 +7,7 @@ import {
   daemonInfoSchema,
   daemonPath,
   type DaemonInfo,
+  LEGACY_SCHEMA_VERSION,
   safeParseMessage,
   SCHEMA_VERSION,
 } from "iterbar";
@@ -168,7 +169,11 @@ async function acquireOwned(projectRoot: string, create: boolean): Promise<Lease
       if (current.users > 0) return;
       if (owned.running.get(projectRoot) === current) owned.running.delete(projectRoot);
       unwatchExitSignals();
-      const closing = daemon.close().finally(() => {
+      // A shutdown that could not clean up after itself (releasing the store lock) is reported, not passed on: the
+      // next start then meets the store as it is, and takes the lock or waits for it.
+      const closing = daemon.close().catch((error: unknown) => {
+        console.warn(`[iterbar] The Iterbar daemon did not shut down cleanly: ${error instanceof Error ? error.message : String(error)}`);
+      }).finally(() => {
         if (owned.closing.get(projectRoot) === closing) owned.closing.delete(projectRoot);
       });
       owned.closing.set(projectRoot, closing);
@@ -191,6 +196,11 @@ async function canonicalRoot(recorded: string): Promise<string> {
  * passes the root's real path; the recorded root is resolved too, as a daemon started directly may record a symlink.
  */
 export async function readMatchingDaemonFile(projectRoot: string): Promise<DaemonInfo | null> {
+  return (await readMatchingDaemon(projectRoot))?.info ?? null;
+}
+
+/** {@link readMatchingDaemonFile}, and whether that daemon speaks protocol version 1, which this one can't use. */
+async function readMatchingDaemon(projectRoot: string): Promise<{ info: DaemonInfo; legacy: boolean } | null> {
   const paths = iterbarPaths(projectRoot);
   let json: unknown;
   try {
@@ -201,7 +211,8 @@ export async function readMatchingDaemonFile(projectRoot: string): Promise<Daemo
   const parsed = safeParseMessage(daemonInfoSchema, json, "daemon info");
   if (!parsed.success) return null;
   const recorded = parsed.data.projectRoot;
-  return recorded === paths.projectRoot || (await canonicalRoot(recorded)) === paths.projectRoot ? parsed.data : null;
+  if (recorded !== paths.projectRoot && (await canonicalRoot(recorded)) !== paths.projectRoot) return null;
+  return { info: parsed.data, legacy: (json as { schemaVersion?: unknown }).schemaVersion === LEGACY_SCHEMA_VERSION };
 }
 
 /** Whether a process runs with this id (`EPERM`: it runs as another user). */
@@ -283,7 +294,16 @@ export class DaemonLink {
    * `daemon.json` still names it and its process runs.
    */
   async #isGone(access: DaemonAccess, registration: FailedRegistration): Promise<boolean> {
-    if (this.#lease) return this.#lease.stopped;
+    if (this.#lease) {
+      // A daemon of ours asked to stop answers 503 while it drains its last requests: it is waited for (within the
+      // lock wait), so the next discovery starts a new one instead of failing.
+      if (!this.#lease.stopped && registration.result === "gone") {
+        await Promise.race([this.#lease.daemon.closed, delay(this.#lockWaitMs)]);
+        // The lease learns that the daemon closed a few ticks after its `closed` settles.
+        await delay(0);
+      }
+      return this.#lease.stopped;
+    }
     if (registration.result !== "failed") return registration.result === "gone";
     return this.#projectRoot === undefined || !(await isStillListed(this.#projectRoot, access));
   }
@@ -329,8 +349,16 @@ export class DaemonLink {
 
   /** The daemon `daemon.json` names for the same root; `null` when there is none, or it is gone. */
   async #viaDaemonFile(projectRoot: string, origins: readonly string[]): Promise<DaemonAccess | null> {
-    const info = await readMatchingDaemonFile(projectRoot);
-    if (!info) return null;
+    const matched = await readMatchingDaemon(projectRoot);
+    if (!matched) return null;
+    const { info, legacy } = matched;
+    if (legacy) {
+      // A daemon from the previous protocol version refuses this version's requests. While it runs it holds the store,
+      // so this dev server can't start its own: say so. Once its process is gone, its daemon.json is stale.
+      if (!isRunning(info.pid)) return null;
+      throw new Error(`An Iterbar daemon from an earlier version is running for this project (process ${info.pid}). `
+        + "Stop it (restart the dev server that started it, or end its `iterbar dev`), then restart this dev server.");
+    }
     const access: DaemonAccess = { daemonUrl: `http://${DAEMON_HOST}:${info.port}`, token: info.token, started: false };
     const registration = await this.#register(access, origins);
     if (registration.result === "ok") return access;

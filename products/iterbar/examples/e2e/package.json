@@ -7,7 +7,7 @@
   "scripts": {
     "clean": "rm -rf test-results playwright-report",
     "lint": "eslint test playwright.config.ts",
-    "test:browser": "pnpm --filter \"@iterbar/example-vite-react^...\" --filter \"@iterbar/example-sveltekit^...\" --filter \"@iterbar/cli...\" build && playwright test",
+    "test:browser": "pnpm --filter \"@iterbar/example-vite-react^...\" --filter \"@iterbar/example-sveltekit^...\" --filter \"iterbar...\" build && playwright test",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

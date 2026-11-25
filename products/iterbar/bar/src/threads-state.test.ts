@@ -6,7 +6,7 @@ import { ThreadsState } from "./threads-state.js";
 
 function feedback(id: string, createdAt: string, updatedAt: string, status: Feedback["status"] = "open"): Feedback {
   return {
-    schemaVersion: 1, id, kind: "comment", text: id, pageUrl: "http://localhost:5173/", target: null, activeVariants: [],
+    schemaVersion: 2, id, kind: "comment", text: id, pageUrl: "http://localhost:5173/", target: null, activeVariants: [],
     screenshotUnavailableReason: null, screenshot: null, evidence: null, replies: [], status, createdAt, updatedAt,
   };
 }
@@ -326,5 +326,21 @@ describe("a long feedback history", () => {
       expect(state.applyListing(rest, new Set()).complete).toBe(true);
       expect(state.total).toBe(LIMIT - 1);
     });
+  });
+});
+
+describe("remove", () => {
+  it("forgets a deleted thread and ignores events and listings that still carry it", () => {
+    const state = new ThreadsState(100);
+    const a = feedback("a", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
+    const b = feedback("b", "2026-01-01T00:01:00Z", "2026-01-01T00:01:00Z");
+    state.applyListing([a, b], new Set());
+    expect(state.remove("a")).toBe(true);
+    expect(ids(state)).toEqual(["b"]);
+    expect(state.total).toBe(1);
+    expect(state.merge({ ...a, updatedAt: "2026-01-01T00:05:00Z" })).toBe("stale");
+    state.applyListing([a, b], new Set());
+    expect(ids(state)).toEqual(["b"]);
+    expect(state.remove("a")).toBe(false);
   });
 });

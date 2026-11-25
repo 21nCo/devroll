@@ -73,7 +73,7 @@ describe("store lock between processes", () => {
       expect(losers.map((result) => [result.code, result.ownerPid])).toEqual(
         Array.from({ length: 3 }, () => ["store_locked", winners[0]?.pid]),
       );
-      expect(await readLock()).toMatchObject({ schemaVersion: 1, pid: winners[0]?.pid });
+      expect(await readLock()).toMatchObject({ schemaVersion: 2, pid: winners[0]?.pid });
       await Promise.all(contenders.map((child) => child.finish()));
       processes.length = 0;
     }
@@ -96,7 +96,7 @@ describe("store lock between processes", () => {
 
   it("lets exactly one of several processes racing for a stale lock take it over", async () => {
     for (let round = 0; round < 3; round += 1) {
-      await writeLock({ schemaVersion: 1, pid: await deadPid(), startedAt: "2026-11-01T00:00:00.000Z" });
+      await writeLock({ schemaVersion: 2, pid: await deadPid(), startedAt: "2026-11-01T00:00:00.000Z" });
       const { contenders, results } = await race(4);
       const winners = results.filter((result) => result.event === "acquired");
       expect(winners).toHaveLength(1);
@@ -110,12 +110,12 @@ describe("store lock between processes", () => {
 
   it("lets exactly one of several processes take over a stale lock whose takeover claims were abandoned", async () => {
     for (let round = 0; round < 3; round += 1) {
-      const stale = JSON.stringify({ schemaVersion: 1, pid: await deadPid(), startedAt: "2026-11-01T00:00:00.000Z" });
+      const stale = JSON.stringify({ schemaVersion: 2, pid: await deadPid(), startedAt: "2026-11-01T00:00:00.000Z" });
       await writeLock(stale);
       // Round 0: one claimant died mid-takeover; later rounds: two, one after the other.
       const abandoned: string[] = [];
       for (let generation = 0; generation <= Math.min(round, 1); generation += 1) {
-        const claim = JSON.stringify({ schemaVersion: 1, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
+        const claim = JSON.stringify({ schemaVersion: 2, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
         await writeFile(takeoverClaimPath(iterbarPaths(root).tmpDirectory, stale, abandoned), claim);
         abandoned.push(claim);
       }
@@ -133,7 +133,7 @@ describe("store lock between processes", () => {
 
 describe("stale locks", () => {
   it("takes over a lock whose pid is not running", async () => {
-    await writeLock({ schemaVersion: 1, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
+    await writeLock({ schemaVersion: 2, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
     await open();
     expect(await readLock()).toEqual(ownLock());
   }, SPAWN_TIMEOUT_MS);
@@ -144,7 +144,7 @@ describe("stale locks", () => {
     // A start well before, a few seconds after (a clock stepped back during start-up) and long after the
     // process's real start: none of them may let a second writer in while the pid runs.
     for (const startedAt of ["2020-01-01T00:00:00.000Z", new Date(Date.now() + 6_000).toISOString(), "2099-01-01T00:00:00.000Z"]) {
-      const owner = { schemaVersion: 1, pid: pid as number, startedAt } as const;
+      const owner = { schemaVersion: 2, pid: pid as number, startedAt } as const;
       await writeLock(owner);
       const before = await readFile(iterbarPaths(root).lockFile, "utf8");
       expect(await isOwnerAlive(owner)).toBe(true);
@@ -157,7 +157,7 @@ describe("stale locks", () => {
   }, SPAWN_TIMEOUT_MS);
 
   it("clears a takeover claim abandoned by a dead process, and waits for one held by a live process", async () => {
-    const stale = JSON.stringify({ schemaVersion: 1, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
+    const stale = JSON.stringify({ schemaVersion: 2, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
     await writeLock(stale);
     const claim = takeoverClaimPath(iterbarPaths(root).tmpDirectory, stale);
 
@@ -165,7 +165,7 @@ describe("stale locks", () => {
     await expect(openFeedbackStore(root)).rejects.toMatchObject({ code: "store_locked", owner: null });
     expect(await readFile(iterbarPaths(root).lockFile, "utf8")).toBe(stale);
 
-    await writeFile(claim, JSON.stringify({ schemaVersion: 1, pid: await deadPid(), startedAt: PROCESS_STARTED_AT }));
+    await writeFile(claim, JSON.stringify({ schemaVersion: 2, pid: await deadPid(), startedAt: PROCESS_STARTED_AT }));
     await open();
     expect(await readLock()).toEqual(ownLock());
   }, SPAWN_TIMEOUT_MS);
@@ -177,7 +177,7 @@ describe("stale locks", () => {
   });
 
   it("refuses a lock from a newer major version without touching it", async () => {
-    const newer = { schemaVersion: 2, pid: await deadPid(), startedAt: PROCESS_STARTED_AT };
+    const newer = { schemaVersion: 3, pid: await deadPid(), startedAt: PROCESS_STARTED_AT };
     await writeLock(newer);
     await expect(openFeedbackStore(root)).rejects.toMatchObject({ code: "unsupported_schema_version" });
     expect(await readLock()).toEqual(newer);
@@ -198,9 +198,9 @@ describe("takeover claims between two contenders", () => {
     // Both contenders run in this process against the real file system, as two processes with their own locks;
     // the test decides which file operations each one may make, and when.
     const { lockFile, tmpDirectory } = iterbarPaths(root);
-    await writeLock(JSON.stringify({ schemaVersion: 1, pid: 900_001, startedAt: PROCESS_STARTED_AT }));
+    await writeLock(JSON.stringify({ schemaVersion: 2, pid: 900_001, startedAt: PROCESS_STARTED_AT }));
     const stale = await readFile(lockFile, "utf8");
-    const abandonedClaim = JSON.stringify({ schemaVersion: 1, pid: 900_002, startedAt: PROCESS_STARTED_AT });
+    const abandonedClaim = JSON.stringify({ schemaVersion: 2, pid: 900_002, startedAt: PROCESS_STARTED_AT });
     const firstClaim = takeoverClaimPath(tmpDirectory, stale);
     await writeFile(firstClaim, abandonedClaim);
 
@@ -254,7 +254,7 @@ describe("takeover claims between two contenders", () => {
       };
       alive.add(pid);
       return {
-        lock: { schemaVersion: 1, pid, startedAt: PROCESS_STARTED_AT },
+        lock: { schemaVersion: 2, pid, startedAt: PROCESS_STARTED_AT },
         isOwnerAlive: async (lock: StoreLock) => alive.has(lock.pid),
         fs,
       };
@@ -289,7 +289,7 @@ describe("owner liveness probe", () => {
     });
   }
 
-  const owner = { schemaVersion: 1, pid: process.ppid, startedAt: "2026-11-04T09:00:00.000Z" } as const;
+  const owner = { schemaVersion: 2, pid: process.ppid, startedAt: "2026-11-04T09:00:00.000Z" } as const;
 
   it.each(["EPERM", "EIO", "EINVAL"])("keeps the owner when the probe fails with %s, and a second opener gets store_locked", async (code) => {
     await writeLock(owner);
@@ -331,7 +331,7 @@ describe("acquisition", () => {
     const { lockFile, tmpDirectory } = iterbarPaths(root);
     const handle = await acquireStoreLock(lockFile, tmpDirectory);
     await expect(handle.confirmAcquired()).resolves.toBeUndefined();
-    const other = { schemaVersion: 1, pid: process.ppid, startedAt: "2026-11-04T00:00:00.000Z" };
+    const other = { schemaVersion: 2, pid: process.ppid, startedAt: "2026-11-04T00:00:00.000Z" };
     await rm(lockFile);
     await writeFile(lockFile, JSON.stringify(other));
     await expect(handle.confirmAcquired()).rejects.toMatchObject({ code: "store_locked", owner: other });
@@ -344,7 +344,7 @@ describe("acquisition", () => {
     const { lockFile, tmpDirectory } = iterbarPaths(root);
     const handle = await acquireStoreLock(lockFile, tmpDirectory, { fs: reusedInode });
     await expect(handle.assertHeld()).resolves.toBeUndefined();
-    const other = { schemaVersion: 1, pid: process.ppid, startedAt: "2026-11-04T00:00:00.000Z" };
+    const other = { schemaVersion: 2, pid: process.ppid, startedAt: "2026-11-04T00:00:00.000Z" };
     await rm(lockFile);
     await writeFile(lockFile, `${JSON.stringify(other)}\n`);
     await expect(handle.assertHeld()).rejects.toMatchObject({ code: "lock_lost" });
@@ -389,7 +389,7 @@ describe("acquisition", () => {
     ]);
     await expect(handle.assertHeld()).rejects.toMatchObject({ code: "lock_lost" });
     // Had a call removed the lock already, another process would take it now.
-    const successor = `${JSON.stringify({ schemaVersion: 1, pid: process.ppid, startedAt: "2026-11-04T00:00:00.000Z" })}\n`;
+    const successor = `${JSON.stringify({ schemaVersion: 2, pid: process.ppid, startedAt: "2026-11-04T00:00:00.000Z" })}\n`;
     const successorPlaced = await stat(lockFile).then(() => false, async () => {
       await writeFile(lockFile, successor);
       return true;
@@ -410,7 +410,7 @@ describe("acquisition", () => {
     ["a stale lock taken over", "confirmation"],
   ] as const)("removes %s it placed when its %s fails, so the next acquisition succeeds", async (path, failure) => {
     if (path === "a fresh lock") await (await openFeedbackStore(root)).close();
-    else await writeLock({ schemaVersion: 1, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
+    else await writeLock({ schemaVersion: 2, pid: await deadPid(), startedAt: PROCESS_STARTED_AT });
     const { lockFile, tmpDirectory } = iterbarPaths(root);
     const injected = Object.assign(new Error(`injected ${failure} failure`), { code: "EIO" });
     // Fails once, at the first fsync of .iterbar/ or the first read of store.lock after this lock is in place.
@@ -455,7 +455,7 @@ describe("acquisition", () => {
     async (leftover) => {
       await (await openFeedbackStore(root)).close();
       const { lockFile, tmpDirectory } = iterbarPaths(root);
-      const dead = (pid: number) => JSON.stringify({ schemaVersion: 1, pid, startedAt: PROCESS_STARTED_AT });
+      const dead = (pid: number) => JSON.stringify({ schemaVersion: 2, pid, startedAt: PROCESS_STARTED_AT });
       const stale = dead(900_001);
       let failing: (path: string) => boolean = (path) => /[/\\]lock-[^/\\]+\.tmp$/.test(path);
       if (leftover !== "the candidate after a fresh link") await writeFile(lockFile, stale);

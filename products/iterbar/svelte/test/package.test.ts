@@ -98,7 +98,7 @@ describe("built package", () => {
     const [page, defaultOnly] = viteBuild([FIXTURE, "test/fixtures/PlanOne.svelte"]);
     for (const marker of devOnly) expect(page).not.toContain(marker);
     // Against a page that renders the default directly, Variants in production adds only its own small
-    // components and the other versions; the development code would add about 100 KB.
+    // components and the other variants; the development code would add about 100 KB.
     expect(page!.length - defaultOnly!.length).toBeLessThan(8192);
   }, 60_000);
 
@@ -125,8 +125,8 @@ describe("built package", () => {
     const marked = () => [...container.querySelectorAll("[data-iterbar-slot=pricing]")].map((element) => element.textContent);
     expect(marked()).toEqual(["Plan two"]);
     const api = readPageApi(window);
-    expect(api?.getSnapshot().slots).toMatchObject([{ slot: "pricing", activeVersion: "v2" }]);
-    api?.select({ schemaVersion: 1, slot: "pricing", version: "v1" });
+    expect(api?.getSnapshot().slots).toMatchObject([{ slot: "pricing", activeVariant: "v2" }]);
+    api?.select({ schemaVersion: 2, slot: "pricing", variant: "v1" });
     flushSync();
     expect(marked()).toEqual(["Plan one"]);
     expect(errors).not.toHaveBeenCalled();

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { runDev } from "./commands/dev.js";
+import { runInit } from "./commands/init.js";
 import { runMcp } from "./mcp/command.js";
 
 const USAGE = `Usage: iterbar <command> [options]
 
 Commands:
+  init  Set a project up for your coding agent: install the iterbar skill, register the MCP server
   dev   Start the local Iterbar daemon for a project
   mcp   Run the MCP server that lets a coding agent read and answer feedback
 
@@ -14,6 +16,8 @@ Run "iterbar <command> --help" for a command's options.
 async function main(args: readonly string[]): Promise<number> {
   const [command, ...rest] = args;
   switch (command) {
+    case "init":
+      return runInit(rest);
     case "dev":
       return runDev(rest);
     case "mcp":

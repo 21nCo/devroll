@@ -12,3 +12,6 @@ playwright-report/
 
 # Codex hooks are global (~/.codex/hooks.json); never commit repo-level ones
 .codex/hooks.json
+
+# Copied from products/iterbar/skills at build time (see cli/scripts/bundle-skill.mjs)
+products/iterbar/cli/skills/

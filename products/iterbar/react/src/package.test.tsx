@@ -48,7 +48,7 @@ function load(code: string, process?: object): typeof Variants {
   return module.exports.Variants;
 }
 
-const versions = { v1: <p>Plan one</p>, v2: <p>Plan two</p> };
+const variants = { v1: <p>Plan one</p>, v2: <p>Plan two</p> };
 
 afterEach(() => {
   cleanup();
@@ -83,7 +83,7 @@ describe("built package", () => {
     // The runtime NODE_ENV no longer matters once the bundler has replaced it.
     vi.stubEnv("NODE_ENV", "development");
     const BuiltVariants = load(production);
-    const { container } = render(<BuiltVariants slot="pricing" versions={versions} default="v1" />);
+    const { container } = render(<BuiltVariants slot="pricing" variants={variants} default="v1" />);
     expect(container.innerHTML).toBe("<p>Plan one</p>");
     expect(readPageApi(window)).toBeNull();
   });
@@ -93,7 +93,7 @@ describe("built package", () => {
     (_name, process) => {
       window.history.replaceState(null, "", "/plans?iterbar=pricing:v2");
       const BuiltVariants = load(unreplaced, process);
-      const { container } = render(<BuiltVariants slot="pricing" versions={versions} default="v1" />);
+      const { container } = render(<BuiltVariants slot="pricing" variants={variants} default="v1" />);
       expect(container.innerHTML).toBe("<p>Plan one</p>");
       expect(readPageApi(window)).toBeNull();
     },
@@ -106,17 +106,17 @@ describe("built package", () => {
     const errors = vi.spyOn(console, "error");
     const container = document.createElement("div");
     // A development server, which has process, renders what the process-free client hydrates.
-    container.innerHTML = renderToString(<Variants slot="pricing" versions={versions} default="v1" />);
+    container.innerHTML = renderToString(<Variants slot="pricing" variants={variants} default="v1" />);
     document.body.append(container);
     vi.stubEnv("NODE_ENV", "production");
 
     const BuiltVariants = load(development);
-    render(<BuiltVariants slot="pricing" versions={versions} default="v1" />, { container, hydrate: true });
+    render(<BuiltVariants slot="pricing" variants={variants} default="v1" />, { container, hydrate: true });
     const marked = () => [...container.querySelectorAll("[data-iterbar-slot=pricing]")].map((element) => element.textContent);
     expect(marked()).toEqual(["Plan two"]);
     const api = readPageApi(window);
-    expect(api?.getSnapshot().slots).toMatchObject([{ slot: "pricing", activeVersion: "v2" }]);
-    act(() => api?.select({ schemaVersion: 1, slot: "pricing", version: "v1" }));
+    expect(api?.getSnapshot().slots).toMatchObject([{ slot: "pricing", activeVariant: "v2" }]);
+    act(() => api?.select({ schemaVersion: 2, slot: "pricing", variant: "v1" }));
     expect(marked()).toEqual(["Plan one"]);
     expect(errors).not.toHaveBeenCalled();
     container.remove();

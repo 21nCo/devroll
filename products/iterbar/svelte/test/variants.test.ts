@@ -5,7 +5,7 @@ import { flushSync, hydrate, unmount, type Component } from "svelte";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { serverRenderAll, type ServerRenderJob } from "./support/bundle.js";
 import { withoutComments } from "./support/markup.js";
-import { Variants, type VersionContent } from "../src/index.js";
+import { Variants, type VariantContent } from "../src/index.js";
 import Contexts from "./fixtures/Contexts.svelte";
 import Disclosure from "./fixtures/Disclosure.svelte";
 import InCard from "./fixtures/InCard.svelte";
@@ -58,8 +58,8 @@ function slots(registry?: VariantsRegistry) {
   return registrySnapshotSchema.parse((registry ?? pageApi()).getSnapshot()).slots;
 }
 
-function select(slot: string, version: string) {
-  pageApi().select({ schemaVersion: 1, slot, version });
+function select(slot: string, variant: string) {
+  pageApi().select({ schemaVersion: 2, slot, variant });
   flushSync();
 }
 
@@ -125,7 +125,7 @@ afterEach(() => {
 });
 
 describe("in development", () => {
-  it("picks the URL version, then the stored one, then the default", () => {
+  it("picks the URL variant, then the stored one, then the default", () => {
     window.localStorage.setItem(VARIANT_STORAGE_KEY, "pricing:v1");
     visit("/plans?iterbar=pricing:v2");
     const first = render(Pricing);
@@ -143,24 +143,24 @@ describe("in development", () => {
     expect(screen.getByText("Plan one")).toBeDefined();
   });
 
-  it("mounts only the selected version on a client mount, never the default first", () => {
+  it("mounts only the selected variant on a client mount, never the default first", () => {
     visit("/plans?iterbar=probe:b");
     const log: string[] = [];
     render(Observed, { names: ["a", "b"], log });
     expect(log.filter((entry) => !entry.startsWith("shows"))).toEqual(["mount b"]);
-    expect(slots()).toMatchObject([{ slot: "probe", activeVersion: "b" }]);
+    expect(slots()).toMatchObject([{ slot: "probe", activeVariant: "b" }]);
   });
 
-  it("shows the default at once when new versions drop the active one", () => {
+  it("shows the default at once when new variants drop the active one", () => {
     const log: string[] = [];
     const { rerender } = render(Observed, { names: ["a", "b"], log });
     select("probe", "b");
     log.length = 0;
     rerender({ names: ["a", "c"], log });
-    // Rendered in the same update as the new versions: the default, never an empty slot.
+    // Rendered in the same update as the new variants: the default, never an empty slot.
     expect(log.filter((entry) => entry.startsWith("shows"))).toEqual(["shows a"]);
     expect(log.filter((entry) => !entry.startsWith("shows")).sort()).toEqual(["mount a", "unmount b"]);
-    expect(slots()).toMatchObject([{ slot: "probe", versions: ["a", "c"], activeVersion: "a" }]);
+    expect(slots()).toMatchObject([{ slot: "probe", variants: ["a", "c"], activeVariant: "a" }]);
   });
 
   it.each([
@@ -168,7 +168,7 @@ describe("in development", () => {
     { target: "a detached element", idPrefix: undefined, root: "detached" },
     { target: "a shadow root", idPrefix: undefined, root: "shadow" },
     { target: "an element with an id prefix", idPrefix: OBSERVED_PREFIXES[1], root: "element" },
-  ] as const)("hydrates the server's default into $target, then switches to the selected version", ({ idPrefix, root }) => {
+  ] as const)("hydrates the server's default into $target, then switches to the selected variant", ({ idPrefix, root }) => {
     visit("/plans?iterbar=probe:b");
     const errors = collectErrors();
     const host = document.createElement("div");
@@ -187,27 +187,27 @@ describe("in development", () => {
     expect(errors).toEqual([]);
   });
 
-  it("remounts when new versions change the active version, even from one default to another", () => {
-    const { rerender } = render(Slot, { slot: "faq", versions: { a: Disclosure, b: Disclosure }, default: "a" });
+  it("remounts when new variants change the active variant, even from one default to another", () => {
+    const { rerender } = render(Slot, { slot: "faq", variants: { a: Disclosure, b: Disclosure }, default: "a" });
     screen.getByRole("button").click();
     flushSync();
-    rerender({ slot: "faq", versions: { b: Disclosure }, default: "b" });
+    rerender({ slot: "faq", variants: { b: Disclosure }, default: "b" });
     expect(screen.getByRole("button").textContent).toBe("More");
   });
 
-  it("keeps the active version's state when only the default changes", () => {
-    const { container, rerender } = render(Slot, { slot: "faq", versions: { a: Disclosure, b: Disclosure }, default: "a" });
+  it("keeps the active variant's state when only the default changes", () => {
+    const { container, rerender } = render(Slot, { slot: "faq", variants: { a: Disclosure, b: Disclosure }, default: "a" });
     select("faq", "b");
     screen.getByRole("button").click();
     flushSync();
-    rerender({ slot: "faq", versions: { a: Disclosure, b: Disclosure }, default: "b" });
+    rerender({ slot: "faq", variants: { a: Disclosure, b: Disclosure }, default: "b" });
     expect(container.textContent?.trim()).toBe("Details");
   });
 
   it("leaves no registry listener behind when registering fails", () => {
     const registry = createVariantsRegistry();
     for (let index = 0; index < MAX_SLOTS; index += 1) {
-      registry.register({ slot: `slot${index}`, versions: ["a"], defaultVersion: "a" });
+      registry.register({ slot: `slot${index}`, variants: ["a"], defaultVariant: "a" });
     }
     let listeners = 0;
     const subscribe = registry.subscribe.bind(registry);
@@ -219,7 +219,7 @@ describe("in development", () => {
         unsubscribe();
       };
     });
-    expect(() => render(Slot, { slot: "extra", versions: { a: PlanOne }, default: "a", registry }))
+    expect(() => render(Slot, { slot: "extra", variants: { a: PlanOne }, default: "a", registry }))
       .toThrow(expect.objectContaining({ code: "invalid_message" }));
     expect(listeners).toBe(0);
   });
@@ -243,10 +243,10 @@ describe("in development", () => {
     expect(window.localStorage.getItem(VARIANT_STORAGE_KEY)).toBe("pricing:v2");
   });
 
-  it("remounts the version on every switch, so versions never share state", async () => {
+  it("remounts the variant on every switch, so variants never share state", async () => {
     const { container } = render(Slot, {
       slot: "faq",
-      versions: { closed: Disclosure, again: Disclosure },
+      variants: { closed: Disclosure, again: Disclosure },
       default: "closed",
     });
     screen.getByRole("button").click();
@@ -256,13 +256,13 @@ describe("in development", () => {
     expect(roots(container, "faq")).toEqual(["More"]);
   });
 
-  it("renders the default for an unknown URL version and reports a registry warning", () => {
+  it("renders the default for an unknown URL variant and reports a registry warning", () => {
     visit("/plans?iterbar=pricing:v9,checkout:b");
     render(Pricing);
     expect(screen.getByText("Plan one")).toBeDefined();
     expect(pageApi().getSnapshot().warnings).toEqual([
       expect.objectContaining({ code: "unknown_slot", source: "url", value: "checkout:b" }),
-      expect.objectContaining({ code: "unknown_version", source: "url", value: "pricing:v9" }),
+      expect.objectContaining({ code: "unknown_variant", source: "url", value: "pricing:v9" }),
     ]);
   });
 
@@ -270,7 +270,7 @@ describe("in development", () => {
     visit("/plans?iterbar=pricing:v2");
     const { container, unmount: unmountPricing } = render(Pricing);
     expect(slots()).toEqual([
-      { slot: "pricing", versions: ["v1", "v2"], defaultVersion: "v1", activeVersion: "v2", mounts: 1 },
+      { slot: "pricing", variants: ["v1", "v2"], defaultVariant: "v1", activeVariant: "v2", mounts: 1 },
     ]);
     select("pricing", "v1");
     expect(screen.getByText("Plan one")).toBeDefined();
@@ -278,7 +278,7 @@ describe("in development", () => {
     unmountPricing();
     expect(slots()).toEqual([]);
     expect(container.innerHTML).toBe("");
-    api.select({ schemaVersion: 1, slot: "pricing", version: "v2" });
+    api.select({ schemaVersion: 2, slot: "pricing", variant: "v2" });
     flushSync();
     expect(container.innerHTML).toBe("");
     expect(api.getSnapshot().warnings).toContainEqual(
@@ -294,37 +294,37 @@ describe("in development", () => {
     expect(screen.getAllByText("Plan two")).toHaveLength(2);
 
     rerender({ copies: 1 });
-    expect(slots()[0]).toMatchObject({ mounts: 1, activeVersion: "v2" });
+    expect(slots()[0]).toMatchObject({ mounts: 1, activeVariant: "v2" });
     expect(screen.getAllByText("Plan two")).toHaveLength(1);
     unmountPage();
     expect(slots()).toEqual([]);
   });
 
-  it("re-registers with a provided registry when the versions change, and never with the page's", () => {
+  it("re-registers with a provided registry when the variants change, and never with the page's", () => {
     const registry = createVariantsRegistry();
-    const { rerender, container } = render(Slot, { slot: "hero", versions: { a: PlanOne }, default: "a", registry });
-    expect(slots(registry)).toMatchObject([{ slot: "hero", versions: ["a"] }]);
-    rerender({ slot: "hero", versions: { a: PlanOne, b: PlanTwo }, default: "a", registry });
+    const { rerender, container } = render(Slot, { slot: "hero", variants: { a: PlanOne }, default: "a", registry });
+    expect(slots(registry)).toMatchObject([{ slot: "hero", variants: ["a"] }]);
+    rerender({ slot: "hero", variants: { a: PlanOne, b: PlanTwo }, default: "a", registry });
     expect(slots(registry)).toEqual([
-      { slot: "hero", versions: ["a", "b"], defaultVersion: "a", activeVersion: "a", mounts: 1 },
+      { slot: "hero", variants: ["a", "b"], defaultVariant: "a", activeVariant: "a", mounts: 1 },
     ]);
-    registry.select({ schemaVersion: 1, slot: "hero", version: "b" });
+    registry.select({ schemaVersion: 2, slot: "hero", variant: "b" });
     flushSync();
     expect(roots(container, "hero")).toEqual(["Plan two"]);
     expect(readPageApi(window)).toBeNull();
     expect((globalThis as Record<PropertyKey, unknown>)[SHARED_REGISTRY]).toBeUndefined();
   });
 
-  it("keeps its registration when the versions object changes but its names do not", () => {
+  it("keeps its registration when the variants object changes but its names do not", () => {
     const registry = createVariantsRegistry();
     const register = vi.spyOn(registry, "register");
-    const { rerender } = render(Slot, { slot: "hero", versions: { a: PlanOne }, default: "a", registry });
-    rerender({ slot: "hero", versions: { a: PlanTwo }, default: "a", registry });
+    const { rerender } = render(Slot, { slot: "hero", variants: { a: PlanOne }, default: "a", registry });
+    rerender({ slot: "hero", variants: { a: PlanTwo }, default: "a", registry });
     expect(register).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Plan two")).toBeDefined();
   });
 
-  it("hydrates server-rendered default content, then shows the selected version", () => {
+  it("hydrates server-rendered default content, then shows the selected variant", () => {
     visit("/plans?iterbar=pricing:v2");
     const errors = collectErrors();
     const { container, serverMarkup } = hydrateServerHtml("Pricing.svelte", Pricing, "development", {});
@@ -336,18 +336,18 @@ describe("in development", () => {
     expect(errors).toEqual([]);
   });
 
-  it("offers new versions once every instance of a repeated slot has re-rendered with them", () => {
+  it("offers new variants once every instance of a repeated slot has re-rendered with them", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const registry = createVariantsRegistry();
     const before = { v1: PlanOne };
     const after = { v1: PlanOne, v2: PlanTwo };
-    const first = render(Slot, { slot: "pricing", versions: before, default: "v1", registry });
-    const second = render(Slot, { slot: "pricing", versions: before, default: "v1", registry });
-    first.rerender({ slot: "pricing", versions: after, default: "v1", registry });
-    expect(slots(registry)).toMatchObject([{ slot: "pricing", versions: ["v1"], mounts: 2 }]);
-    second.rerender({ slot: "pricing", versions: after, default: "v1", registry });
-    expect(slots(registry)).toMatchObject([{ slot: "pricing", versions: ["v1", "v2"], mounts: 2 }]);
-    registry.select({ schemaVersion: 1, slot: "pricing", version: "v2" });
+    const first = render(Slot, { slot: "pricing", variants: before, default: "v1", registry });
+    const second = render(Slot, { slot: "pricing", variants: before, default: "v1", registry });
+    first.rerender({ slot: "pricing", variants: after, default: "v1", registry });
+    expect(slots(registry)).toMatchObject([{ slot: "pricing", variants: ["v1"], mounts: 2 }]);
+    second.rerender({ slot: "pricing", variants: after, default: "v1", registry });
+    expect(slots(registry)).toMatchObject([{ slot: "pricing", variants: ["v1", "v2"], mounts: 2 }]);
+    registry.select({ schemaVersion: 2, slot: "pricing", variant: "v2" });
     flushSync();
     expect(screen.getAllByText("Plan two")).toHaveLength(2);
     first.unmount();
@@ -371,7 +371,7 @@ describe("in development", () => {
   });
 });
 
-describe("version content", () => {
+describe("variant content", () => {
   it("renders and switches between components and snippets, including text", () => {
     const { container } = render(Snippets);
     expect(roots(container, "pricing")).toEqual(["Plan one"]);
@@ -382,14 +382,14 @@ describe("version content", () => {
     expect(container.textContent?.trim()).toBe("Plan as text");
   });
 
-  it("renders nothing for a default that is not an own version name", () => {
+  it("renders nothing for a default that is not an own variant name", () => {
     vi.stubEnv("NODE_ENV", "production");
-    const { container } = render(Variants, { slot: "pricing", versions: { v1: PlanOne }, default: "toString" as "v1" });
+    const { container } = render(Variants, { slot: "pricing", variants: { v1: PlanOne }, default: "toString" as "v1" });
     expect(container.textContent).toBe("");
   });
 
-  it("keeps marking a version that replaces its own root element", async () => {
-    const { container } = render(Slot, { slot: "faq", versions: { closed: Disclosure }, default: "closed" });
+  it("keeps marking a variant that replaces its own root element", async () => {
+    const { container } = render(Slot, { slot: "faq", variants: { closed: Disclosure }, default: "closed" });
     expect(roots(container, "faq")).toEqual(["More"]);
     screen.getByRole("button").click();
     await settle();
@@ -413,7 +413,7 @@ describe("markup in development", () => {
     expect(errors).toEqual([]);
   });
 
-  it.each(contexts)("hydrates a slot in a $context without hydration errors and marks the version", ({ context, text }) => {
+  it.each(contexts)("hydrates a slot in a $context without hydration errors and marks the variant", ({ context, text }) => {
     const errors = collectErrors();
     visit("/plans?iterbar=demo:b");
     const { container, serverMarkup } = hydrateServerHtml("Contexts.svelte", Contexts, "development", { where: context });
@@ -449,7 +449,7 @@ describe("nested slots", () => {
   it.each([
     { form: "component", own: [] },
     { form: "snippet", own: ["Outer one"] },
-  ] as const)("keeps each slot's marks when an inner slot is the top level of a $form version", async ({ form, own }) => {
+  ] as const)("keeps each slot's marks when an inner slot is the top level of a $form variant", async ({ form, own }) => {
     const errors = collectErrors();
     const { container, unmount: unmountNested } = render(Nested, { form });
     await expectMarks(container, ["Inner A"], own);
@@ -457,7 +457,7 @@ describe("nested slots", () => {
     await expectMarks(container, ["Inner B"], own);
     select("outer", "v2");
     await expectMarks(container, [], ["Outer two"]);
-    // The inner slot unmounted with the outer slot's first version.
+    // The inner slot unmounted with the outer slot's first variant.
     expect(slots().map((state) => state.slot)).toEqual(["outer"]);
     select("outer", "v1");
     await expectMarks(container, ["Inner B"], own);
@@ -469,8 +469,8 @@ describe("nested slots", () => {
     expect(errors).toEqual([]);
   });
 
-  it("keeps the outer slot's marks while an inner slot mounts and unmounts inside the same version", async () => {
-    const { container } = render(Slot, { slot: "outer", versions: { v1: Toggle }, default: "v1" });
+  it("keeps the outer slot's marks while an inner slot mounts and unmounts inside the same variant", async () => {
+    const { container } = render(Slot, { slot: "outer", variants: { v1: Toggle }, default: "v1" });
     await expectMarks(container, [], ["toggle"]);
     toggle();
     await expectMarks(container, ["Inner A"], ["toggle"]);
@@ -503,14 +503,14 @@ describe("in production", () => {
 
   it("leaves a provided registry empty", () => {
     const registry = createVariantsRegistry();
-    const { container } = render(Slot, { slot: "pricing", versions: { v1: PlanOne, v2: PlanTwo }, default: "v1", registry });
+    const { container } = render(Slot, { slot: "pricing", variants: { v1: PlanOne, v2: PlanTwo }, default: "v1", registry });
     expect(container.textContent).toBe("Plan one");
     expect(container.querySelector("template")).toBeNull();
     expect(slots(registry)).toEqual([]);
   });
 
   it("does not validate the slot definition", () => {
-    const { container } = render(Variants, { slot: "bad slot", versions: { v1: PlanOne }, default: "v1" });
+    const { container } = render(Variants, { slot: "bad slot", variants: { v1: PlanOne }, default: "v1" });
     expect(container.textContent).toBe("Plan one");
   });
 });
@@ -533,12 +533,12 @@ describe("development activation", () => {
 });
 
 describe("types", () => {
-  it("accept components without required props and snippets, and only version names as the default", () => {
-    const versions: Record<string, VersionContent> = { v1: PlanOne, v2: Disclosure };
-    // @ts-expect-error A version component cannot require props; pass them through { snippet } instead.
-    const needsProps: VersionContent = Plan;
-    // @ts-expect-error The default must be one of the version names.
-    const unknownDefault: Parameters<typeof Variants<{ v1: typeof PlanOne }>>[1] = { slot: "pricing", versions: { v1: PlanOne }, default: "v2" };
-    expect([Object.keys(versions), needsProps, unknownDefault.default]).toEqual([["v1", "v2"], Plan, "v2"]);
+  it("accept components without required props and snippets, and only variant names as the default", () => {
+    const variants: Record<string, VariantContent> = { v1: PlanOne, v2: Disclosure };
+    // @ts-expect-error A variant component cannot require props; pass them through { snippet } instead.
+    const needsProps: VariantContent = Plan;
+    // @ts-expect-error The default must be one of the variant names.
+    const unknownDefault: Parameters<typeof Variants<{ v1: typeof PlanOne }>>[1] = { slot: "pricing", variants: { v1: PlanOne }, default: "v2" };
+    expect([Object.keys(variants), needsProps, unknownDefault.default]).toEqual([["v1", "v2"], Plan, "v2"]);
   });
 });

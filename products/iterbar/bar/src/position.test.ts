@@ -1,25 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
   anchorPopover, BAR_MARGIN_PX, BAR_STATE_STORAGE_KEY, barStateStorageKey, DEFAULT_BAR_STATE, describePosition, formatBarState,
-  leftForPosition, parseBarState, positionForKey, positionForLeft,
+  leftForPosition, parseBarState, positionForKey, positionForLeft, toolbarLeft,
 } from "./position.js";
 
 describe("stored toolbar state", () => {
   it("round-trips a valid state", () => {
-    const state = { x: 0.3, expanded: true, panel: "drafts", filter: "progress", agent: "codex" } as const;
+    const state = {
+      x: 0.3, expanded: true, panel: "drafts", filter: "progress", agent: "codex", theme: "dark", shortcuts: false, screenshots: false, pins: false,
+    } as const;
     expect(parseBarState(formatBarState(state))).toEqual(state);
     expect(parseBarState(formatBarState({ ...state, panel: null }))).toEqual({ ...state, panel: null });
     expect(parseBarState(formatBarState({ ...state, panel: "agent" })).panel).toBe("agent");
+    expect(parseBarState(formatBarState({ ...state, panel: "settings" })).panel).toBe("settings");
   });
 
   it("falls back field by field for malformed values", () => {
     expect(parseBarState(null)).toEqual(DEFAULT_BAR_STATE);
     expect(parseBarState("{not json")).toEqual(DEFAULT_BAR_STATE);
     expect(parseBarState("[]")).toEqual(DEFAULT_BAR_STATE);
-    expect(parseBarState(JSON.stringify({ x: "left", dock: "top", expanded: 1, panel: "nope", filter: 3, agent: "vim" })))
+    expect(parseBarState(JSON.stringify({
+      x: "left", dock: "top", expanded: 1, panel: "nope", filter: 3, agent: "vim", theme: "sepia", shortcuts: "no", screenshots: 0, pins: null,
+    })))
       .toEqual(DEFAULT_BAR_STATE);
     expect(parseBarState(JSON.stringify({ x: 0.2, panel: "inbox" })))
-      .toEqual({ x: 0.2, expanded: false, panel: "inbox", filter: "all", agent: "claude" });
+      .toEqual({ ...DEFAULT_BAR_STATE, x: 0.2, panel: "inbox" });
   });
 
   it("keeps the position within 0 and 1", () => {
@@ -36,7 +41,9 @@ describe("stored toolbar state", () => {
   });
 
   it("sleeps at the bottom centre by default", () => {
-    expect(DEFAULT_BAR_STATE).toEqual({ x: 0.5, expanded: false, panel: null, filter: "all", agent: "claude" });
+    expect(DEFAULT_BAR_STATE).toEqual({
+      x: 0.5, expanded: false, panel: null, filter: "all", agent: "claude", theme: "auto", shortcuts: true, screenshots: true, pins: true,
+    });
   });
 
   it("keeps one state per project", () => {
@@ -102,5 +109,22 @@ describe("anchorPopover", () => {
     expect(anchorPopover({ left: 950, top: 100, width: 40, height: 20 }, size, viewport).left).toBe(1000 - BAR_MARGIN_PX - 300);
     const tall = anchorPopover({ left: -50, top: -100, width: 2000, height: 2000 }, size, viewport);
     expect(tall).toEqual({ left: BAR_MARGIN_PX, top: 800 - BAR_MARGIN_PX - 160 });
+  });
+});
+
+describe("logo-anchored layout", () => {
+  it("reads the earlier versions panel as the variants panel", () => {
+    expect(parseBarState(JSON.stringify({ panel: "versions" })).panel).toBe("variants");
+    expect(parseBarState(JSON.stringify({ filter: "archived" })).filter).toBe("archived");
+  });
+
+  it("keeps the logo where it is and grows the toolbar away from it, inside the margins", () => {
+    const logo = leftForPosition(0.5, 30, 1000);
+    expect(toolbarLeft(0.5, 30, 300, 1000, false)).toBe(logo);
+    // Running right to left, the logo is the toolbar's right end.
+    expect(toolbarLeft(0.9, 30, 300, 1000, true) + 300).toBe(leftForPosition(0.9, 30, 1000) + 30);
+    // Too close to an edge, the toolbar is pushed back inside.
+    expect(toolbarLeft(1, 30, 300, 1000, false)).toBe(1000 - BAR_MARGIN_PX - 300);
+    expect(toolbarLeft(0, 30, 300, 1000, true)).toBe(BAR_MARGIN_PX);
   });
 });

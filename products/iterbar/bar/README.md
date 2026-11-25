@@ -18,21 +18,59 @@ attributes. The bar never writes the token to an attribute.
 
 ## What it shows
 
-The bar is a toolbar docked at the bottom of the page. By default it sleeps as
-a small pill with the Comment and Inbox buttons (icons, named for assistive
-technology and in their tooltips) and the count of open feedback; it wakes
-while the pointer or focus is on it, after a tap until the next tap elsewhere,
-while a panel is open or comment mode is on, and **Ctrl/Cmd+.** keeps it
-expanded. Waking only adds controls beyond the sleeping buttons, away from the
-docked edge, so nothing under the pointer moves. The inbox, the draft
-tray and the versions open as a panel above the toolbar.
+The bar is a toolbar docked at the bottom of the page. Collapsed (the default)
+it shows only the Iterbar logo. Clicking the logo, or **Ctrl/Cmd+.**,
+expands it (Comment; Inbox, with its open count and, dashed, its draft count;
+Variants; and at its end Settings and Help); clicking it again collapses it. Hovering and focus
+never expand it; a panel, the composer or comment mode show the whole toolbar
+while they last. The logo stays where it is when the toolbar expands, and
+dragging it (or the arrow keys, Home and End on it) moves the toolbar along
+the bottom edge. The place, the expanded state and the open panel are
+remembered per project. The inbox and the draft tray share one full-height
+sheet on the right of the screen, switched by Inbox | Drafts tabs at its top;
+Settings and Help open in the same kind of sheet (stopping above the toolbar
+when the toolbar is under it). Variants opens as a fixed-height popover above
+the toolbar, as wide as the toolbar, which widens to fit it while it is open.
+Counts are neutral (foreground on a muted fill), never the accent colour.
 
-- **Versions**: the slots on the current page, read through the `window.__ITERBAR__` page
+**Comment pins.** Each thread on the current page that is still open, in
+progress or needing info shows a small comment pin on the top-right corner of
+its element, found again by the selector the bar recorded when the comment was
+picked (one pin per element, with a count when there are several). A pin
+follows its element as the page scrolls, resizes or changes; it hides while the
+element is gone, hidden or out of view, and goes once the thread is done or
+archived. Clicking it opens the inbox at that thread. An element the recorded
+selector no longer finds (the page changed shape, or it is in a closed shadow
+root or a frame) gets no pin; its thread is still in the inbox. A thread made
+on an element inside a slot shows its pin only while the slot shows the variant
+it was made on. Each draft not sent yet gets its own pin, neutral with a dashed
+outline, on the element it was picked on; clicking it opens the Drafts tab at
+that draft.
+
+**Settings** (the gear before Help): the daemon's status and process, with
+Stop (after a confirmation) and, when the Iterbar Vite plugin serves the page,
+Start and Restart; where the agent's MCP server runs; the installed Iterbar
+versions, a Check for updates button (the dev server asks the npm registry only
+then) and the commands that update them; the toolbar's position, colours
+(system, light or dark), keyboard shortcuts, screenshots and pins; and Clear
+drafts and Delete all Iterbar data, each after a confirmation that says what
+it removes. Nothing runs until its button is pressed.
+
+Keys typed into the bar's own fields (the composer, a draft being edited, the
+slot list) stop at the bar, so the page's keyboard shortcuts never see them.
+This covers shortcuts that listen in the bubbling phase, as most do. A page
+shortcut that listens on `window` or `document` in the capture phase sees the
+key before the bar can stop it; such a handler should skip text entry by
+checking `event.composedPath()[0]` (the field inside the bar's shadow root)
+rather than `event.target` (the bar itself).
+
+- **Variants**: the slots on the current page, read through the `window.__ITERBAR__` page
   API that `@iterbar/variants` installs. When the bar loads before the
   registry, it waits until the registry appears. With one slot the bar shows
-  its name; with more than one, a dropdown chooses which slot's versions to
-  show. Choosing a version calls `select()`. Once the registry shows that
-  version, the bar writes `slot:version` into the `iterbar` URL parameter with
+  its name; with more than one, a dropdown chooses which slot's variants to
+  show, one row each. Choosing a variant calls `select()` (the page API and
+  the protocol call a slot's variants its "variants"). Once the registry shows that
+  variant, the bar writes `slot:variant` into the `iterbar` URL parameter with
   `history.replaceState`, keeping every other parameter and the fragment. The
   bar also reports the page's slots to the daemon (`POST /slots`) under the
   page URL without its fragment or `iterbar` parameter.
@@ -49,24 +87,34 @@ tray and the versions open as a panel above the toolbar.
   with any drafts added since. A draft added while a batch is being sent
   waits for the next Send all.
 - **Inbox**: the feedback threads, newest first, with status (Open, In
-  progress, Needs info, Done, Resolved), the target and page, and replies,
-  which arrive live. Filters show all threads, open ones (open or needing
-  info), those in progress or those done. Long comments and replies wrap.
-  The counts (the toolbar's open count included) cover the newest 100
-  threads the inbox holds. The bar lists
+  progress, Needs info, Done, Archived; an agent's older `resolved` shows as
+  Done), the target and page, and replies, which arrive live. Filter pills,
+  each with its count, show all threads but archived ones, open ones (open or
+  needing info), those in progress, those done, or archived ones. The panel
+  keeps one height whatever the filter; the list scrolls inside it, 25 threads
+  at a time with **Show 25 more** and an "N of M" count. Threads can be
+  selected with their checkbox (Shift for a range), Ctrl/Cmd-click, or by
+  dragging across rows, then marked done, reopened, archived or deleted
+  together (`POST /feedback/:id/status`, `DELETE /feedback/:id`); each opened
+  thread offers the same actions. A delete waits six seconds with an Undo
+  before it is sent (at once if the page goes away). Escape clears a
+  selection, then closes the panel. Long comments and replies wrap.
+  The bar keeps the newest 500 threads; older ones are counted as not loaded.
+  The bar lists
   them with `GET /feedback` each time the `/events` WebSocket opens, then
-  applies `feedback.created` and `feedback.updated` events as they arrive.
+  applies `feedback.created`, `feedback.updated` and `feedback.deleted`
+  events as they arrive.
   Each listing replaces the threads, except that a listed copy older than the
   one held never replaces it, and an item that an event delivered while the
   listing was in flight keeps the event's copy against an equal-time listed
   copy and stays when the listing omits it; a strictly newer listed copy
   wins. When the bar no longer holds the content of such a thread, it counts
   the thread without showing a row. If that thread belongs among the newest
-  100 shown, the count reads "not shown; updating" and the bar lists again:
+  500 kept, the count reads "not shown; updating" and the bar lists again:
   twice at once, then with the reconnect backoff while the stream stays open,
   until a listing or an event carries the content, or newer threads push it
-  out of view. A thread older than the shown ones is counted under "older not
-  shown" and triggers no further listing. An event replaces an item
+  out of view. A thread older than the kept ones is counted as not loaded and
+  triggers no further listing. An event replaces an item
   unless it is older (`updatedAt`) than the one held.
   Events that are malformed or from another schema version are ignored.
   Switching to another daemon URL or token clears the threads.
@@ -115,7 +163,7 @@ described when it is picked:
 - **Bounding box**: the border box in CSS pixels from the top-left corner of
   the document.
 - **Source location**: the nearest well-formed `data-iterbar-src`, or `null`.
-- **Active variants**: the version each slot on the page shows.
+- **Active variants**: the variant each slot on the page shows.
 - **Screenshot**: a PNG of the element rendered in the page with
   `modern-screenshot` from the pick, at the device pixel ratio, scaled down
   to stay within 4 MP. Every element is drawn alone at the image origin,
@@ -228,12 +276,13 @@ Removing the element closes the stream and cancels every timer.
 
 ## Layout, keyboard and styling
 
-- **Ctrl/Cmd+.** keeps the toolbar expanded or lets it sleep, from anywhere
-  on the page, and moves focus to the Comment button (Alt+Shift+I does the
-  same). **C** toggles comment mode. Neither shortcut applies while focus is
+- **Ctrl/Cmd+.** expands or collapses the toolbar from anywhere on the page;
+  expanding moves focus to the Comment button, collapsing moves focus that was
+  in the toolbar to the logo (Alt+Shift+I does the same). **C** toggles comment mode. Neither shortcut applies while focus is
   in a text field, an editable element or a custom element whose shadow root
   the bar cannot read (it may hold a field); the toolbar's buttons still work. **Escape** leaves comment mode, cancels a draft being edited,
-  or closes the open panel and returns focus to its button.
+  clears an inbox selection, or closes the open panel and returns focus to its
+  button.
 - Every control is a native button, select or summary, so it can be reached
   with Tab in visual order (the toolbar, then the open panel), and each one
   shows a focus ring. Counts, the connection and what a send did are
@@ -245,8 +294,8 @@ Removing the element closes the stream and cancels every timer.
   between the margins, so the toolbar stays in view at any window width. The
   panel above it is placed by the same share over its own width, so it stays
   in view too. Past two thirds of the way along, the toolbar runs right to
-  left. Waking it by pointer never moves the button under the pointer: it
-  grows away from its edge, and what does not fit wraps onto a row above.
+  left. Expanding it never moves the logo: the toolbar grows away from it,
+  and what does not fit wraps onto a row above.
 - The position, whether the toolbar stays expanded, the open panel, the inbox
   filter and the agent chosen in "Use with your agent" are saved in local
   storage under `iterbar:toolbar:<project>` when the bar is given a `project`
@@ -256,15 +305,19 @@ Removing the element closes the stream and cancels every timer.
 - Every toolbar control has an accessible name and a tooltip, shown on hover
   (after a short delay) and on keyboard focus: a short label, its shortcut
   where there is one, and for some a line that explains it.
-- The connection status is one control: a dot next to its label. "Connected"
-  means the bar's link to the project's Iterbar daemon is open, so comments
-  are saved for a coding agent, which reaches the same daemon on its own
-  through `iterbar mcp`. Offline, comments stay as drafts. Clicking it opens
-  "Use with your agent": for Claude Code, Codex, Cursor or another MCP client,
-  the one-time command that registers the iterbar MCP server (with the
-  project's path filled in when the bar knows it), the optional skill install
-  and a prompt to paste, each with a copy button. The draft tray links to it
-  too.
+- The Help button (a question mark at the toolbar's end) opens the setup
+  sheet. Its top shows the connection: a dot, its label and what it means.
+  "Connected" means the bar's link to the project's Iterbar daemon is open, so
+  comments are saved for a coding agent, which reaches the same daemon on its
+  own through `iterbar mcp`; offline, comments stay as drafts, and the Help
+  button carries a red dot. Below it, for Claude Code, Codex, Cursor or another
+  MCP client: the one-time `init` command (with the project's path filled in
+  when the bar knows it, and the CLI the dev server runs, as `node <its path>`,
+  when the Iterbar Vite plugin says which), a prompt to paste, and the same setup by
+  hand, each with a copy button. The draft tray links to it too.
+- On a page without variants, Variants lists the pages that have some, with
+  each page's variant and slot counts (from the daemon's `GET /slots`: pages
+  opened with the bar since the daemon started), each a link to that page.
 - Styles stay inside the shadow root. The host resets every inherited
   property with `!important`, which a page rule cannot override, so page CSS
   cannot hide, move or restyle the bar. The bar is shown in the top layer
@@ -287,6 +340,6 @@ Removing the element closes the stream and cancels every timer.
 - `pnpm test`: unit tests for stored state, composer placement, labels, merging, URL handling, text
   excerpts and screenshot scaling.
 - `pnpm test:browser`: Playwright tests in Chromium, against a fake daemon
-  built from Playwright routes and against the real daemon from
-  `@iterbar/cli`. Install the browser once with
+  built from Playwright routes and against the real daemon from the
+  `@iterbar/cli` package. Install the browser once with
   `pnpm exec playwright install chromium`.

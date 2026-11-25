@@ -25,10 +25,11 @@ server before any daemon call, as an `Input validation error` tool error.
 
 Every tool that returns feedback returns full items:
 
-- `id`, `kind` (`comment` or `choose_variant`), `status` (`open`, `working`, `needs-info`, `done`, `resolved`),
-  `createdAt`, `updatedAt`;
-- `text`: the comment, or the optional note of a variant choice; `choice: { slot, version }` for `choose_variant`;
-- `pageUrl` and `activeVariants` (`[{ slot, version }]`, the versions shown when it was sent);
+- `id`, `kind` (`comment` or `choose_variant`), `status` (`open`, `working`, `needs-info`, `done`, `resolved`,
+  `archived`), `createdAt`, `updatedAt`. `resolved` is an older name for `done`; `archived` means the user put the
+  thread away in the bar. A thread the user deletes in the bar is gone: `get_feedback` then fails with `not_found`;
+- `text`: the comment, or the optional note of a variant choice; `choice: { slot, variant }` for `choose_variant`;
+- `pageUrl` and `activeVariants` (`[{ slot, variant }]`, the variants shown when it was sent);
 - `target`: `null`, or the element: `selector`, `textExcerpt`, `boundingBox` and `sourceLocation`
   (`{ path, line, column }`, project relative, or `null`);
 - `screenshot` and `evidence` attachment references (or `null`), and `screenshotUnavailableReason`;
@@ -92,7 +93,8 @@ The bar posts a batch one item at a time. `expectedCount` is how many items the 
 have arrived (`null` when no item gives a size; a comment stored twice counts once, by its `batchIndex`). When
 `complete` is `false` and `lastArrivedAt` (the newest item's `createdAt`) is under a minute ago, call
 `wait_for_feedback` with a `timeoutSeconds` no longer than what is left of that minute, then `get_batch` again.
-Otherwise the rest will not come (the user may have dropped a comment that failed to send): work on the items present.
+Otherwise the rest will not come (the user may have dropped a comment that failed to send, or deleted one from the
+inbox, which `expectedCount` does not account for): work on the items present.
 Work only on unfinished items; one retried later arrives on its own and leaves the done ones alone. Fails with `not_found` when no item has that `batchId`. It is a lookup like a filtered `list_feedback`: it never moves
 your cursor.
 
@@ -105,14 +107,16 @@ client.
 
 ## `set_status`
 
-Inputs: `feedbackId`, `status`: `working`, `needs-info`, `done` or `resolved`. Agents never set `open`.
+Inputs: `feedbackId`, `status`: `working`, `needs-info` or `done` (`resolved`, an older name for `done`, is still
+accepted). Agents never set `open` or `archived`; those are the user's, from the bar.
 
 Result: `{ feedback }`. Setting the current status again changes nothing.
 
 ## `list_slots`
 
 No inputs. Result: `{ pages }`, one entry per page URL that reported its slots, most recently reported last:
-`{ pageUrl, reportedAt, slots: [{ slot, versions, defaultVersion, activeVersion, mounts }] }`. Pages report while
+`{ pageUrl, reportedAt, slots: [{ slot, variants, defaultVariant, activeVariant, mounts }] }`. Variant descriptions stay
+on the page (the bar shows them); the source has them. Pages report while
 they are open in a browser with the bar; the list is kept in the daemon's memory and starts empty when it restarts.
 
 ## `wait_for_feedback`

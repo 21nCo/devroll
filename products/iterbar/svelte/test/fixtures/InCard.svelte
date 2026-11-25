@@ -7,5 +7,5 @@
 </script>
 
 <Card>
-  <Variants {...{ slot: "pricing" }} versions={{ v1: PlanOne, v2: PlanTwo }} default="v1" />
+  <Variants {...{ slot: "pricing" }} variants={{ v1: PlanOne, v2: PlanTwo }} default="v1" />
 </Card>

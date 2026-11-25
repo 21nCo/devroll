@@ -31,7 +31,7 @@ async function fakeDaemon(handler: Handler, requestTimeoutMs = 5_000): Promise<D
   const { daemonFile, directory } = iterbarPaths(root);
   await mkdir(directory, { recursive: true });
   await writeFile(daemonFile, JSON.stringify({
-    schemaVersion: 1, host: "127.0.0.1", port, token: "a".repeat(64), pid: process.pid, projectRoot: root,
+    schemaVersion: 2, host: "127.0.0.1", port, token: "a".repeat(64), pid: process.pid, projectRoot: root,
     startedAt: "2026-11-05T10:00:00.000Z",
   }));
   return new DaemonClient({ projectRoot: root, requestTimeoutMs });
@@ -40,13 +40,13 @@ async function fakeDaemon(handler: Handler, requestTimeoutMs = 5_000): Promise<D
 /** Sends the headers and part of a body that promises more, then drops the connection. */
 const cutShort: Handler = (_request, response) => {
   response.writeHead(200, { "content-type": "application/json", "content-length": "1000" });
-  response.write('{"schemaVersion":1,"items":[', () => setTimeout(() => response.socket?.destroy(), 20));
+  response.write('{"schemaVersion":2,"items":[', () => setTimeout(() => response.socket?.destroy(), 20));
 };
 
 /** Sends the headers and part of a body, then stops sending. */
 const stall: Handler = (_request, response) => {
   response.writeHead(200, { "content-type": "application/json", "content-length": "1000" });
-  response.write('{"schemaVersion":1,"items":[');
+  response.write('{"schemaVersion":2,"items":[');
 };
 
 const unavailable = expect.objectContaining({ code: "daemon_unavailable", message: expect.stringContaining("iterbar dev") });
@@ -68,7 +68,7 @@ describe("DaemonClient response bodies", () => {
   it("reports an error response cut short as daemon_unavailable", async () => {
     const client = await fakeDaemon((_request, response) => {
       response.writeHead(404, { "content-type": "application/json", "content-length": "1000" });
-      response.write('{"schemaVersion":1,"error":', () => setTimeout(() => response.socket?.destroy(), 20));
+      response.write('{"schemaVersion":2,"error":', () => setTimeout(() => response.socket?.destroy(), 20));
     });
     await expect(client.getFeedback("feedback-1")).rejects.toEqual(unavailable);
   });

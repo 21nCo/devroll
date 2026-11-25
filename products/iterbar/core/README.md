@@ -1,6 +1,6 @@
 # iterbar
 
-Versioned (v1) contracts shared by every Iterbar package: zod schemas and
+Versioned (protocol version 2) contracts shared by every Iterbar package: zod schemas and
 TypeScript types for feedback, the page variants registry, the local daemon's
 HTTP and WebSocket messages, and the `.iterbar/` directory layout.
 
@@ -20,12 +20,17 @@ import { feedbackRecordPath, iterbarPaths } from "iterbar/node";
 ## Versioning
 
 Every top-level protocol message and schema-backed JSON file (`daemon.json`,
-`store.lock`, `feedback.json`) carries `schemaVersion: 1`; `.gitignore`,
-temporary files and attachment contents are not versioned. `parseMessage`
-rejects any other major version with `UnsupportedSchemaVersionError`
+`store.lock`, `feedback.json`) carries `schemaVersion: 2`; `.gitignore`,
+temporary files and attachment contents are not versioned. Version 2 names a
+slot's variants `variants`, `defaultVariant` and `activeVariant`, and a chosen
+or active one `variant`, where version 1 said `versions`, `defaultVersion`,
+`activeVersion` and `version`. For one version, `parseMessage` still reads
+version 1 input (stored records, older bars and pages) by upgrading it first
+(`upgradeMessage`); it rejects any other major version with
+`UnsupportedSchemaVersionError`
 (`code: "unsupported_schema_version"`) before checking the shape, and reports
 every other mismatch as `InvalidMessageError` (`code: "invalid_message"`).
-Unknown properties are dropped, so additive v1 fields are tolerated; breaking
+Unknown properties are dropped, so additive fields are tolerated; breaking
 changes ship as a new major version.
 
 ## Contents

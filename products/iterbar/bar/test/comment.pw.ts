@@ -258,7 +258,7 @@ test("sends a comment with the excerpt, document box, source, active variants an
     kind: "comment",
     text: "  Make this calmer\nplease ",
     pageUrl: `${fixtureServer.origin}/shop`,
-    activeVariants: [{ slot: "pricing", version: "v2" }],
+    activeVariants: [{ slot: "pricing", variant: "v2" }],
     screenshotUnavailableReason: null,
     evidenceWindow: null,
   } satisfies Partial<FeedbackDraft>);

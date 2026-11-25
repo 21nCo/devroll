@@ -6,6 +6,7 @@ export {
   validateSlotDefinition,
   VariantsRegistry,
   type SlotDefinition,
+  type SlotRegistration,
   type VariantsRegistryOptions,
 } from "./registry.js";
 export {

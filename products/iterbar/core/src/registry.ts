@@ -1,55 +1,70 @@
 import { z } from "zod";
-import { InvalidMessageError, parseMessage, SCHEMA_VERSION } from "./errors.js";
+import {
+  InvalidMessageError, LEGACY_SCHEMA_VERSION, legacyUpgrade, parseMessage, SCHEMA_VERSION, upgradeMessage, withLegacyUpgrade,
+} from "./errors.js";
 import {
   isVariantName,
   pageUrlSchema,
   schemaVersionSchema,
   slotNameSchema,
   timestampSchema,
-  versionNameSchema,
+  variantNameSchema,
 } from "./primitives.js";
 
 /** Attribute that marks the root element of a rendered slot; its value is the slot name. */
 export const SLOT_ATTRIBUTE = "data-iterbar-slot";
 
-/** URL query parameter that selects versions: `?iterbar=pricing:v2,hero:b`. */
+/** URL query parameter that selects variants: `?iterbar=pricing:v2,hero:b`. */
 export const VARIANT_URL_PARAM = "iterbar";
 
-/** Local storage key that remembers selections, in the same `slot:version,...` format as the URL parameter. */
+/** Local storage key that remembers selections, in the same `slot:variant,...` format as the URL parameter. */
 export const VARIANT_STORAGE_KEY = "iterbar:variants";
 
 /** Name of the page API on `window` that the variants registry exposes to the bar. */
 export const PAGE_API_GLOBAL = "__ITERBAR__";
 
-/** One selected version of one slot. */
+/** One selected variant of one slot. */
 export const activeVariantSchema = z.object({
   slot: slotNameSchema,
-  version: versionNameSchema,
+  variant: variantNameSchema,
 });
 
-/** Selected versions, at most one per slot. */
+/** Selected variants, at most one per slot. */
 export const activeVariantsSchema = z.array(activeVariantSchema).max(256).refine(
   (variants) => new Set(variants.map((variant) => variant.slot)).size === variants.length,
   "each slot may appear only once",
 );
 
+/** The longest variant description, in characters: a line or two under the name. */
+export const MAX_VARIANT_DESCRIPTION_LENGTH = 160;
+
 /** One slot as the page registry currently sees it. */
 export const slotStateSchema = z.object({
   slot: slotNameSchema,
-  versions: z.array(versionNameSchema).min(1).max(64),
-  defaultVersion: versionNameSchema,
-  activeVersion: versionNameSchema,
+  variants: z.array(variantNameSchema).min(1).max(64),
+  defaultVariant: variantNameSchema,
+  activeVariant: variantNameSchema,
   /** How many mounted `Variants` instances share this slot name. */
   mounts: z.number().int().positive(),
+  /**
+   * A short description of each variant, by name, that the bar shows under the variant's name: what it tries, so the
+   * user can choose without switching to each. Optional, for any of the variants.
+   */
+  descriptions: z.record(variantNameSchema, z.string().trim().min(1).max(MAX_VARIANT_DESCRIPTION_LENGTH)).optional(),
 }).superRefine((slot, context) => {
-  if (new Set(slot.versions).size !== slot.versions.length) {
-    context.addIssue({ code: "custom", path: ["versions"], message: "versions must be unique" });
+  for (const name of Object.keys(slot.descriptions ?? {})) {
+    if (!slot.variants.includes(name)) {
+      context.addIssue({ code: "custom", path: ["descriptions", name], message: "describes a variant the slot does not have" });
+    }
   }
-  if (!slot.versions.includes(slot.defaultVersion)) {
-    context.addIssue({ code: "custom", path: ["defaultVersion"], message: "defaultVersion must be one of versions" });
+  if (new Set(slot.variants).size !== slot.variants.length) {
+    context.addIssue({ code: "custom", path: ["variants"], message: "variants must be unique" });
   }
-  if (!slot.versions.includes(slot.activeVersion)) {
-    context.addIssue({ code: "custom", path: ["activeVersion"], message: "activeVersion must be one of versions" });
+  if (!slot.variants.includes(slot.defaultVariant)) {
+    context.addIssue({ code: "custom", path: ["defaultVariant"], message: "defaultVariant must be one of variants" });
+  }
+  if (!slot.variants.includes(slot.activeVariant)) {
+    context.addIssue({ code: "custom", path: ["activeVariant"], message: "activeVariant must be one of variants" });
   }
 });
 
@@ -63,7 +78,7 @@ const slotStatesSchema = z.array(slotStateSchema).max(256).refine(
  * default; an `api` selection (from {@link IterbarPageApi.select}) leaves the slot unchanged.
  */
 export const registryWarningSchema = z.object({
-  code: z.enum(["unknown_slot", "unknown_version", "invalid_selection"]),
+  code: z.enum(["unknown_slot", "unknown_variant", "invalid_selection"]),
   source: z.enum(["url", "storage", "api"]),
   /** The raw value as it appeared in the source; not necessarily a valid name. */
   value: z.string().max(1024),
@@ -77,11 +92,11 @@ export const registrySnapshotSchema = z.object({
   warnings: z.array(registryWarningSchema).max(256),
 });
 
-/** Bar -> page: switch one slot to one of its versions. */
+/** Bar -> page: switch one slot to one of its variants. */
 export const variantSelectionSchema = z.object({
   schemaVersion: schemaVersionSchema,
   slot: slotNameSchema,
-  version: versionNameSchema,
+  variant: variantNameSchema,
 });
 
 /** Bar -> daemon (`POST /slots`): the slots seen on one page, so agents can list them. */
@@ -92,6 +107,13 @@ export const slotReportSchema = z.object({
   slots: slotStatesSchema,
 });
 
+// Version 1 input: a snapshot's and a report's slot states and warning codes, and a selection's own fields.
+withLegacyUpgrade(registrySnapshotSchema, (input) => legacyUpgrade.message(input, {
+  slots: legacyUpgrade.each(legacyUpgrade.slotFields), warnings: legacyUpgrade.each(legacyUpgrade.warning),
+}));
+withLegacyUpgrade(slotReportSchema, (input) => legacyUpgrade.message(input, { slots: legacyUpgrade.each(legacyUpgrade.slotFields) }));
+withLegacyUpgrade(variantSelectionSchema, (input) => legacyUpgrade.variantField(legacyUpgrade.message(input)));
+
 export type ActiveVariant = z.infer<typeof activeVariantSchema>;
 export type SlotState = z.infer<typeof slotStateSchema>;
 export type RegistryWarning = z.infer<typeof registryWarningSchema>;
@@ -101,9 +123,10 @@ export type SlotReport = z.infer<typeof slotReportSchema>;
 
 /** The `window.__ITERBAR__` object the variants registry installs and the bar reads. */
 export interface IterbarPageApi {
-  readonly schemaVersion: typeof SCHEMA_VERSION;
+  /** 2; a registry from the previous version says 1 and takes `{ schemaVersion: 1, slot, version }` selections. */
+  readonly schemaVersion: typeof SCHEMA_VERSION | typeof LEGACY_SCHEMA_VERSION;
   getSnapshot(): RegistrySnapshot;
-  /** Switches a slot in place. Unknown slots or versions are reported as `source: "api"` registry warnings, not thrown. */
+  /** Switches a slot in place. Unknown slots or variants are reported as `source: "api"` registry warnings, not thrown. */
   select(selection: VariantSelection): void;
   /** Calls `listener` with a new snapshot after every change; returns the unsubscribe function. */
   subscribe(listener: (snapshot: RegistrySnapshot) => void): () => void;
@@ -112,7 +135,8 @@ export interface IterbarPageApi {
 /**
  * Reads the page API from `target` (default `globalThis`). Returns `null` when no registry is installed,
  * throws `unsupported_schema_version` for a registry from another major version and `invalid_message`
- * for an object that lacks the v1 methods.
+ * for an object that lacks the page API's methods. A registry from protocol version 1 is returned behind a version 2
+ * adapter: its snapshots come back upgraded and version 2 selections are translated for it.
  */
 export function readPageApi(target: unknown = globalThis): IterbarPageApi | null {
   if (typeof target !== "object" || target === null) return null;
@@ -124,19 +148,38 @@ export function readPageApi(target: unknown = globalThis): IterbarPageApi | null
   if (missing.length) {
     throw new InvalidMessageError(PAGE_API_GLOBAL, missing.map((method) => `${PAGE_API_GLOBAL}.${method}: must be a function`));
   }
+  if ((candidate as { schemaVersion: unknown }).schemaVersion === LEGACY_SCHEMA_VERSION) return legacyPageApi(candidate as LegacyPageApi);
   return candidate as IterbarPageApi;
+}
+
+/** The page API a registry from protocol version 1 installs. */
+interface LegacyPageApi {
+  getSnapshot(): unknown;
+  select(selection: { schemaVersion: typeof LEGACY_SCHEMA_VERSION; slot: string; version: string }): void;
+  subscribe(listener: (snapshot: unknown) => void): () => void;
+}
+
+function legacyPageApi(legacy: LegacyPageApi): IterbarPageApi {
+  // Upgraded, not validated: readers parse snapshots themselves, as they would a version 2 registry's.
+  const upgrade = (snapshot: unknown) => upgradeMessage(snapshot, registrySnapshotSchema) as RegistrySnapshot;
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    getSnapshot: () => upgrade(legacy.getSnapshot()),
+    select: (selection) => legacy.select({ schemaVersion: LEGACY_SCHEMA_VERSION, slot: selection.slot, version: selection.variant }),
+    subscribe: (listener) => legacy.subscribe((snapshot) => listener(upgrade(snapshot))),
+  };
 }
 
 /** Result of reading the `iterbar` URL parameter or the stored selection. */
 export interface ParsedVariantParam {
   /** Well-formed selections in order; a later entry for the same slot replaces an earlier one. */
   readonly selections: readonly ActiveVariant[];
-  /** Entries that are not `slot:version` with valid names, verbatim. */
+  /** Entries that are not `slot:variant` with valid names, verbatim. */
   readonly invalid: readonly string[];
 }
 
 /**
- * Parses `slot:version,slot:version`. Never throws. Surrounding whitespace around a well-formed entry is
+ * Parses `slot:variant,slot:variant`. Never throws. Surrounding whitespace around a well-formed entry is
  * ignored, as are blank entries; malformed entries are returned in `invalid` exactly as they appeared.
  */
 export function parseVariantParam(value: string | null | undefined): ParsedVariantParam {
@@ -147,13 +190,13 @@ export function parseVariantParam(value: string | null | undefined): ParsedVaria
     if (!trimmed) continue;
     const separator = trimmed.indexOf(":");
     const slot = separator === -1 ? "" : trimmed.slice(0, separator);
-    const version = separator === -1 ? "" : trimmed.slice(separator + 1);
-    if (!isVariantName(slot) || !isVariantName(version)) {
+    const variant = separator === -1 ? "" : trimmed.slice(separator + 1);
+    if (!isVariantName(slot) || !isVariantName(variant)) {
       invalid.push(entry);
       continue;
     }
     selections.delete(slot);
-    selections.set(slot, { slot, version });
+    selections.set(slot, { slot, variant });
   }
   return { selections: [...selections.values()], invalid };
 }
@@ -161,5 +204,5 @@ export function parseVariantParam(value: string | null | undefined): ParsedVaria
 /** Serializes selections for the `iterbar` URL parameter or local storage. Throws `invalid_message` for bad names or repeated slots. */
 export function formatVariantParam(selections: readonly ActiveVariant[]): string {
   const valid = parseMessage(activeVariantsSchema, selections, "selections");
-  return valid.map((selection) => `${selection.slot}:${selection.version}`).join(",");
+  return valid.map((selection) => `${selection.slot}:${selection.variant}`).join(",");
 }

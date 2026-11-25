@@ -13,9 +13,9 @@
 {#snippet itemB()}<li>Item B</li>{/snippet}
 
 {#if where === "paragraph"}
-  <p>Price: <Variants slot="demo" versions={{ a: { snippet: ten }, b: { snippet: twelve } }} default="a" /> per month</p>
+  <p>Price: <Variants slot="demo" variants={{ a: { snippet: ten }, b: { snippet: twelve } }} default="a" /> per month</p>
 {:else if where === "table"}
-  <table><tbody><Variants slot="demo" versions={{ a: { snippet: rowA }, b: { snippet: rowB } }} default="a" /></tbody></table>
+  <table><tbody><Variants slot="demo" variants={{ a: { snippet: rowA }, b: { snippet: rowB } }} default="a" /></tbody></table>
 {:else}
-  <ul><Variants slot="demo" versions={{ a: { snippet: itemA }, b: { snippet: itemB } }} default="a" /></ul>
+  <ul><Variants slot="demo" variants={{ a: { snippet: itemA }, b: { snippet: itemB } }} default="a" /></ul>
 {/if}

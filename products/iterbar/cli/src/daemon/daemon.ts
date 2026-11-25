@@ -117,8 +117,12 @@ class Daemon implements RunningDaemon {
       // daemon.json goes before the lock, so a daemon that starts next never has its file removed by this one.
       await removeDaemonFile(this.#store.paths, this.info.token);
     } finally {
-      await this.#store.close();
-      this.#resolveClosed();
+      try {
+        await this.#store.close();
+      } finally {
+        // Settled whatever the lock release did, so whoever waits for this daemon to go is never left waiting.
+        this.#resolveClosed();
+      }
     }
   }
 }
@@ -154,6 +158,9 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
   // The port is known once the server listens; no request is handled before then.
   const policy: { port: number; token: string; origins: OriginAllowList } = { port: 0, token, origins };
   let daemon: Daemon | undefined;
+  // Set before daemon.json is published: a request can arrive as soon as another process reads that file, before
+  // the daemon object exists.
+  let info: DaemonInfo | undefined;
 
   const handleRequest = async (request: IncomingMessage, response: ServerResponse) => {
     let cors = {};
@@ -176,6 +183,10 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
       }
       await handleRoute(route.name, {
         request, response, url: url as URL, params: route.params, headers: cors, store, origins, slots, events, statusChanges,
+        info: info!,
+        // A shutdown asked for over HTTP has no caller left to see a cleanup failure: it goes to the error handler.
+        ready: () => daemon !== undefined,
+        shutdown: () => void daemon?.close().catch(onError),
       });
     } catch (error) {
       const httpError = toHttpError(error);
@@ -213,7 +224,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
     });
     server.on("error", onError);
     policy.port = (server.address() as AddressInfo).port;
-    const info = parseMessage(daemonInfoSchema, {
+    info = parseMessage(daemonInfoSchema, {
       schemaVersion: SCHEMA_VERSION,
       host: DAEMON_HOST,
       port: policy.port,

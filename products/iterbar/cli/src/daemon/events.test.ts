@@ -49,9 +49,9 @@ async function connect(port: number): Promise<Client> {
 function event(sequence: number, bytes: number): DaemonEvent {
   const pageUrl = `http://localhost:5173/${sequence}?pad=`;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: "slots.reported",
-    report: { schemaVersion: 1, pageUrl: pageUrl + "x".repeat(Math.max(0, bytes - 150)), reportedAt: "2026-11-03T10:00:00.000Z", slots: [] },
+    report: { schemaVersion: 2, pageUrl: pageUrl + "x".repeat(Math.max(0, bytes - 150)), reportedAt: "2026-11-03T10:00:00.000Z", slots: [] },
   };
 }
 
@@ -59,7 +59,7 @@ const sequenceOf = (received: DaemonEvent) =>
   received.type === "slots.reported" ? Number(new URL(received.report.pageUrl).pathname.slice(1)) : NaN;
 
 describe("event backpressure", () => {
-  it("disconnects a client instead of buffering one event larger than the limit", async () => {
+  it("sends nobody an event larger than the limit, and keeps every client connected", async () => {
     const port = await listen(64 * KIB);
     const client = await connect(port);
 
@@ -69,14 +69,20 @@ describe("event backpressure", () => {
     const oversized = event(2, 128 * KIB);
     expect(Buffer.byteLength(JSON.stringify(oversized))).toBeGreaterThan(64 * KIB);
     hub.publish(oversized);
-    // Terminated without a closing handshake, and the oversized event was never queued for it.
-    expect(await client.closed).toBe(1006);
-    expect(client.received.map(sequenceOf)).toEqual([1]);
-
-    // The hub keeps serving: a client that connects next gets the next event.
-    const next = await connect(port);
+    // No client could ever buffer it, so it is not sent; nobody is dropped for it.
     hub.publish(event(3, KIB));
-    await expect.poll(() => next.received.map(sequenceOf)).toEqual([3]);
+    await expect.poll(() => client.received.map(sequenceOf)).toEqual([1, 3]);
+    expect(client.socket.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("disconnects its clients for any other event larger than the limit, so they list again and catch up", async () => {
+    const port = await listen(64 * KIB);
+    const client = await connect(port);
+    // Only the type matters to the hub; a feedback event this large carries a thread with a great many replies.
+    const oversized = { ...event(2, 128 * KIB), type: "feedback.updated" } as unknown as DaemonEvent;
+    hub.publish(oversized);
+    expect(await client.closed).toBe(1006);
+    expect(client.received).toEqual([]);
   });
 
   it("disconnects a client that stops reading once an event would take it past the limit, while others keep receiving", { timeout: 30_000 }, async () => {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { IterbarContractError, SCHEMA_VERSION } from "./errors.js";
 
-/** `schemaVersion: 1`, carried by every top-level Iterbar message and file. */
+/** `schemaVersion: 2`, carried by every top-level Iterbar message and file (version 1 is upgraded on input). */
 export const schemaVersionSchema = z.literal(SCHEMA_VERSION);
 
 /**
@@ -35,7 +35,7 @@ export function assertSafeId(value: string, label = "id"): string {
 
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 
-/** True when `value` is a valid slot or version name. */
+/** True when `value` is a valid slot or variant name. */
 export function isVariantName(value: string): boolean {
   return NAME_PATTERN.test(value);
 }
@@ -45,8 +45,11 @@ const variantNameMessage = "must be 1-64 letters, digits, '_', '.' or '-', start
 /** Slot names. They never contain `:` or `,`, so the `iterbar` URL parameter stays unambiguous. */
 export const slotNameSchema = z.string().regex(NAME_PATTERN, variantNameMessage);
 
-/** Version names within a slot; same rules as slot names. */
-export const versionNameSchema = z.string().regex(NAME_PATTERN, variantNameMessage);
+/** Variant names within a slot; same rules as slot names. */
+export const variantNameSchema = z.string().regex(NAME_PATTERN, variantNameMessage);
+
+/** @deprecated The version 1 name of {@link variantNameSchema}. */
+export const versionNameSchema = variantNameSchema;
 
 /** ISO 8601 timestamp with `Z` or an explicit offset. */
 export const timestampSchema = z.iso.datetime({ offset: true });

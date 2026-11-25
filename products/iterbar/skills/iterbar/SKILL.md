@@ -1,12 +1,12 @@
 ---
 name: iterbar
-description: Iterate on a web UI with the user through Iterbar, a dev bar that collects comments on page elements and choices between variants. Use when a user asks for several versions of a component or section to compare, to work through or wait for Iterbar feedback, to answer comments left in the dev bar, or to keep a chosen variant and remove the others.
+description: Iterate on a web UI with the user through Iterbar, a dev bar that collects comments on page elements and choices between variants. Use when a user asks for several variants of a component or section to compare, to work through or wait for Iterbar feedback, to answer comments left in the dev bar, or to keep a chosen variant and remove the others.
 ---
 
 # Iterbar
 
-Iterbar lets the user look at a running dev page, switch between versions of a section, point at an element and leave
-a comment, or pick a winning version. You read that feedback, change the code, and answer in the same thread; the
+Iterbar lets the user look at a running dev page, switch between variants of a section, point at an element and leave
+a comment, or pick a winning variant. You read that feedback, change the code, and answer in the same thread; the
 user sees your replies and statuses live in the bar.
 
 You reach Iterbar only through the `iterbar` MCP server's tools. Never read or write `.iterbar/` yourself, except to
@@ -25,30 +25,37 @@ Read [references/tools.md](references/tools.md) for every tool's inputs, results
 
 ## Create N variants in a slot
 
-A slot is one place in the UI that renders one of several named versions. Only the active version renders; the bar
+A slot is one place in the UI that renders one of several named variants. Only the active variant renders; the bar
 switches between them in place, and the `iterbar` URL parameter (`?iterbar=pricing:v2`) selects one for a link.
 
-1. Pick a slot name for the section (for example `pricing` or `hero`). Slot and version names are 1 to 64 letters,
+1. Pick a slot name for the section (for example `pricing` or `hero`). Slot and variant names are 1 to 64 letters,
    digits, `_`, `.` or `-`, starting with a letter or digit; they must not contain `:` or `,`.
-2. Keep the current implementation as the first version, unchanged, so the user can compare against it. Write each
-   new version as its own component next to it, named after the version (`PricingV2`, `PricingCompact`).
-3. Render them through the framework's Variants component, with the current version as the default. The snippet is
+2. Keep the current implementation as the first variant, unchanged, so the user can compare against it. Write each
+   new variant as its own component next to it, named after the variant (`PricingV2`, `PricingCompact`).
+3. Render them through the framework's Variants component, with the current variant as the default. The snippet is
    illustrative: the framework packages are not published yet, so the project's Iterbar setup decides the exact import
    and props; follow what the project already uses.
 
    ```tsx
    import { Variants } from "@iterbar/react";
 
-   <Variants slot="pricing" versions={{ v1: Pricing, v2: PricingV2, v3: PricingCompact }} default="v1" />
+   <Variants
+     slot="pricing"
+     variants={{ v1: Pricing, v2: PricingV2, v3: PricingCompact }}
+     default="v1"
+     descriptions={{ v1: "Current table", v2: "Cards with the plan names first", v3: "One dense row per plan" }}
+   />
    ```
 
    Use the Svelte component in a Svelte app. In production builds `Variants` renders only the default.
-4. Make the versions genuinely different in the dimension the user asked about (layout, density, copy, emphasis),
-   and keep everything else equal so the comparison is fair. Each version must work on its own: same props, same
+   Give every variant a `descriptions` entry: a short phrase (at most 160 characters) saying what it tries. The bar
+   shows it under the variant's name, so the user can choose without switching to each one.
+4. Make the variants genuinely different in the dimension the user asked about (layout, density, copy, emphasis),
+   and keep everything else equal so the comparison is fair. Each variant must work on its own: same props, same
    data, no shared state that only one of them sets.
-5. Ask the user to open the page. Once it has loaded, `list_slots` shows the slot with its versions; if the slot is
+5. Ask the user to open the page. Once it has loaded, `list_slots` shows the slot with its variants; if the slot is
    missing, the page has not rendered it yet or the bar is not on the page.
-6. Tell the user which versions exist and what differs between them, then wait for feedback (below).
+6. Tell the user which variants exist and what differs between them, then wait for feedback (below).
 
 ## Iterate on comments
 
@@ -70,18 +77,19 @@ Work in a loop, one feedback item at a time, oldest first:
    so the next wait returns its items again even after you have handled them.
 2. For each item, `get_feedback`. Use `target.sourceLocation` (project-relative `path:line:column`), the selector,
    the text excerpt, the screenshot and `activeVariants` to find exactly what the user meant. A comment applies to
-   the version that was active when it was sent (`activeVariants`); change that version, not the others, unless the
+   the variant that was active when it was sent (`activeVariants`); change that variant, not the others, unless the
    user asks otherwise. The evidence attachment holds console, network and error events from around that moment;
    read it when the comment is about broken behavior.
 3. `set_status` to `working` before you change code.
 4. Make the change. Keep it scoped to what the comment asks.
 5. Right before you reply and set a thread done or needs-info, read it again with `get_feedback` so your reply
-   covers every user reply in it. Then `reply` with what you changed in a sentence or two (file and version), and
+   covers every user reply in it. Then `reply` with what you changed in a sentence or two (file and variant), and
    `set_status` to `done`.
 6. When the comment is ambiguous, `reply` with one specific question and `set_status` to `needs-info` instead of
    guessing (read the thread again first, as above). Their answer arrives as a user reply in the same thread.
 7. When the user says a thread is finished, or you have answered a question that needs no change, `set_status` to
-   `resolved`.
+   `done` too. (`resolved` is an older name for `done`; the bar shows both as Done.) Threads the user archived in the
+   bar (`archived`) need nothing from you unless a user reply in them is unanswered.
 
 ### Batches
 
@@ -138,19 +146,19 @@ If any tool fails with `daemon_unavailable` during the loop, the user stopped th
 run `iterbar dev` again; keep your cursor, and continue with it once it is back. A failed wait may carry a newer
 `cursor` next to its error; use that one when it does.
 
-## Collapse to a chosen version
+## Collapse to a chosen variant
 
-The user picks a winner with a `choose_variant` feedback item (`choice: { slot, version }`, with an optional note in
+The user picks a winner with a `choose_variant` feedback item (`choice: { slot, variant }`, with an optional note in
 `text`), or says so in a comment.
 
 1. `set_status` to `working` on the item.
-2. Replace the `Variants` element with the chosen version rendered directly. If the chosen version is not the
+2. Replace the `Variants` element with the chosen variant rendered directly. If the chosen variant is not the
    original, move its code to where the original lived and give it the original's name, so imports elsewhere keep
    working.
-3. Delete the other versions' components, and remove the slot's leftovers: imports, the Variants import if nothing
-   else uses it, and test or story files written only for the discarded versions.
-4. Check that the project still builds and its tests pass, and that nothing else referenced the deleted versions
+3. Delete the other variants' components, and remove the slot's leftovers: imports, the Variants import if nothing
+   else uses it, and test or story files written only for the discarded variants.
+4. Check that the project still builds and its tests pass, and that nothing else referenced the deleted variants
    (search for their names).
-5. `reply` with the version that was kept and what was removed, then `set_status` to `done`.
+5. `reply` with the variant that was kept and what was removed, then `set_status` to `done`.
 
 Never collapse a slot without an explicit choice from the user.

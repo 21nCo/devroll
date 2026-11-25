@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseMessage } from "./errors.js";
+import { legacyUpgrade, parseMessage, upgradeMessage, withLegacyUpgrade } from "./errors.js";
 import { feedbackKindSchema, feedbackSchema, feedbackStatusSchema, replyAuthorSchema } from "./feedback.js";
 import { slotReportSchema } from "./registry.js";
 import {
@@ -45,6 +45,14 @@ export const daemonEndpoints = Object.freeze({
   getAttachment: { method: "GET", path: "/feedback/:feedbackId/attachments/:attachmentId" },
   reply: { method: "POST", path: "/feedback/:feedbackId/replies" },
   setStatus: { method: "POST", path: "/feedback/:feedbackId/status" },
+  /** Deletes an item with its attachments; the bar's inbox offers it, agents do not. */
+  deleteFeedback: { method: "DELETE", path: "/feedback/:feedbackId" },
+  /** Deletes every item with its attachments (the bar's settings offer it, behind a confirmation); agents do not. */
+  deleteAllFeedback: { method: "DELETE", path: "/feedback" },
+  /** The daemon's process, start time and store, for the bar's settings. */
+  getInfo: { method: "GET", path: "/info" },
+  /** Stops the daemon (the bar's settings offer it); it answers first, then shuts down. */
+  shutdown: { method: "POST", path: "/shutdown" },
   reportSlots: { method: "POST", path: "/slots" },
   listSlots: { method: "GET", path: "/slots" },
   /** WebSocket upgrade for {@link daemonEventSchema} messages. */
@@ -124,6 +132,25 @@ export const slotListResponseSchema = z.object({
   ),
 });
 
+/** Response of `DELETE /feedback`: how many items were deleted, and how many could not be (unreadable, a failed write). */
+export const deleteAllFeedbackResponseSchema = z.object({
+  schemaVersion: schemaVersionSchema,
+  deleted: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative().default(0),
+  /** Deleted items whose files (attachments) could not all be removed yet; the daemon's next start removes them. */
+  leftover: z.number().int().nonnegative().default(0),
+});
+
+/** Response of `GET /info`. */
+export const daemonStatusSchema = z.object({
+  schemaVersion: schemaVersionSchema,
+  pid: pidSchema,
+  startedAt: timestampSchema,
+  projectRoot: absolutePathSchema,
+  /** The folder that holds the feedback: deleting all data empties it. */
+  feedbackDirectory: absolutePathSchema,
+});
+
 export const daemonErrorCodeSchema = z.enum([
   "unauthorized",
   "forbidden_origin",
@@ -148,8 +175,25 @@ export const daemonErrorResponseSchema = z.object({
 export const daemonEventSchema = z.discriminatedUnion("type", [
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("feedback.created"), feedback: feedbackSchema }),
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("feedback.updated"), feedback: feedbackSchema }),
+  z.object({ schemaVersion: schemaVersionSchema, type: z.literal("feedback.deleted"), feedbackId: idSchema }),
   z.object({ schemaVersion: schemaVersionSchema, type: z.literal("slots.reported"), report: slotReportSchema }),
 ]);
+
+// Version 1 input: the feedback items, slot reports and events that carry them.
+withLegacyUpgrade(feedbackListResponseSchema, (input) => legacyUpgrade.message(input, {
+  items: legacyUpgrade.each((item) => upgradeMessage(item, feedbackSchema)),
+}));
+withLegacyUpgrade(slotListResponseSchema, (input) => legacyUpgrade.message(input, {
+  pages: legacyUpgrade.each((page) => upgradeMessage(page, slotReportSchema)),
+}));
+withLegacyUpgrade(daemonEventSchema, (input) => {
+  const type = (input as { type?: unknown } | null)?.type;
+  if (type === "feedback.created" || type === "feedback.updated") {
+    return legacyUpgrade.message(input, { feedback: (feedback) => upgradeMessage(feedback, feedbackSchema) });
+  }
+  if (type === "slots.reported") return legacyUpgrade.message(input, { report: (report) => upgradeMessage(report, slotReportSchema) });
+  return legacyUpgrade.message(input);
+});
 
 export type DaemonInfo = z.infer<typeof daemonInfoSchema>;
 export type StoreLock = z.infer<typeof storeLockSchema>;
@@ -160,6 +204,8 @@ export type FeedbackListResponse = z.infer<typeof feedbackListResponseSchema>;
 export type ReplyRequest = z.infer<typeof replyRequestSchema>;
 export type StatusRequest = z.infer<typeof statusRequestSchema>;
 export type SlotListResponse = z.infer<typeof slotListResponseSchema>;
+export type DeleteAllFeedbackResponse = z.infer<typeof deleteAllFeedbackResponseSchema>;
+export type DaemonStatus = z.infer<typeof daemonStatusSchema>;
 export type DaemonErrorCode = z.infer<typeof daemonErrorCodeSchema>;
 export type DaemonErrorResponse = z.infer<typeof daemonErrorResponseSchema>;
 export type DaemonEvent = z.infer<typeof daemonEventSchema>;

@@ -52,6 +52,9 @@ export class EventHub {
   publish(event: DaemonEvent): void {
     const data = JSON.stringify(event);
     const bytes = Buffer.byteLength(data);
+    // A slot report too large for any client's buffer is not sent: the bar reads the page list over HTTP whenever it
+    // shows it. Any other event that large still disconnects its clients, which then list again and so catch up.
+    if (bytes > this.#maxBufferedBytes && event.type === "slots.reported") return;
     for (const client of this.#server.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
       if (client.bufferedAmount + bytes > this.#maxBufferedBytes) {

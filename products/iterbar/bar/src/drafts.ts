@@ -78,6 +78,18 @@ export class DraftTray {
     }
   }
 
+  /** Scrolls to a draft (its pin was clicked), marks it for a moment and focuses its Edit button. */
+  reveal(id: string): boolean {
+    const row = this.#list.querySelector<HTMLElement>(`[data-draft-id="${CSS.escape(id)}"]`);
+    if (!row) return false;
+    row.scrollIntoView({ block: "nearest" });
+    row.toggleAttribute("data-revealed", true);
+    setTimeout(() => row.removeAttribute("data-revealed"), 1600);
+    row.querySelector<HTMLElement>("[data-role=draft-edit]")?.focus({ preventScroll: true });
+    this.#options.onHighlight(id);
+    return true;
+  }
+
   /** Leaves the edit without saving; focus goes back to the draft's Edit button. */
   #stopEditing(id: string): void {
     this.#editing = null;

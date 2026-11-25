@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { versionContent } from "./content.js";
-  import type { VariantsProps, VersionContent } from "./types.js";
-  import Version from "./Version.svelte";
+  import { variantContent } from "./content.js";
+  import type { ResolvedVariantsProps, VariantContent } from "./types.js";
+  import Variant from "./Variant.svelte";
 
-  let props: VariantsProps<Readonly<Record<string, VersionContent>>> = $props();
+  let props: ResolvedVariantsProps<Readonly<Record<string, VariantContent>>> = $props();
 </script>
 
-<Version content={versionContent(props.versions, props.default)} />
+<Variant content={variantContent(props.variants, props.default)} />

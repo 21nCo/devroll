@@ -14,6 +14,9 @@ import {
   slotReportSchema,
   statusRequestSchema,
   type DaemonEndpointName,
+  type DaemonInfo,
+  type DaemonStatus,
+  type DeleteAllFeedbackResponse,
   type FeedbackListResponse,
   type RegisterOriginsResponse,
   type SlotListResponse,
@@ -101,9 +104,21 @@ export interface RouteContext {
   readonly events: EventHub;
   /** Serializes status changes per feedback id. */
   readonly statusChanges: KeyedSerializer;
+  /** The daemon's own record (pid, start time, project). */
+  readonly info: DaemonInfo;
+  /** Whether the daemon has finished starting (a stop can be carried out). */
+  readonly ready: () => boolean;
+  /** Stops the daemon once the current response is sent. */
+  readonly shutdown: () => void;
 }
 
 type RouteHandler = (context: RouteContext) => Promise<void>;
+
+/** A slot state without its variant descriptions. */
+function withoutDescriptions(slot: SlotReport["slots"][number]): SlotReport["slots"][number] {
+  const { slot: name, variants, defaultVariant, activeVariant, mounts } = slot;
+  return { slot: name, variants, defaultVariant, activeVariant, mounts };
+}
 
 interface CompiledRoute {
   readonly name: DaemonEndpointName;
@@ -263,8 +278,47 @@ const handlers: Readonly<Record<DaemonEndpointName, RouteHandler>> = {
     sendJson(context.response, 200, feedback, context.headers);
   },
 
+  async deleteFeedback(context) {
+    const feedbackId = param(context, "feedbackId");
+    await context.store.delete(feedbackId);
+    context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId });
+    sendEmpty(context.response, 204, context.headers);
+  },
+
+  async deleteAllFeedback(context) {
+    const { deleted, failed, leftover } = await context.store.deleteAll();
+    // Every delete that happened is announced, even when another item could not be deleted.
+    for (const feedbackId of deleted) context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "feedback.deleted", feedbackId });
+    const body: DeleteAllFeedbackResponse = {
+      schemaVersion: SCHEMA_VERSION, deleted: deleted.length, failed: failed.length, leftover: leftover.length,
+    };
+    sendJson(context.response, 200, body, context.headers);
+  },
+
+  async getInfo(context) {
+    const body: DaemonStatus = {
+      schemaVersion: SCHEMA_VERSION,
+      pid: context.info.pid,
+      startedAt: context.info.startedAt,
+      projectRoot: context.info.projectRoot,
+      feedbackDirectory: context.store.paths.feedbackDirectory,
+    };
+    sendJson(context.response, 200, body, context.headers);
+  },
+
+  async shutdown(context) {
+    // A daemon still starting (its daemon.json just published) says so, rather than accepting a stop it can't make.
+    if (!context.ready()) throw new DaemonHttpError(503, "internal", "The daemon is still starting; try again");
+    sendEmpty(context.response, 202, context.headers);
+    // After the answer is on its way: the shutdown waits for in-flight requests, this one included.
+    context.response.once("finish", () => context.shutdown());
+  },
+
   async reportSlots(context) {
-    const report = await readJson(context.request, slotReportSchema, "slot report");
+    // Descriptions are for the page's own Variants popover; the daemon keeps each page's slots and variants without them,
+    // so every kept report (and its event) stays small.
+    const sent = await readJson(context.request, slotReportSchema, "slot report");
+    const report: SlotReport = { ...sent, slots: sent.slots.map(withoutDescriptions) };
     // A report superseded by a later one is acknowledged but neither kept nor pushed as the page's state.
     if (context.slots.report(report)) {
       context.events.publish({ schemaVersion: SCHEMA_VERSION, type: "slots.reported", report });

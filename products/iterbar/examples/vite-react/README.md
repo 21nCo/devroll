@@ -3,10 +3,10 @@
 A Vite and React page with two `Variants` slots, `hero` and `pricing`.
 `vite.config.ts` adds `@vitejs/plugin-react` and `iterbar()`, so `pnpm dev`
 shows the Iterbar bar on the page, the bar switches each slot between its
-versions, and each host element written in the app's source carries its
+variants, and each host element written in the app's source carries its
 source location in `data-iterbar-src`. `pnpm build`
 produces a bundle with no Iterbar runtime: the slots render their default
-version.
+variant.
 
 ```sh
 pnpm --filter "@iterbar/example-vite-react^..." build   # build the Iterbar packages once

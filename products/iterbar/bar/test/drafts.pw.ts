@@ -243,24 +243,23 @@ test("Escape while editing a draft in comment mode cancels the edit and keeps co
   await expect(inBar(page, "[data-role=comment]")).toHaveAttribute("aria-pressed", "false");
 });
 
-test("with a draft waiting, waking the toolbar leaves Drafts under the pointer", async ({ page, openFixture, fixtureServer }) => {
+test("with a draft waiting, the collapsed toolbar shows only its logo, and clicking it brings Drafts back", async ({ page, openFixture, fixtureServer }) => {
   const daemon = await fakeDaemon(page, fixtureServer.origin);
   await open(page, openFixture, daemon.url, daemon.token);
   await inBar(page, "[data-role=comment]").click();
   await draft(page, "card", "Waiting");
   await page.keyboard.press("Escape");
-  // Focus leaves the toolbar (focus keeps it awake), and the pointer too.
+  await page.evaluate(() => {
+    document.querySelector("iterbar-bar")!.expanded = false;
+  });
   await page.locator("#page-text").click();
-  await page.mouse.move(5, 5);
-  await expect(inBar(page, "[data-role=versions-toggle]")).toBeHidden();
-  const box = (await inBar(page, "[data-role=drafts-toggle]").boundingBox())!;
-  const point = { x: box.x + 4, y: box.y + box.height / 2 };
-  await page.mouse.move(point.x, point.y);
-  await expect(inBar(page, "[data-role=versions-toggle]")).toBeVisible();
-  expect(await page.evaluate(({ x, y }) => {
-    const root = document.querySelector("iterbar-bar")!.shadowRoot!;
-    return (root.elementFromPoint(x, y)?.closest("[data-role]") as HTMLElement | null)?.dataset.role;
-  }, point)).toBe("drafts-toggle");
+  await expect(inBar(page, "[data-role=inbox-toggle]")).toBeHidden();
+  // Hovering never expands it.
+  await inBar(page, "[data-role=logo]").hover();
+  await page.waitForTimeout(200);
+  await expect(inBar(page, "[data-role=inbox-toggle]")).toBeHidden();
+  await inBar(page, "[data-role=logo]").click();
+  await expect(inBar(page, "[data-role=draft-count]")).toHaveText("1");
 });
 
 test("one draft is edited at a time", async ({ page, openFixture, fixtureServer }) => {
@@ -362,7 +361,7 @@ test("the inbox wraps long comments and replies, shows statuses, filters, and ke
   await mountBar(page, { daemonUrl: daemon.url, token: daemon.token });
   await openPanel(page, "inbox");
   await expect(inBar(page, "[data-role=open-count]")).toHaveText("2");
-  await expect(inBar(page, "[data-filter]")).toHaveText(["All 3", "Open 1", "In progress 1", "Done 1"]);
+  await expect(inBar(page, "[data-filter]")).toHaveText(["All3", "Open1", "In progress1", "Done1", "Archived0"]);
 
   daemon.send({
     schemaVersion: SCHEMA_VERSION,
@@ -391,7 +390,7 @@ test("the inbox wraps long comments and replies, shows statuses, filters, and ke
     expect(await part.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   // Between the comment and its replies there is only a labelled details line, never a bare "/" for the root page.
-  expect(await thread.locator(".thread-body > *").evaluateAll((parts) => parts.map((part) => part.className))).toEqual(["thread-meta muted", "replies"]);
+  expect(await thread.locator(".thread-content > *").evaluateAll((parts) => parts.map((part) => part.className))).toEqual(["thread-meta muted", "replies"]);
   await expect(thread.locator(".thread-meta")).toHaveText("Page /page");
 
   await inBar(page, "[data-filter=progress]").click();
@@ -399,4 +398,46 @@ test("the inbox wraps long comments and replies, shows statuses, filters, and ke
   await expect(inBar(page, ".thread:not([hidden]) .badge")).toHaveText(["In progress"]);
   await inBar(page, "[data-filter=done]").click();
   await expect(inBar(page, ".thread:not([hidden]) .badge")).toHaveText(["Done"]);
+});
+
+test("a draft gets a dashed pin on its element that opens it, and Inbox and Drafts share one sheet", async ({ page, openFixture, fixtureServer }) => {
+  const daemon = await fakeDaemon(page, fixtureServer.origin);
+  await open(page, openFixture, daemon.url, daemon.token);
+  // One toolbar button for both, labelled Inbox; no Drafts button.
+  await expect(inBar(page, "[data-role=drafts-toggle]")).toHaveCount(0);
+  await expect(inBar(page, "[data-role=inbox-toggle] .tool-label")).toHaveText("Inbox");
+
+  await inBar(page, "[data-role=comment]").click();
+  await draft(page, "card", "Too small");
+  await page.keyboard.press("Escape");
+  const pin = inBar(page, "[data-role=draft-pin]:not([hidden])");
+  await expect(pin).toHaveCount(1);
+  // Neutral and dashed, not the accent fill of a sent thread's pin.
+  const style = await pin.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return { border: computed.borderTopStyle, background: computed.backgroundColor };
+  });
+  expect(style.border).toBe("dashed");
+  const accent = await page.evaluate(() => getComputedStyle(document.querySelector("iterbar-bar")!.shadowRoot!.querySelector(".dock")!).getPropertyValue("--ib-accent"));
+  expect(style.background).not.toContain(accent.trim());
+  const card = (await page.getByTestId("card").boundingBox())!;
+  const box = (await pin.boundingBox())!;
+  expect(box.x + box.width / 2).toBeCloseTo(card.x + card.width, 0);
+
+  // Clicking it opens the sheet on the Drafts tab at that draft.
+  await pin.click();
+  await expect(inBar(page, "[data-role=drafts-tab]")).toHaveAttribute("aria-selected", "true");
+  await expect(inBar(page, "[data-role=drafts-tab-count]")).toHaveText("1");
+  await expect(inBar(page, ".draft[data-revealed]")).toHaveCount(1);
+  await expect(inBar(page, ".draft [data-role=draft-edit]")).toBeFocused();
+  // The tabs switch the sheet; the toolbar button stays expanded for both.
+  await inBar(page, "[data-role=inbox-tab]").click();
+  await expect(inBar(page, "[data-section=threads]")).toBeVisible();
+  await expect(inBar(page, "[data-role=inbox-toggle]")).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(inBar(page, "[data-role=drafts-tab]")).toHaveAttribute("aria-selected", "true");
+
+  // Sent, the draft's pin goes.
+  await inBar(page, "[data-role=drafts-send]").click();
+  await expect(pin).toHaveCount(0);
 });

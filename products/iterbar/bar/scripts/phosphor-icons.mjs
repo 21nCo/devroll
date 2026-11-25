@@ -14,10 +14,14 @@ const ICONS = {
   inbox: "tray-light",
   drafts: "note-pencil-light",
   layers: "stack-light",
-  expand: "caret-up-light",
-  collapse: "caret-down-light",
   close: "x-light",
-  grab: "dots-six-vertical-bold",
+  check: "check-light",
+  reopen: "arrow-counter-clockwise-light",
+  archive: "archive-light",
+  trash: "trash-light",
+  caret: "caret-down-light",
+  help: "question-light",
+  settings: "gear-six-light",
 };
 
 const lines = Object.entries(ICONS).map(([name, id]) => {

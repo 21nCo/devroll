@@ -1,12 +1,16 @@
 # Iterbar agent skills
 
 - `iterbar` teaches a coding agent (Claude Code, Codex, Cursor) the Iterbar feedback loop: create variants of a
-  section in a slot, iterate on the comments users leave in the dev bar, and collapse a slot to the chosen version.
+  section in a slot, iterate on the comments users leave in the dev bar, and collapse a slot to the chosen variant.
   It uses the tools of `iterbar mcp`; [iterbar/references/setup.md](iterbar/references/setup.md) shows how to put
   the command on `PATH` and register the server.
 
-Install the skill by symlinking `products/iterbar/skills/iterbar` into the agent's skill directory, from the
-monorepo root. For Codex:
+Users install the skill from the `@iterbar/cli` package, which carries it (the build copies `iterbar/` into the
+package's `skills/` folder): `npx @iterbar/cli init --agent claude` (or `codex`, `cursor`, `all`) copies it into the
+agent's skills folder and registers the MCP server. See [iterbar/references/setup.md](iterbar/references/setup.md).
+
+Working on the skill itself, link it from the monorepo root instead, so the installed copy follows the checkout.
+For Codex:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
@@ -27,5 +31,3 @@ For Cursor (which also loads skills from `~/.claude/skills` and the default `~/.
 mkdir -p "$HOME/.cursor/skills"
 ln -s "$PWD/products/iterbar/skills/iterbar" "$HOME/.cursor/skills/iterbar"
 ```
-
-A symlink keeps the installed skill in step with the checkout.

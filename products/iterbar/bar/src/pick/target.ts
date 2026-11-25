@@ -3,6 +3,8 @@ import {
   MAX_TEXT_EXCERPT_LENGTH,
   parseSourceLocation,
   readPageApi,
+  registrySnapshotSchema,
+  safeParseMessage,
   SOURCE_ATTRIBUTE,
   type ActiveVariant,
   type BoundingBox,
@@ -64,12 +66,15 @@ export function describeTarget(element: Element): FeedbackTarget | null {
   };
 }
 
-/** The version each slot on the page shows, from the page API; empty without a registry or with an unreadable one. */
+/** The variant each slot on the page shows, from the page API; empty without a registry or with an unreadable one. */
 export function readActiveVariants(): ActiveVariant[] {
   try {
     const api = readPageApi();
     if (!api) return [];
-    const variants = api.getSnapshot().slots.map((slot) => ({ slot: slot.slot, version: slot.activeVersion }));
+    // Read as a protocol message, so a registry from protocol version 1 (`activeVersion`) is upgraded first.
+    const snapshot = safeParseMessage(registrySnapshotSchema, api.getSnapshot(), "registry snapshot");
+    if (!snapshot.success) return [];
+    const variants = snapshot.data.slots.map((slot) => ({ slot: slot.slot, variant: slot.activeVariant }));
     const parsed = activeVariantsSchema.safeParse(variants);
     return parsed.success ? parsed.data : [];
   } catch {
