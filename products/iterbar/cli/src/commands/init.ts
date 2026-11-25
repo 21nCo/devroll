@@ -1,11 +1,12 @@
 import { chmod, cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { packageVersion } from "../version.js";
 
 /** The npm package that carries the `iterbar` command, the MCP server and the agent skill. */
-export const CLI_PACKAGE = "@iterbar/cli";
+export const CLI_PACKAGE = "iterbar";
 
 /** What the MCP configs run: the package's own command through npx, so nothing has to be on `PATH`. */
 export const MCP_COMMAND = { command: "npx", args: ["-y", CLI_PACKAGE, "mcp"] } as const;
@@ -79,9 +80,62 @@ interface McpLaunch {
  * absolute path, so the agent can start the server.
  */
 function mcpLaunch(root: string, cliPath: string | null): McpLaunch {
-  const installed = existsSync(join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json"));
-  if (installed || cliPath === null || cliPath.split(sep).includes("_npx")) return MCP_COMMAND;
+  const manifest = join(root, "node_modules", ...CLI_PACKAGE.split("/"), "package.json");
+  if (hasIterbarCommand(manifest)) return MCP_COMMAND;
+  // Run some other way (not as cli.js, such as from a test): the plain npx entry.
+  if (cliPath === null) return MCP_COMMAND;
+  // Fetched by npx, with no CLI in the project: the entry names this CLI's version, so npx fetches it even when
+  // something without the command holds the name nearby (the contracts package once published as iterbar, here or
+  // hoisted to a workspace root, where an unversioned npx would run it).
+  if (cliPath.split(sep).includes("_npx") && fromRegistry(cliPath)) {
+    return { command: "npx", args: ["-y", `${CLI_PACKAGE}@${packageVersion()}`, "mcp"] };
+  }
   return { command: "node", args: [cliPath, "mcp"] };
+}
+
+/**
+ * Whether the package installed at `manifest` provides the `iterbar` command: the CLI, not the contracts package that
+ * was published under the same name before it.
+ */
+function hasIterbarCommand(manifest: string): boolean {
+  try {
+    const bin = (JSON.parse(readFileSync(manifest, "utf8")) as { bin?: unknown }).bin;
+    return typeof bin === "object" && bin !== null && typeof (bin as Record<string, unknown>).iterbar === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the npx copy at `cliPath` came from the npm registry. npx records what it was asked for in its folder's
+ * package.json: a registry request is a version, range or tag, while a URL, file, folder, git or alias request has a
+ * `:` or `/` in it. Its lockfile must also resolve the package to the registry's tarball of this version
+ * (`…/iterbar/-/iterbar-<version>.tgz`). A copy npx installed any other way cannot be fetched again by version, so it is
+ * run by its path instead.
+ */
+function fromRegistry(cliPath: string): boolean {
+  const parts = cliPath.split(sep);
+  const npxIndex = parts.lastIndexOf("_npx");
+  // <cache>/_npx/<hash>/node_modules/<package>/...: the request and the lockfile sit in <hash>.
+  const folder = parts.slice(0, npxIndex + 2).join(sep) || sep;
+  const lockfile = join(folder, "node_modules", ".package-lock.json");
+  try {
+    const manifest = JSON.parse(readFileSync(join(folder, "package.json"), "utf8")) as { dependencies?: Record<string, unknown> };
+    const requested = manifest.dependencies?.[CLI_PACKAGE];
+    if (typeof requested === "string" && (/[:/\\]/.test(requested) || requested.startsWith("."))) return false;
+  } catch {
+    // No request recorded: the lockfile decides.
+  }
+  try {
+    const lock = JSON.parse(readFileSync(lockfile, "utf8")) as { packages?: Record<string, { resolved?: unknown }> };
+    const resolved = lock.packages?.[`node_modules/${CLI_PACKAGE}`]?.resolved;
+    if (typeof resolved !== "string") return true;
+    const registryTarball = `/${CLI_PACKAGE}/-/${CLI_PACKAGE}-${packageVersion()}.tgz`;
+    return /^https?:\/\//.test(resolved) && new URL(resolved).pathname.endsWith(registryTarball);
+  } catch {
+    // No lockfile to say otherwise: npx fetched it by name.
+    return true;
+  }
 }
 
 /** The running CLI file (`cli.js`, links resolved), or `null` when init runs some other way (a test). */
@@ -245,11 +299,40 @@ async function writeAtomic(path: string, text: string): Promise<void> {
   }
 }
 
+/** A version of this package that an earlier init pinned, as `iterbar@0.1.0`. */
+const PINNED_SPEC = new RegExp(`^${CLI_PACKAGE.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}@\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$`);
+
+/** The package name an earlier init registered, before the CLI was published as `iterbar`. */
+const EARLIER_PACKAGE = "@iterbar/cli";
+
+/**
+ * Whether `current` is exactly what an earlier init wrote: `npx -y @iterbar/cli mcp`, plus `extra` arguments (Cursor's
+ * `--root ${workspaceFolder}`). Whatever this init now registers (npx, or a checkout's CLI with node), an untouched
+ * earlier default is moved to it; anything else is the user's own.
+ */
+function isEarlierDefault(current: unknown, extra: readonly string[], entry: object): boolean {
+  if (!isPlainObject(current)) return false;
+  // Compared field by field, so a formatter's key order does not matter; any extra field makes it the user's own.
+  const keys = Object.keys(current).sort();
+  if (keys.length !== 2 || keys[0] !== "args" || keys[1] !== "command" || current.command !== "npx") return false;
+  const args = current.args;
+  if (!Array.isArray(args) || args.length !== 3 + extra.length || args[0] !== "-y" || args[2] !== "mcp") return false;
+  if (!extra.every((arg, index) => args[3 + index] === arg)) return false;
+  if (args[1] === EARLIER_PACKAGE) return true;
+  // This package pinned to a version, as an init run through npx writes it. Only an init that pins too moves such an
+  // entry to its own version: one run from a checkout or a project install keeps it, since a user may have pinned it.
+  const pins = (value: object) => (value as { command?: unknown }).command === "npx"
+    && typeof (value as { args?: unknown[] }).args?.[1] === "string" && PINNED_SPEC.test((value as { args: string[] }).args[1]!);
+  return pins(current) && pins(entry);
+}
+
 /**
  * Adds the iterbar server to a JSON config's `mcpServers`, keeping every other entry. A config that is a link, or sits
  * in a linked folder, is never written (it may be shared, such as a dotfiles checkout): the entry is printed instead.
  */
-async function registerJson(base: string, path: string, entry: object, options: InitOptions, say: (line: string) => void): Promise<void> {
+async function registerJson(
+  base: string, path: string, entry: object, extra: readonly string[], options: InitOptions, say: (line: string) => void,
+): Promise<void> {
   const manual = `{ "mcpServers": { "iterbar": ${JSON.stringify(entry)} } }`;
   const link = (await linkTarget(path)) !== null ? path : await linkedParent(base, path);
   if (link !== null) {
@@ -273,6 +356,14 @@ async function registerJson(base: string, path: string, entry: object, options: 
   const current = servers.iterbar;
   if (JSON.stringify(current) === JSON.stringify(entry)) {
     say(`  MCP server: already in ${path}`);
+    return;
+  }
+  // An entry an earlier init wrote under the package's earlier name (@iterbar/cli) is that init's own default, not a
+  // customized entry: it is moved to the current one.
+  if (current !== undefined && isEarlierDefault(current, extra, entry)) {
+    say(`  MCP server: ${options.dryRun ? "would update" : "updated"} the iterbar entry an earlier init wrote in ${path}`);
+    if (options.dryRun) return;
+    await writeAtomic(path, `${JSON.stringify({ ...config, mcpServers: { ...servers, iterbar: entry } }, null, 2)}\n`);
     return;
   }
   if (current !== undefined && !options.force) {
@@ -312,7 +403,7 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
     if (rootLink !== null) throw new Error(`${root} is a link to ${rootLink}; run init with --root set to the folder it points to.`);
     const source = env.skillSource ?? await bundledSkill();
     const launch = mcpLaunch(root, env.cliPath === undefined ? runningCli() : env.cliPath);
-    if (launch !== MCP_COMMAND) say(`The MCP server runs this CLI with node (${launch.args[0]}): ${CLI_PACKAGE} is not installed in the project.`);
+    if (launch.command === "node") say(`The MCP server runs this CLI with node (${launch.args[0]}): ${CLI_PACKAGE} is not installed in the project.`);
     say(`Setting up Iterbar in ${root}${parsed.dryRun ? " (dry run: nothing is written)" : ""}`);
     for (const agent of parsed.agents) {
       say(`\n${{ claude: "Claude Code", codex: "Codex", cursor: "Cursor" }[agent]}`);
@@ -348,9 +439,10 @@ export async function runInit(args: readonly string[], io: InitIo = process, env
         }
       }
       if (agent === "claude") {
-        await registerJson(root, join(root, ".mcp.json"), launch, parsed, say);
+        await registerJson(root, join(root, ".mcp.json"), launch, [], parsed, say);
       } else if (agent === "cursor") {
-        await registerJson(root, join(root, ".cursor", "mcp.json"), { ...launch, args: [...launch.args, "--root", "${workspaceFolder}"] }, parsed, say);
+        const cursorRoot = ["--root", "${workspaceFolder}"];
+        await registerJson(root, join(root, ".cursor", "mcp.json"), { ...launch, args: [...launch.args, ...cursorRoot] }, cursorRoot, parsed, say);
       } else {
         say(`  MCP server: add to ${join(env.codexHome ?? join(env.home, ".codex"), "config.toml")}:`);
         // Codex's config is the user's, so Codex starts the server from any folder, where npx would not find the

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import type { FeedbackDraft } from "iterbar";
+import type { FeedbackDraft } from "@iterbar/core";
 
 const script = fileURLToPath(new URL("./store-process.mjs", import.meta.url));
 

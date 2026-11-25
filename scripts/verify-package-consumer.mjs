@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const npmCli = resolve(dirname(process.execPath), process.platform === "win32"
@@ -12,6 +12,11 @@ const npmCli = resolve(dirname(process.execPath), process.platform === "win32"
 const npmCommand = existsSync(npmCli)
   ? { executable: process.execPath, prefix: [npmCli] }
   : { executable: "npm", prefix: [] };
+// pnpm, run as this script was (`pnpm verify:packages` sets npm_execpath to its JavaScript entry), so a Windows
+// `.cmd` shim never has to be launched directly; a plain `pnpm` on PATH otherwise.
+const pnpmCommand = /pnpm/i.test(process.env.npm_execpath ?? "") && /\.c?js$/i.test(process.env.npm_execpath ?? "")
+  ? { executable: process.execPath, prefix: [process.env.npm_execpath] }
+  : { executable: "pnpm", prefix: [] };
 const temporaryRoot = await mkdtemp(join(tmpdir(), "diffpanel-consumer-"));
 const packDirectory = join(temporaryRoot, "packs");
 const consumerDirectory = join(temporaryRoot, "consumer");
@@ -25,17 +30,26 @@ const packagePaths = [
   "products/diffpanel/presentation",
   "products/diffpanel/storage",
   "products/iterbar/core",
+  "products/iterbar/cli",
 ];
 
 try {
   await Promise.all([packDirectory, consumerDirectory, repository].map((directory) => mkdir(directory, { recursive: true })));
   const tarballs = packagePaths.map((packagePath) => {
-    const output = execFileSync(
-      npmCommand.executable,
-      [...npmCommand.prefix, "pack", "--json", "--pack-destination", packDirectory],
-      { cwd: join(root, packagePath), encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
-    );
-    const result = JSON.parse(output);
+    // The Iterbar CLI is packed with pnpm, as the publish workflow packs it: pnpm writes its workspace
+    // devDependency's version into the manifest. pnpm prints one object where npm prints a list.
+    const pnpmPacked = packagePath === "products/iterbar/cli";
+    const output = pnpmPacked
+      ? execFileSync(pnpmCommand.executable, [...pnpmCommand.prefix, "pack", "--json", "--pack-destination", packDirectory], {
+        cwd: join(root, packagePath), encoding: "utf8", stdio: ["ignore", "pipe", "inherit"],
+      })
+      : execFileSync(
+        npmCommand.executable,
+        [...npmCommand.prefix, "pack", "--json", "--pack-destination", packDirectory],
+        { cwd: join(root, packagePath), encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+      );
+    const parsed = JSON.parse(output);
+    const result = pnpmPacked ? [{ ...parsed, filename: basename(parsed.filename) }] : parsed;
     assert.equal(result.length, 1, `${packagePath} must create one tarball`);
     const packedPaths = result[0].files.map((file) => file.path);
     assert(packedPaths.includes("package.json"), `${packagePath} must include package.json`);
@@ -69,8 +83,8 @@ try {
     import { captureReview } from "@diffpanel/git";
     import { chapterLabels } from "@diffpanel/presentation";
     import { DiffpanelStore } from "@diffpanel/storage";
-    import { feedbackSchema, parseMessage, statusRequestSchema, UnsupportedSchemaVersionError } from "iterbar";
-    import { feedbackRecordPath, iterbarPaths } from "iterbar/node";
+    import { feedbackSchema, parseMessage, statusRequestSchema, UnsupportedSchemaVersionError } from "@iterbar/core";
+    import { feedbackRecordPath, iterbarPaths } from "@iterbar/core/node";
 
     const repository = process.argv[2];
     const home = process.argv[3];
@@ -137,6 +151,47 @@ try {
     [join(root, "scripts", "verify-browser-imports.mjs"), consumerDirectory, "--probe-node-global"],
     { cwd: consumerDirectory, stdio: "pipe" },
   ), /Browser bundle contains a Node\.js-only global/);
+
+  // The Iterbar CLI installs on its own (its contracts are bundled, types included) in a project with nothing else,
+  // runs, and carries its agent skill for `iterbar init`.
+  const cliConsumer = join(temporaryRoot, "cli-consumer");
+  await mkdir(cliConsumer, { recursive: true });
+  await writeFile(join(cliConsumer, "package.json"), JSON.stringify({ name: "iterbar-cli-consumer", private: true, type: "module" }, null, 2));
+  const cliTarball = tarballs[packagePaths.indexOf("products/iterbar/cli")];
+  execFileSync(npmCommand.executable, [...npmCommand.prefix, "install", "--package-lock=false", "--no-audit", "--no-fund", cliTarball], {
+    cwd: cliConsumer, stdio: "inherit",
+  });
+  const cliPackage = join(cliConsumer, "node_modules", "iterbar");
+  assert(!existsSync(join(cliConsumer, "node_modules", "@iterbar")), "iterbar must not pull in other Iterbar packages");
+  const iterbarManifest = JSON.parse(await readFile(join(cliPackage, "package.json"), "utf8"));
+  assert(!JSON.stringify(iterbarManifest).includes("workspace:"), "iterbar's packed manifest must not name a workspace package");
+  const iterbarCli = join(cliPackage, "dist", "cli.js");
+  assert.match(execFileSync(process.execPath, [iterbarCli, "--help"], { encoding: "utf8" }), /init/);
+  const cliHome = join(temporaryRoot, "cli-home");
+  await mkdir(cliHome, { recursive: true });
+  const initOutput = execFileSync(process.execPath, [iterbarCli, "init", "--agent", "all", "--dry-run", "--root", repository], {
+    encoding: "utf8", env: { ...process.env, HOME: cliHome, USERPROFILE: cliHome, CODEX_HOME: join(cliHome, ".codex") },
+  });
+  assert.match(initOutput, /would install/);
+  // Started through the npm bin link (as npx starts it), init knows the CLI it runs from: it names this version.
+  if (process.platform !== "win32") {
+    const viaBin = execFileSync(join(cliConsumer, "node_modules", ".bin", "iterbar"), ["init", "--agent", "claude", "--dry-run", "--root", repository], {
+      encoding: "utf8", env: { ...process.env, HOME: cliHome, USERPROFILE: cliHome, CODEX_HOME: join(cliHome, ".codex") },
+    });
+    assert.match(viaBin, /runs this CLI with node/, "init started through the bin link must find the CLI it runs from");
+  }
+  assert(existsSync(join(cliPackage, "skills", "iterbar", "SKILL.md")), "iterbar must carry its skill");
+  // Its library entries type-check for a consumer, with no declaration pointing outside the package.
+  await writeFile(join(cliConsumer, "check.mts"), [
+    'import type { FeedbackStore } from "iterbar/store";',
+    'import type { RunningDaemon } from "iterbar/daemon";',
+    "export type Checked = [FeedbackStore, RunningDaemon];",
+  ].join("\n"));
+  execFileSync(process.execPath, [
+    join(root, "node_modules", "typescript", "bin", "tsc"), "--noEmit", "--strict", "--skipLibCheck", "false",
+    "--module", "nodenext", "--moduleResolution", "nodenext", "--types", "node", "--typeRoots", join(root, "node_modules", "@types"),
+    join(cliConsumer, "check.mts"),
+  ], { cwd: cliConsumer, stdio: "inherit" });
 
   const packedNames = tarballs.map((tarball) => tarball.slice(tarball.lastIndexOf("/") + 1));
   assert.equal(new Set(packedNames).size, packagePaths.length);

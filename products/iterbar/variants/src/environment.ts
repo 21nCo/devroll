@@ -1,4 +1,4 @@
-import { VARIANT_URL_PARAM } from "iterbar";
+import { VARIANT_URL_PARAM } from "@iterbar/core";
 
 /** The subset of the Web Storage API the registry uses. */
 export interface VariantStorage {

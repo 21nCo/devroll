@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -6,8 +7,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Feedback, FeedbackDraft } from "iterbar";
-import { attachmentPath, iterbarPaths } from "iterbar/node";
+import type { Feedback, FeedbackDraft } from "@iterbar/core";
+import { attachmentPath, iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startDaemon, type RunningDaemon } from "../daemon/index.js";
 import { bearer, json, multipart, send } from "../daemon/test-support/client.js";
@@ -108,6 +109,7 @@ describe("iterbar mcp", { timeout: 60_000 }, () => {
   it("offers the feedback-loop tools with a bounded wait timeout", async () => {
     const { client } = await connect();
     expect(client.getServerVersion()?.name).toBe("iterbar");
+    expect(client.getServerVersion()?.version).toBe((JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version);
     expect(client.getInstructions()).toContain("iterbar dev");
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual(TOOL_NAMES);

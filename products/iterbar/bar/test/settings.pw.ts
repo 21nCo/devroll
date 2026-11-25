@@ -95,12 +95,12 @@ test("shows the installed versions and checks for updates only when asked", asyn
     const bar = window.fixture.mountIterbarBar({
       daemonUrl: url, token,
       devServer: {
-        about: { packages: [{ name: "@iterbar/vite", version: "0.1.0" }, { name: "@iterbar/cli", version: "0.1.0" }], cli: { path: "/repo/cli/dist/cli.js", version: "0.1.0" } },
+        about: { packages: [{ name: "@iterbar/vite", version: "0.1.0" }, { name: "iterbar", version: "0.1.0" }], cli: { path: "/repo/cli/dist/cli.js", version: "0.1.0" } },
         reconnect: async () => ({ daemonUrl: url, token }),
         checkUpdates: async () => {
           checks += 1;
           (window as unknown as { checks: number }).checks = checks;
-          return { packages: [{ name: "@iterbar/vite", installed: "0.1.0", latest: "0.2.0" }, { name: "@iterbar/cli", installed: "0.1.0", latest: null }] };
+          return { packages: [{ name: "@iterbar/vite", installed: "0.1.0", latest: "0.2.0" }, { name: "iterbar", installed: "0.1.0", latest: null }] };
         },
       },
     });
@@ -279,4 +279,41 @@ test("a Start voided by a switch away and back again still changes nothing when 
   await page.evaluate(() => (window as unknown as { release: () => void }).release());
   await page.waitForTimeout(300);
   expect(await page.evaluate(() => (document.querySelector("iterbar-bar") as HTMLElement & { daemonUrl: string }).daemonUrl)).toBe("http://127.0.0.1:9");
+});
+
+test("offers no npm command for a package linked from a workspace or checkout, and says how to update it", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => {
+    const bar = window.fixture.mountIterbarBar({
+      devServer: {
+        about: { packages: [{ name: "@iterbar/vite", version: "0.1.0" }, { name: "iterbar", version: "0.1.0", linked: true }], cli: null },
+        reconnect: async () => ({ daemonUrl: null, token: null }),
+        checkUpdates: async () => ({ packages: [{ name: "@iterbar/vite", installed: "0.1.0", latest: "0.2.0" }, { name: "iterbar", installed: "0.1.0", latest: "0.2.0" }] }),
+      },
+    });
+    bar.expanded = true;
+  });
+  await openPanel(page, "settings");
+  await expect(inBar(page, "[data-role=updates-linked]")).toContainText("iterbar");
+  await inBar(page, "[data-role=updates-check]").click();
+  await expect(inBar(page, "[data-role=updates-npm] .snippet-text")).toHaveText("npm install -D @iterbar/vite@0.2.0");
+});
+
+test("a newer release of a linked package never reads as nothing newer", async ({ page, openFixture }) => {
+  await openFixture();
+  await page.evaluate(() => {
+    const bar = window.fixture.mountIterbarBar({
+      devServer: {
+        about: { packages: [{ name: "iterbar", version: "0.1.0", linked: true }], cli: null },
+        reconnect: async () => ({ daemonUrl: null, token: null }),
+        checkUpdates: async () => ({ packages: [{ name: "iterbar", installed: "0.1.0", latest: "0.2.0" }] }),
+      },
+    });
+    bar.expanded = true;
+  });
+  await openPanel(page, "settings");
+  await inBar(page, "[data-role=updates-check]").click();
+  await expect(inBar(page, "[data-role=settings-updates]")).toContainText("0.2.0 available");
+  await expect(inBar(page, "[data-role=updates-none]")).toHaveCount(0);
+  await expect(inBar(page, "[data-role=updates-npm]")).toHaveCount(0);
 });

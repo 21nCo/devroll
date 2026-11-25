@@ -158,18 +158,79 @@ describe("iterbar init", () => {
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
     expect(run.out()).toContain(`command = "node"`);
     // Installed in the project, or fetched by npx: npx runs it.
-    await mkdir(join(root, "node_modules", "@iterbar", "cli"), { recursive: true });
-    await writeFile(join(root, "node_modules", "@iterbar", "cli", "package.json"), "{}");
+    // The earlier contracts package installed under the name does not count: it has no iterbar command.
+    await mkdir(join(root, "node_modules", "iterbar"), { recursive: true });
+    await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", version: "0.0.1" }));
+    const contracts = capture();
+    expect(await runInit(["--root", root, "--force"], contracts.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [cli, "mcp"] });
+    // Run through npx with that package in the way, the entry names this CLI's version so npx fetches it instead.
+    const viaNpx = capture();
+    const npxCli = join(base, "cache", "_npx", "1", "node_modules", "iterbar", "dist", "cli.js");
+    expect(await runInit(["--root", root, "--force"], viaNpx.io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toMatch(/^iterbar@\d+\.\d+\.\d+/);
+    expect(viaNpx.out()).not.toContain("with node");
+    // A pin an earlier init wrote is init's own: a later init moves it to the version it runs.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "iterbar@0.0.9", "mcp"] } } }));
+    expect(await runInit(["--root", root], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).not.toBe("iterbar@0.0.9");
+    // npx installed it from a tarball: it cannot be fetched by version, so it runs by its path.
+    await mkdir(join(base, "cache", "_npx", "1", "node_modules"), { recursive: true });
+    await writeFile(join(base, "cache", "_npx", "1", "node_modules", ".package-lock.json"), JSON.stringify({ packages: { "node_modules/iterbar": { resolved: "file:../iterbar-0.1.0.tgz" } } }));
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [npxCli, "mcp"] });
+    // A tarball from any https URL is not the registry's copy either; the registry's own tarball of this version is.
+    const lockResolved = (resolved: string) => writeFile(join(base, "cache", "_npx", "1", "node_modules", ".package-lock.json"),
+      JSON.stringify({ packages: { "node_modules/iterbar": { resolved } } }));
+    await lockResolved("https://example.com/iterbar-preview.tgz");
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [npxCli, "mcp"] });
+    const { version } = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+    await lockResolved(`https://registry.npmjs.org/iterbar/-/iterbar-${version}.tgz`);
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toBe(`iterbar@${version}`);
+    // A URL request is not a registry install, even when the URL looks like the registry's tarball.
+    await writeFile(join(base, "cache", "_npx", "1", "package.json"), JSON.stringify({ dependencies: { iterbar: `https://example.com/preview/iterbar/-/iterbar-${version}.tgz` } }));
+    expect(await runInit(["--root", root, "--force"], capture().io, { home, skillSource: skill, cliPath: npxCli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: [npxCli, "mcp"] });
+    await writeFile(join(base, "cache", "_npx", "1", "package.json"), JSON.stringify({ dependencies: { iterbar: "^0.1.0" } }));
+    // A pinned entry is kept by an init that does not pin itself (run from a checkout): the user may have pinned it.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "iterbar@0.0.9", "mcp"] } } }));
+    const checkout = capture();
+    expect(await runInit(["--root", root], checkout.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar.args[1]).toBe("iterbar@0.0.9");
+    expect(checkout.out()).toContain("kept it");
+    await writeFile(join(root, "node_modules", "iterbar", "package.json"), JSON.stringify({ name: "iterbar", bin: { iterbar: "./dist/cli.js" } }));
     const installed = capture();
     expect(await runInit(["--root", root, "--force"], installed.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
     expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
     // Codex starts the server from any folder, so its config names the project's install by its absolute path.
-    const projectCli = join(root, "node_modules", "@iterbar", "cli", "dist", "cli.js");
-    await mkdir(join(root, "node_modules", "@iterbar", "cli", "dist"), { recursive: true });
+    const projectCli = join(root, "node_modules", "iterbar", "dist", "cli.js");
+    await mkdir(join(root, "node_modules", "iterbar", "dist"), { recursive: true });
     await writeFile(projectCli, "");
     const codex = capture();
     expect(await runInit(["--root", root, "--agent", "codex"], codex.io, { home, skillSource: skill, cliPath: cli })).toBe(0);
     expect(codex.out()).toContain(`command = "node"\n    args = [${JSON.stringify(projectCli)}, "mcp", "--root", ${JSON.stringify(root)}]`);
+  });
+
+  it("moves an entry an earlier init wrote under @iterbar/cli to the new name, and keeps a customized one", async () => {
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp"] } } }));
+    const run = capture();
+    expect(await runInit(["--root", root], run.io, { home, skillSource: skill })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
+    // Also when this init registers a checkout's CLI with node.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp"] } } }));
+    const fromCheckout = capture();
+    expect(await runInit(["--root", root], fromCheckout.io, { home, skillSource: skill, cliPath: "/checkout/cli/dist/cli.js" })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual({ command: "node", args: ["/checkout/cli/dist/cli.js", "mcp"] });
+    // Keys in another order are the same entry.
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { args: ["-y", "@iterbar/cli", "mcp"], command: "npx" } } }));
+    expect(await runInit(["--root", root], capture().io, { home, skillSource: skill })).toBe(0);
+    expect(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers.iterbar).toEqual(MCP_COMMAND);
+    await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { iterbar: { command: "npx", args: ["-y", "@iterbar/cli", "mcp", "--verbose"] } } }));
+    const custom = capture();
+    expect(await runInit(["--root", root], custom.io, { home, skillSource: skill })).toBe(0);
+    expect(custom.out()).toContain("kept it");
   });
 
   it("writes nothing on a dry run, and prints Codex's config instead of editing it", async () => {
@@ -186,6 +247,6 @@ describe("iterbar init", () => {
     expect(await runInit(["--root", root, "--agent", "cursor", "--scope", "project"], run.io, { home, skillSource: skill })).toBe(0);
     expect(await readFile(join(root, ".cursor/skills/iterbar/SKILL.md"), "utf8")).toMatch(/name: iterbar/);
     const config = JSON.parse(await readFile(join(root, ".cursor/mcp.json"), "utf8"));
-    expect(config.mcpServers.iterbar.args).toEqual(["-y", "@iterbar/cli", "mcp", "--root", "${workspaceFolder}"]);
+    expect(config.mcpServers.iterbar.args).toEqual(["-y", "iterbar", "mcp", "--root", "${workspaceFolder}"]);
   });
 });

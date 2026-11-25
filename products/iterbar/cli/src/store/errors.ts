@@ -1,4 +1,4 @@
-import type { StoreLock } from "iterbar";
+import type { StoreLock } from "@iterbar/core";
 
 /**
  * Stable machine-readable codes of {@link IterbarStoreError}. `store_locked`, `not_found`, `invalid_request` and

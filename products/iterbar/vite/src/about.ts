@@ -1,15 +1,17 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 /** The package that carries the `iterbar` command (the daemon, the MCP server and `iterbar init`). */
-export const CLI_PACKAGE = "@iterbar/cli";
+export const CLI_PACKAGE = "iterbar";
 const PLUGIN_PACKAGE = "@iterbar/vite";
 
 /** An installed Iterbar package and its version. */
 export interface InstalledPackage {
   readonly name: string;
   readonly version: string;
+  /** Linked from a workspace or checkout (it resolves outside any node_modules): updating it means updating that. */
+  readonly linked?: boolean;
 }
 
 /** What the dev server tells the bar about the Iterbar it runs: for the settings and the setup steps. */
@@ -50,18 +52,29 @@ function owningManifest(file: string): { dir: string; name: string; version: str
   }
 }
 
+/** `linked: true` for a package folder that resolves outside any node_modules (a workspace or checkout link). */
+function linkedFlag(dir: string): { linked?: true } {
+  let real = dir;
+  try {
+    real = realpathSync(dir);
+  } catch {
+    // Kept as given.
+  }
+  return real.split(/[\\/]/u).includes("node_modules") ? {} : { linked: true };
+}
+
 /** The versions of the plugin and the CLI it depends on, and the CLI's entry file, as installed next to `pluginFile`. */
 export function readAbout(pluginFile: string): IterbarAbout {
   const packages: InstalledPackage[] = [];
   const plugin = owningManifest(pluginFile);
-  if (plugin?.name === PLUGIN_PACKAGE) packages.push({ name: plugin.name, version: plugin.version });
+  if (plugin?.name === PLUGIN_PACKAGE) packages.push({ name: plugin.name, version: plugin.version, ...linkedFlag(plugin.dir) });
   let cli: IterbarAbout["cli"] = null;
   try {
     // The package's export map has no package.json, so its daemon entry is resolved and the manifest found from there.
     const daemonEntry = createRequire(pluginFile).resolve(`${CLI_PACKAGE}/daemon`);
     const manifest = owningManifest(daemonEntry);
     if (manifest?.name === CLI_PACKAGE) {
-      packages.push({ name: manifest.name, version: manifest.version });
+      packages.push({ name: manifest.name, version: manifest.version, ...linkedFlag(manifest.dir) });
       const path = join(manifest.dir, "dist", "cli.js");
       if (existsSync(path)) cli = { path, version: manifest.version };
     }

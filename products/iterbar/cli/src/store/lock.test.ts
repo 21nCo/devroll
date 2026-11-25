@@ -1,6 +1,6 @@
 import { link, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import type { StoreLock } from "iterbar";
-import { iterbarPaths } from "iterbar/node";
+import type { StoreLock } from "@iterbar/core";
+import { iterbarPaths } from "@iterbar/core/node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireStoreLock,

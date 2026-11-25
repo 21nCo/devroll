@@ -1,6 +1,6 @@
 import { createVariantsRegistry, markSlotRange, SLOT_BOUNDARY_ATTRIBUTE, type VariantsRegistry } from "@iterbar/variants";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { PAGE_API_GLOBAL, readPageApi, registrySnapshotSchema, VARIANT_STORAGE_KEY } from "iterbar";
+import { PAGE_API_GLOBAL, readPageApi, registrySnapshotSchema, VARIANT_STORAGE_KEY } from "@iterbar/core";
 import {
   Component,
   forwardRef,

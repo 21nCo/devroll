@@ -34,4 +34,4 @@ export {
   type RegistryWarning,
   type SlotState,
   type VariantSelection,
-} from "iterbar";
+} from "@iterbar/core";

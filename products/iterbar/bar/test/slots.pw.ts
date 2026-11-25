@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION } from "iterbar";
+import { SCHEMA_VERSION } from "@iterbar/core";
 import { fakeDaemon } from "./support/fake-daemon.js";
 import { expect, HERO, inBar, mountBar, openPanel, PRICING, registerSlots, test } from "./support/fixtures.js";
 

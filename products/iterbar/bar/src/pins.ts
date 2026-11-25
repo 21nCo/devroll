@@ -1,4 +1,4 @@
-import type { Feedback } from "iterbar";
+import type { Feedback } from "@iterbar/core";
 import { h } from "./dom.js";
 import { icon } from "./icons.js";
 

@@ -16,7 +16,7 @@ import {
   type ParsedVariantParam,
   type RegistrySnapshot,
   type RegistryWarning,
-} from "iterbar";
+} from "@iterbar/core";
 import {
   browserEnvironment,
   readVariantParam,

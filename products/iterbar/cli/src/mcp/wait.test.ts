@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { Feedback, FeedbackListQuery } from "iterbar";
+import type { Feedback, FeedbackListQuery } from "@iterbar/core";
 import type WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { baselineCursor, cursorAfter, decodeCursor, encodeCursor, MAX_CURSOR_SEEN, type FeedbackCursor } from "./cursor.js";

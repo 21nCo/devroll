@@ -1,9 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { packageVersion } from "../version.js";
 import { DaemonClient } from "./daemon-client.js";
 import { HANDLED_EVENT_RULE, registerTools, SESSION_RULE } from "./tools.js";
 
-/** The MCP server's name and version as it reports them to clients. */
-export const ITERBAR_MCP_SERVER_INFO = Object.freeze({ name: "iterbar", version: "0.0.0" });
+/** The MCP server's name and version (the package's) as it reports them to clients. */
+export const ITERBAR_MCP_SERVER_INFO = Object.freeze({ name: "iterbar", version: packageVersion() });
 
 /** How often a waiting `wait_for_feedback` sends a progress notification to a client that asked for progress. */
 export const DEFAULT_HEARTBEAT_MS = 15_000;

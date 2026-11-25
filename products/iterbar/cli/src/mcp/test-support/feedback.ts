@@ -1,4 +1,4 @@
-import type { Feedback } from "iterbar";
+import type { Feedback } from "@iterbar/core";
 
 export type ReplySpec = readonly [id: string, kind: "user" | "agent", atMs: number];
 

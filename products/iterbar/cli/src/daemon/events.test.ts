@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { WEBSOCKET_SUBPROTOCOL, type DaemonEvent } from "iterbar";
+import { WEBSOCKET_SUBPROTOCOL, type DaemonEvent } from "@iterbar/core";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { EventHub } from "./events.js";

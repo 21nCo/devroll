@@ -172,25 +172,36 @@ test("explains every toolbar control in a tooltip; help opens the setup sheet wi
   const viewport = page.viewportSize()!;
   expect(Math.round(sheet.y)).toBe(12);
   expect(Math.round(sheet.x + sheet.width)).toBe(viewport.width - 12);
-  // Without the dev server's CLI path the steps name the iterbar command (setup.md links it from a checkout).
-  await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText("cd /work/shop\niterbar init --agent claude");
+  await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText([
+    "npx iterbar init --agent claude",
+    "pnpm add -D iterbar",
+    "pnpm exec iterbar init --agent claude",
+  ]);
   await inBar(page, "[data-role=agent-manual] summary").click();
-  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- iterbar mcp --root /work/shop");
-  // With it, node runs the CLI the dev server runs, which works before any package is published.
+  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toHaveText("claude mcp add iterbar -- npx -y iterbar mcp --root /work/shop");
+  // Each setup copy button names the command it copies.
+  await expect(inBar(page, "[data-step=init] [data-role=copy-init]").nth(1)).toHaveAttribute("aria-label", "Copy: Set up (one-time), pnpm add -D iterbar");
+  await expect(inBar(page, "[data-step=init] [data-role=copy-init]").nth(2)).toHaveAttribute("aria-label", "Copy: Set up (one-time), pnpm exec iterbar init --agent claude");
+  // When the dev server says which CLI it runs, a third form runs that one, and the manual steps use it.
   await page.evaluate(() => {
     const bar = document.querySelector("iterbar-bar") as HTMLElement & { devServer: unknown };
     bar.devServer = {
-      about: { packages: [], cli: { path: "/repo/products/iterbar/cli/dist/cli.js", version: "0.0.0" } },
+      about: { packages: [], cli: { path: "/repo/products/iterbar/cli/dist/cli.js", version: "0.1.0" } },
       reconnect: async () => ({ daemonUrl: null, token: null }),
       checkUpdates: async () => ({ packages: [] }),
     };
   });
-  await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText("cd /work/shop\nnode /repo/products/iterbar/cli/dist/cli.js init --agent claude");
+  await expect(inBar(page, "[data-step=init] .snippet-text")).toHaveText([
+    "npx iterbar init --agent claude",
+    "pnpm add -D iterbar",
+    "pnpm exec iterbar init --agent claude",
+    "node /repo/products/iterbar/cli/dist/cli.js init --agent claude",
+  ]);
   await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first())
     .toHaveText("claude mcp add iterbar -- node /repo/products/iterbar/cli/dist/cli.js mcp --root /work/shop");
   await expect(inBar(page, "[data-role=agent-manual] .snippet-text").nth(1)).toContainText("cp -R /repo/products/iterbar/cli/skills/iterbar");
   await inBar(page, "#iterbar-agent-codex").click();
-  await expect(inBar(page, "[data-step=init] .snippet-text")).toContainText("init --agent codex");
+  await expect(inBar(page, "[data-step=init] .snippet-text").first()).toContainText("init --agent codex");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: fixtureServer.origin });
   await inBar(page, "[data-role=copy-prompt]").click();
   await expect(inBar(page, "[data-role=copy-prompt]")).toHaveText("Copied");
@@ -362,7 +373,7 @@ test("copies without the Clipboard API from inside the bar, keeping focus on the
   // Cursor's manual snippet names the project's own folder when the bar knows it.
   await inBar(page, "#iterbar-agent-cursor").click();
   await inBar(page, "[data-role=agent-manual] summary").click();
-  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toContainText('"command": "iterbar", "args": ["mcp", "--root", "/work/shop"]');
+  await expect(inBar(page, "[data-role=agent-manual] .snippet-text").first()).toContainText('"args": ["-y", "iterbar", "mcp", "--root", "/work/shop"]');
 });
 
 test("a project with nothing stored yet starts from the state the origin kept", async ({ page, openFixture }) => {

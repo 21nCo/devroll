@@ -9,6 +9,7 @@ on:
       - 'diffpanel-git-v*.*.*'
       - 'diffpanel-presentation-v*.*.*'
       - 'diffpanel-storage-v*.*.*'
+      - 'iterbar-core-v*.*.*'
       - 'iterbar-v*.*.*'
   workflow_dispatch:
     inputs:
@@ -101,7 +102,13 @@ jobs:
           set -euo pipefail
           pack_dir="${RUNNER_TEMP}/diffpanel-pack"
           mkdir -p "${pack_dir}"
-          npm pack --pack-destination "${pack_dir}" --json
+          if [[ "${{ steps.resolve.outputs.pkg_name }}" == "iterbar" ]]; then
+            # The Iterbar CLI has a workspace devDependency (@iterbar/core, bundled at build time): pnpm writes its
+            # version into the packed manifest, where npm pack would leave the workspace reference.
+            pnpm pack --pack-destination "${pack_dir}" --json
+          else
+            npm pack --pack-destination "${pack_dir}" --json
+          fi
           mapfile -t tarballs < <(find "${pack_dir}" -maxdepth 1 -type f -name '*.tgz' -print)
           if [[ ${#tarballs[@]} -ne 1 ]]; then
             echo "Expected exactly one package tarball, found ${#tarballs[@]}" >&2
@@ -120,7 +127,12 @@ jobs:
           if [[ "${{ steps.resolve.outputs.pkg_name }}" == "@diffpanel/storage" ]]; then
             npm rebuild better-sqlite3
           fi
-          node --input-type=module --eval 'await import(process.argv[1])' "${{ steps.resolve.outputs.pkg_name }}"
+          if [[ "${{ steps.resolve.outputs.pkg_name }}" == "iterbar" ]]; then
+            # The Iterbar CLI has no root export: run its command instead.
+            node node_modules/iterbar/dist/cli.js --help
+          else
+            node --input-type=module --eval 'await import(process.argv[1])' "${{ steps.resolve.outputs.pkg_name }}"
+          fi
 
       - name: Hand the package to the publish job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

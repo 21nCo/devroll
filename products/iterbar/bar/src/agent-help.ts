@@ -18,11 +18,21 @@ interface Snippet {
 }
 
 interface AgentSteps {
-  /** The one command that installs the skill and registers the MCP server. */
-  readonly init: Snippet;
+  /** The one command that installs the skill and registers the MCP server (and its pnpm form). */
+  readonly init: readonly Snippet[];
   /** The same by hand: registering the server, and installing the skill. */
   readonly connect: readonly Snippet[];
   readonly skill: readonly Snippet[];
+}
+
+/** Whether `path` is a Windows path (a drive letter, or a UNC path). */
+function isWindowsPath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/u.test(path) || path.startsWith("\\\\");
+}
+
+/** A path as a PowerShell word: single-quoted, with any single quote doubled. */
+function powerShellWord(path: string): string {
+  return `'${path.replaceAll("'", "''")}'`;
 }
 
 /** A path as a shell word, quoted when it needs to be. */
@@ -30,8 +40,8 @@ function shellWord(path: string): string {
   return /^[\w@%+=:,./-]+$/u.test(path) ? path : `'${path.replaceAll("'", "'\\''")}'`;
 }
 
-/** The skill as the installed `@iterbar/cli` package carries it, relative to the project root. */
-const PACKAGED_SKILL = "node_modules/@iterbar/cli/skills/iterbar";
+/** The skill as the installed `iterbar` package carries it, relative to the project root. */
+const PACKAGED_SKILL = "node_modules/iterbar/skills/iterbar";
 
 /** The CLI the dev server runs the daemon from: its `dist/cli.js`. */
 export interface AgentCli {
@@ -39,32 +49,45 @@ export interface AgentCli {
 }
 
 /**
- * How the snippets start the CLI. With the CLI the dev server runs (its path, from the Iterbar Vite plugin), `node`
- * runs that file, which works from a checkout and from an install alike, and its own bundled skill is copied. Without
- * it, the `iterbar` command (setup.md links it from a checkout) and the installed package's skill.
+ * How the manual snippets start the CLI. With the CLI the dev server runs (its path, from the Iterbar Vite plugin),
+ * `node` runs that file: the same version as the daemon, from a checkout or an install alike, and its own bundled
+ * skill is copied. Without it, the published `iterbar` package through npx, and the installed package's skill.
  */
 function launcher(cli: AgentCli | null): { run: string; command: string; args: readonly string[]; skill: string } {
-  if (!cli) return { run: "iterbar", command: "iterbar", args: [], skill: PACKAGED_SKILL };
+  if (!cli) return { run: "npx -y iterbar", command: "npx", args: ["-y", "iterbar"], skill: PACKAGED_SKILL };
   const packageDir = cli.path.replace(/[\\/]dist[\\/]cli\.js$/u, "");
   const separator = cli.path.includes("\\") && !cli.path.includes("/") ? "\\" : "/";
   return { run: `node ${shellWord(cli.path)}`, command: "node", args: [cli.path], skill: shellWord(`${packageDir}${separator}skills${separator}iterbar`) };
 }
 
 /**
- * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md gives them: `iterbar init`
- * (the CLI carries the skill) does both in one go; the manual steps register the MCP server and copy the skill out of
- * the CLI's package. `root` is the project's absolute path when the bar knows it; otherwise the snippets keep the
- * references' placeholders. `cli` is the CLI the dev server runs, when it says.
+ * The setup steps for each agent, as products/iterbar/skills/iterbar/references/setup.md gives them: `npx iterbar init`
+ * (the `iterbar` package carries the skill) does both in one go, and in a pnpm project, where only a direct dependency
+ * puts the command on the path, `pnpm add -D iterbar` first. When the dev server says which CLI it runs (`cli`), a
+ * third form runs that one, and the manual steps use it too. `root` is the project's absolute path when the bar knows
+ * it; otherwise the snippets keep the references' placeholders.
  */
 export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli | null = null): AgentSteps {
-  const where = root ? `cd ${shellWord(root)}\n` : "";
+  // The commands carry no `cd` and no chaining, so they run alike in every shell (Windows PowerShell 5.1 has no &&)
+  // and none can run somewhere else: the caption names the folder to run them in.
+  const folder = root ? `in the project's folder (${root})` : "in the project's folder";
+  const quote = cli && isWindowsPath(cli.path) ? powerShellWord : shellWord;
   const launch = launcher(cli);
-  const init = (name: string): Snippet => ({
-    caption: cli
-      ? "Run in the project's folder. It installs the iterbar skill and registers the MCP server, with the CLI this dev server runs:"
-      : "Run in the project's folder (with the iterbar command; setup.md shows how to link it). It installs the skill and registers the MCP server:",
-    text: `${where}${launch.run} init --agent ${name}`,
-  });
+  const init = (name: string): readonly Snippet[] => [{
+    caption: `Run ${folder}. It installs the iterbar skill and registers the MCP server:`,
+    text: `npx iterbar init --agent ${name}`,
+  }, {
+    caption: `In a pnpm project, first add the CLI to the project, ${folder} (pnpm gives a package's command only to direct `
+      + "dependencies; at the root of a pnpm workspace, use pnpm add -Dw iterbar):",
+    text: "pnpm add -D iterbar",
+  }, {
+    caption: "Then, once the install has succeeded, run init with it:",
+    text: `pnpm exec iterbar init --agent ${name}`,
+  }, ...(cli ? [{
+    caption: `Or run the CLI this dev server runs (the same version as its daemon, published or not), ${folder}`
+      + (isWindowsPath(cli.path) ? ", in PowerShell:" : ":"),
+    text: `node ${quote(cli.path)} init --agent ${name}`,
+  }] : [])];
   const copySkill = (folder: string): Snippet => ({
     caption: "Copy the skill out of the CLI's package, in the project's folder:",
     text: `mkdir -p ${folder}\ncp -R ${launch.skill} ${folder}/`,
@@ -105,10 +128,10 @@ export function agentSteps(agent: AgentName, root: string | null, cli: AgentCli 
       };
     case "other":
       return {
-        init: {
+        init: [{
           caption: "Your agent needs an MCP server; the skill is optional. Register a stdio MCP server named iterbar that runs:",
           text: `${launch.run} mcp --root ${root ? shellWord(root) : "/absolute/path/to/project"}`,
-        },
+        }],
         connect: [],
         skill: [{
           caption: "If your agent reads skills, copy this folder (from the CLI's package) into its skills folder:",
@@ -180,7 +203,7 @@ export class AgentHelp {
     this.#render();
   }
 
-  /** The CLI the dev server runs, filled into the setup snippets; `null` names the `iterbar` command instead. */
+  /** The CLI the dev server runs, offered in the setup steps and used by the manual ones; `null` names npx's copy. */
   set cli(value: AgentCli | null) {
     if (value?.path === this.#cli?.path) return;
     this.#cli = value;
@@ -213,7 +236,7 @@ export class AgentHelp {
     const steps = agentSteps(this.#agent, this.#root, this.#cli);
     const manual = [...steps.connect, ...steps.skill];
     this.#body.replaceChildren(
-      this.#step("1", "Set up (one-time)", [steps.init], "init"),
+      this.#step("1", "Set up (one-time)", steps.init, "init"),
       this.#step("2", "Prompt to paste", [{ caption: "Paste into your agent:", text: AGENT_PROMPT }], "prompt"),
       ...(this.#agent === "other" ? [] : [h("details", { class: "agent-manual", "data-role": "agent-manual" },
         h("summary", {}, "Set it up by hand instead"),
@@ -229,7 +252,8 @@ export class AgentHelp {
       h("h3", { class: "agent-step-title" }, h("span", { class: "agent-step-number", "aria-hidden": "true" }, number), title),
       ...snippets.flatMap((snippet) => [
         h("p", { class: "muted agent-caption" }, snippet.caption),
-        this.#snippet(snippet.text, role, title),
+        // Named after the step and its command, so each copy button of a step with several says which it copies.
+        this.#snippet(snippet.text, role, snippets.length > 1 ? `${title}, ${snippet.text.split("\n").at(-1)!}` : title),
       ]));
   }
 
