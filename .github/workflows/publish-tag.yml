@@ -87,7 +87,9 @@ jobs:
       - name: Build package
         env:
           PACKAGE_PATH: ${{ steps.resolve.outputs.pkg_path }}
-        run: pnpm --filter "./${PACKAGE_PATH}..." build
+        # The braces make pnpm read the selector as a directory, so the trailing ... also selects the workspace
+        # packages it depends on (and builds them first); "./dir..." would select the package alone.
+        run: pnpm --filter "{./${PACKAGE_PATH}}..." build
 
       - name: Test package
         env:
