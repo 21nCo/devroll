@@ -1,7 +1,8 @@
 # Setting up the Iterbar MCP server
 
-The agent needs two things: a way to start the `iterbar` CLI (the project's own install through npx, or the command
-on `PATH`), and its MCP server registered with the agent CLI.
+The agent needs two things: a way to start the `iterbar` CLI (the project's own install, through npx or by running
+its entry point `iterbar/dist/cli.js` with node, or the command on `PATH`), and its MCP server registered with the
+agent CLI.
 These steps are for the user (or for you, when the user asks you to set it up).
 
 ## The quick way: `iterbar init`
@@ -53,25 +54,32 @@ tools report `daemon_unavailable` until one does.
 ## Registering the server by hand
 
 `iterbar init` does this for you. By hand, start the server with the project's own copy of the CLI, so the agent
-needs nothing on `PATH`. Two folders matter below:
+needs nothing on `PATH`. Three places matter below:
 
-- the **npm project root**: the folder with the app's `package.json` and `node_modules` (a Vite app, say);
+- the **npm project root**: the folder with the app's `package.json` (a Vite app, say), where you run `npm install`;
+- the **`node_modules` folder npm installs into**: the npm project root's own in a standalone app, but in an
+  [npm workspaces](https://docs.npmjs.com/cli/using-npm/workspaces) repository usually the workspace root's, with no
+  copy in the app folder. `npm root`, run in the npm project root, prints it;
 - the **repository root**: the top of its git repository. Current Claude Code versions key local MCP entries,
-  workspace trust and `.claude/settings.local.json` on it. In a one-package repository it is the same folder; in a
-  monorepo the app may sit in a subfolder.
+  workspace trust and `.claude/settings.local.json` on it. In a one-package repository it is the same folder as the
+  npm project root; in a monorepo the app may sit in a subfolder.
 
 With npm, in the npm project root:
 
 ```bash
-npm install --save-dev iterbar                   # the project's copy, in node_modules/iterbar
-node ./node_modules/iterbar/dist/cli.js --help   # checks that copy is there
+npm install --save-dev iterbar           # the project's copy
+cli="$(npm root)/iterbar/dist/cli.js"    # its entry point; npm root prints where npm installed it
+node "$cli" --help                       # checks that copy is there
 ```
 
-`npx -y iterbar mcp` runs that copy only when it starts in the npm project root after `npm install`. npx finds the
-package from the directory it starts in, not from `--root`: started elsewhere, or in a fresh clone before
-`npm install`, it can use another copy or download the latest `iterbar`. (`npx --no-install` only stops the
-download; it can still use a global or cached copy.) `--root` picks the project only once Iterbar runs. The project's
-entry point, `node_modules/iterbar/dist/cli.js`, run with node, always starts that copy (or fails if it is not
+If the check reports a missing file in a workspaces repository, npm nested the copy in the app's own `node_modules`
+(it does so when another workspace needs a different `iterbar` version): use `"$PWD/node_modules/iterbar/dist/cli.js"`.
+
+`npx -y iterbar mcp` runs that copy only when it starts in the npm project root (or, with workspaces, elsewhere in the
+same workspace) after `npm install`. npx finds the package from the directory it starts in, not from `--root`:
+started elsewhere, or in a fresh clone before `npm install`, it can use another copy or download the latest
+`iterbar`. (`npx --no-install` only stops the download; it can still use a global or cached copy.) `--root` picks the
+project only once Iterbar runs. The entry point run with node always starts the project's copy (or fails if it is not
 installed), so use it whenever the server may start outside the npm project root. When the command is on `PATH` (a
 checkout, above), `iterbar mcp` works like npx.
 
@@ -79,10 +87,10 @@ For Claude Code, register the name `iterbar` in one scope: local scope for yours
 
 **Local scope** (only you). Claude Code keeps the entry in `~/.claude.json` under the project, which current versions
 key on the repository root, so the entry also loads in `claude` sessions started in other folders of the repository.
-Run this in the npm project root, with absolute paths:
+Run this in the npm project root, with `cli` set as above, so both paths are absolute:
 
 ```bash
-claude mcp add iterbar -- node "$PWD/node_modules/iterbar/dist/cli.js" mcp --root "$PWD"
+claude mcp add iterbar -- node "$cli" mcp --root "$PWD"
 ```
 
 `claude mcp add iterbar -- npx -y iterbar mcp --root "$PWD"` works too when the npm project root is the repository
@@ -90,11 +98,19 @@ root and you start `claude` there; in a monorepo, a session started in another f
 
 **Project scope** (everyone on the project). `claude mcp add --scope project` writes `.mcp.json` in the folder you run
 it in, for you to commit, and Claude Code reads it in sessions started in that folder or below it. Run it, and start
-`claude`, in the npm project root. Leave out `--root`: an absolute path from your machine does not exist on theirs.
-`iterbar mcp` then serves the directory Claude Code starts it in, and the relative path resolves from there:
+`claude`, in the npm project root. Leave out `--root` and use a relative path to the entry point: absolute paths from
+your machine do not exist on theirs. `iterbar mcp` then serves the directory Claude Code starts it in, and the
+relative path resolves from there. In a standalone app:
 
 ```bash
 claude mcp add --scope project iterbar -- node node_modules/iterbar/dist/cli.js mcp
+```
+
+In an npm workspaces repository, give the path from the app folder to the copy `npm root` names; for an app in
+`apps/web` with `iterbar` in the workspace root's `node_modules`:
+
+```bash
+claude mcp add --scope project iterbar -- node ../../node_modules/iterbar/dist/cli.js mcp
 ```
 
 (`claude mcp add --scope project iterbar -- npx -y iterbar mcp` also works, but in a clone where `npm install` has
@@ -102,13 +118,14 @@ not run yet it downloads the latest `iterbar` instead of failing.) Whether Claud
 on approval and on how you run it (below).
 
 To see what is registered, run `claude mcp get iterbar` in the folder you start `claude` in. It shows the scope
-(`Local config` or `Project config (shared via .mcp.json)`), the command and arguments, and a status such as
-`✔ Connected` or `⏸ Pending approval`. `claude mcp list` shows the other servers too (but not a rejected one, below),
-and `/mcp` does inside a session. Local scope wins over project scope: with both entries, Claude Code uses your local
-one, and `get` shows only it, `✔ Connected` say, while the shared one is still pending or rejected (`list` may add a
-warning that `iterbar` is defined in more than one scope). So read a status as the project server's only when `get`
-reports `Project config`; to check the shared entry, remove yours with `claude mcp remove --scope local iterbar`. The
-shared command and arguments are in `.mcp.json`.
+(`Local config`, `User config` or `Project config (shared via .mcp.json)`), the command and arguments, and a status
+such as `✔ Connected` or `⏸ Pending approval`. `claude mcp list` shows the other servers too (but not a rejected one,
+below), and `/mcp` does inside a session. An `iterbar` entry of your own can take the shared one's place: a local
+entry always wins over project scope, and a user entry wins while the shared one is not approved. Claude Code then
+uses yours, and `get` shows only it, `✔ Connected` say, while the shared one is still pending or rejected (`list` may
+add a warning that `iterbar` is defined in more than one scope). So read a status as the project server's only when
+`get` reports `Project config`; to check the shared entry, remove yours with `claude mcp remove --scope local iterbar`
+(or `--scope user` for a user entry). The shared command and arguments are in `.mcp.json`.
 
 A path like `node_modules/@iterbar/vite/node_modules/@iterbar/cli/dist/cli.js` belongs to older installs, where the
 CLI was the `@iterbar/cli` package and npm kept the Vite plugin's copy inside the plugin, so neither npx nor
@@ -122,13 +139,21 @@ sessions: `claude` asks before starting it, and `claude mcp get iterbar` (with `
 ``⏸ Pending approval (run `claude` to approve)`` until you approve it. Headless runs can differ (below), so a pending
 status does not mean a `claude -p` run leaves the server out.
 
-- **Interactively**: start `claude` in the npm project root, accept the workspace trust dialog, and approve `iterbar`
-  when Claude Code asks about the project's servers. Claude Code saves the choice in `.claude/settings.local.json`;
-  in a git repository, current versions (v2.1.211 and later) usually keep that file at the repository root and apply
-  it across the repository, where earlier ones kept it in the folder you started in (exceptions:
+- **Interactively**: start `claude` in the npm project root and accept the workspace trust dialog. Claude Code then
+  asks about the project's servers you have not answered for, and saves an answer for every server it lists in
+  `.claude/settings.local.json`; in a git repository, current versions (v2.1.211 and later) usually keep that file at
+  the repository root and apply it across the repository, where earlier ones kept it in the folder you started in
+  (exceptions:
   [where Claude Code keeps the local file](https://code.claude.com/docs/en/settings#where-claude-code-keeps-the-local-file-in-a-git-repository)).
+  An approved server goes in `enabledMcpjsonServers`; a declined one goes in `disabledMcpjsonServers`, a rejection
+  (below) that also keeps it out of `claude -p` runs. When several servers are new, current versions list them
+  (`<n> new MCP servers found in this project`) and reject every one you leave unselected, and cancelling the dialog
+  rejects them all, `iterbar` included. So select every server you want, not only `iterbar`; to approve `iterbar`
+  without answering for the others, approve it in advance.
 - **In advance**, approve only `iterbar` (not `enableAllProjectMcpServers`, which approves every server in
-  `.mcp.json`) in that `.claude/settings.local.json`, your own settings for the project, which git must not track:
+  `.mcp.json`) in that `.claude/settings.local.json`, your own settings for the project, which git must not track. Add
+  `"iterbar"` to its `enabledMcpjsonServers` list and keep the file's other settings and the list's other entries; a
+  new file holds just:
 
   ```json
   { "enabledMcpjsonServers": ["iterbar"] }
@@ -166,12 +191,14 @@ Allow Iterbar's tools with `--allowedTools "mcp__iterbar__*"` or an `allow` rule
 or the server-level `mcp__iterbar`, which also covers every tool of the server.
 
 Codex, in `~/.codex/config.toml`. Codex starts the server from any folder, so name the project's entry point by its
-absolute path (or use `command = "iterbar"` with `args = ["mcp", "--root", ...]` when the command is on `PATH`):
+absolute path, the `$cli` from above (`echo "$cli"`; in an npm workspaces repository usually under the workspace
+root), and the npm project root as `--root` (or use `command = "iterbar"` with `args = ["mcp", "--root", ...]` when
+the command is on `PATH`):
 
 ```toml
 [mcp_servers.iterbar]
 command = "node"
-args = ["/absolute/path/to/project/node_modules/iterbar/dist/cli.js", "mcp", "--root", "/absolute/path/to/project"]
+args = ["/absolute/path/to/node_modules/iterbar/dist/cli.js", "mcp", "--root", "/absolute/path/to/npm/project/root"]
 # Long enough for the longest wait_for_feedback you use (at most 1,800 seconds).
 tool_timeout_sec = 1900
 ```
