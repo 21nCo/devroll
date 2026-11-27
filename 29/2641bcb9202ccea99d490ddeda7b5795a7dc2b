@@ -1,0 +1,19 @@
+products/iterbar/skills/iterbar/references/setup.md
+  s_1eb217f2cbe12c::t_ffb1ccdf2872d0 55-63,66,70-76,78,80-82,85,88-89,91-94,100-112,121,125-129,131,137-139,143-151,155-161,168-169,173-174,179-181,186,191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "292641bcb9202ccea99d490ddeda7b5795a7dc2b",
+  "prompts": {},
+  "sessions": {
+    "s_1eb217f2cbe12c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2b2155d1-b0bb-4e5e-bb89-8414e78e1489",
+        "model": "unknown"
+      },
+      "human_author": "Aravind Samala <samalaaravind02@gmail.com>"
+    }
+  }
+}
