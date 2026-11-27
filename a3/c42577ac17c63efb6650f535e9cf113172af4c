@@ -1,0 +1,19 @@
+products/iterbar/skills/iterbar/references/setup.md
+  s_c2a5d567caf9e5::t_a9b7b7b7051f38 59-60,63-66,69-70,79,87-88,90-92,96,106-109,126-131,133-138,142-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a3c42577ac17c63efb6650f535e9cf113172af4c",
+  "prompts": {},
+  "sessions": {
+    "s_c2a5d567caf9e5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a21e3d-5894-73c1-b159-8e4dadc7dbaa",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Aravind Samala <samalaaravind02@gmail.com>"
+    }
+  }
+}
