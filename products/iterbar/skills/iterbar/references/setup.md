@@ -138,105 +138,65 @@ is not the npm project root, add it as a relative `--root`, such as `... mcp --r
 where `npm install` has not run yet it downloads the latest `iterbar` instead of failing.) Whether Claude Code starts
 a project server depends on approval and on how you run it (below).
 
-To see what is registered, run `claude mcp get iterbar` in the folder you start `claude` in. It shows the scope
-(`Local config`, `User config` or `Project config (shared via .mcp.json)`), the command and arguments, and a status
-such as `✔ Connected` or `⏸ Pending approval`. `claude mcp list` shows the other servers too (but not a rejected one,
-below), and `/mcp` does inside a session. To show `✔ Connected`, `get` and `list` start the command of every entry
-that needs no approval or is approved, so read a shared command you have not seen in `.mcp.json` first (below).
-
-An `iterbar` entry of your own can take the shared one's place: a local entry always wins over project scope, and a
-user entry wins while the shared one is not approved. Claude Code then uses yours, and `get` shows only it,
-`✔ Connected` say, while the shared one is still pending or rejected (`list` may add a warning that `iterbar` is
-defined in more than one scope). So read a status as the project server's only when `get` reports `Project config`.
-To check the shared entry, set yours aside and restore it unchanged afterwards. Claude Code keeps both kinds in
-`~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set), a local entry under the repository root:
-
-```bash
-cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
-saved="$(node -p 'JSON.stringify(require(process.argv[1]).projects[process.argv[2]].mcpServers.iterbar)' \
-  "$cfg" "$(git rev-parse --show-toplevel)")"
-claude mcp remove --scope local iterbar
-claude mcp get iterbar                             # the shared entry now (or a user entry, as above)
-claude mcp add-json --scope local iterbar "$saved"  # yours again, arguments and environment included
-```
-
-A user entry is yours in every project: save it with
-`node -p 'JSON.stringify(require(process.argv[1]).mcpServers.iterbar)' "$cfg"`, and remove and restore it with
-`--scope user`.
-
 A path like `node_modules/@iterbar/vite/node_modules/@iterbar/cli/dist/cli.js` belongs to older installs, where the
 CLI was the `@iterbar/cli` package and npm kept the Vite plugin's copy inside the plugin, so neither npx nor
 `node_modules/.bin` found it. The CLI is now the `iterbar` package, which that path never holds; with `iterbar`
 installed directly, use `node_modules/iterbar/dist/cli.js`.
 
-### Approving the project server in Claude Code
+### Checking and approving the project server in Claude Code
 
-Servers in local or user scope need no approval. A server from the project's `.mcp.json` does, in interactive
-sessions: `claude` asks before starting it, and `claude mcp get iterbar` (with `Project config` as its scope) shows
-``⏸ Pending approval (run `claude` to approve)`` until you approve it. Headless runs can differ (below), so a pending
-status does not mean a `claude -p` run leaves the server out.
+Read a shared command before anything starts it. The project server is the `iterbar` entry in `.mcp.json`, in the
+folder you start `claude` in or a folder above it up to the repository root. After a pull, this lists what changed in
+every `.mcp.json` of the repository, from any folder in it:
+
+```bash
+git diff ORIG_HEAD HEAD -- ':/*.mcp.json'
+```
+
+Then `claude mcp get iterbar`, in the folder you start `claude` in, shows the scope (`Local config`, `User config` or
+`Project config (shared via .mcp.json)`), the command and arguments, and a status such as `✔ Connected`,
+``⏸ Pending approval (run `claude` to approve)`` or `✘ Rejected`. `claude mcp list` shows the other servers too, and
+`/mcp` does inside a session. To report `✔ Connected`, `get` and `list` start the command of every entry that needs
+no approval or is approved, which is why you read `.mcp.json` first.
+
+Register the name `iterbar` in one scope only. A same-named local entry takes the shared one's place, and so does a
+user entry while the shared one is not approved; `get` then shows that entry. So read a status as the project
+server's only when `get` reports `Project config`. For a personal entry next to a shared one, use another name
+(`claude mcp add iterbar-dev -- ...`).
+
+Servers in local or user scope need no approval; one from `.mcp.json` does, and approval only decides whether Claude
+Code starts it. The [Claude Code MCP reference](https://code.claude.com/docs/en/mcp#project-server-approvals-and-workspace-trust)
+covers the details for your version.
 
 - **Interactively**: start `claude` in the npm project root and accept the workspace trust dialog. Claude Code then
-  asks about the project's servers you have not answered for, and saves an answer for every server it lists in
-  `.claude/settings.local.json`; in a git repository, current versions (v2.1.211 and later) usually keep that file at
-  the repository root and apply it across the repository, where earlier ones kept it in the folder you started in
-  (exceptions:
-  [where Claude Code keeps the local file](https://code.claude.com/docs/en/settings#where-claude-code-keeps-the-local-file-in-a-git-repository)).
-  An approved server goes in `enabledMcpjsonServers`; a declined one goes in `disabledMcpjsonServers`, a rejection
-  (below) that also keeps it out of `claude -p` runs. When only `iterbar` is new, `Use this MCP server` approves
-  just it, while `Use this and all future MCP servers in this project` also sets `enableAllProjectMcpServers`, which
-  approves every server the project's `.mcp.json` lists, now or later. When several servers are new, current
-  versions list them (`<n> new MCP servers found in this project`) and reject every one you leave unselected, and
-  cancelling the dialog rejects them all, `iterbar` included. So select every server you want, not only `iterbar`;
-  to approve `iterbar` without answering for the others, approve it in advance.
-- **In advance**, approve only `iterbar` (not `enableAllProjectMcpServers`, which approves every server in
-  `.mcp.json`) in that `.claude/settings.local.json`, your own settings for the project, which git must not track. Add
-  `"iterbar"` to its `enabledMcpjsonServers` list and keep the file's other settings and the list's other entries; a
-  new file holds just:
+  asks about the project's new servers and saves an answer for each server it lists in `.claude/settings.local.json`
+  (your own settings, which git must not track;
+  [where Claude Code keeps it](https://code.claude.com/docs/en/settings#where-claude-code-keeps-the-local-file-in-a-git-repository)):
+  approved ones in `enabledMcpjsonServers`, the others in `disabledMcpjsonServers`. A server you leave unselected is
+  rejected, and cancelling rejects them all, so select every server you want. `Use this and all future MCP servers in
+  this project` approves everything `.mcp.json` lists, now or later; `Use this MCP server` approves just `iterbar`.
+- **In advance**: add `"iterbar"` to `enabledMcpjsonServers` in that file, keeping its other settings and the list's
+  other entries; a new file holds just `{ "enabledMcpjsonServers": ["iterbar"] }`. Since Claude Code v2.1.207 it
+  counts only in a folder you have trusted.
 
-  ```json
-  { "enabledMcpjsonServers": ["iterbar"] }
-  ```
+An approval is for the name `iterbar`, not for one command or one file: it covers an `iterbar` entry in every
+`.mcp.json` the settings file applies to, and it stays when someone changes the command, so keep reading `.mcp.json`
+changes after a pull. When entries need separate decisions, such as one per app in a monorepo, give each its own name
+(`iterbar-web`) and use that name in `enabledMcpjsonServers` and in tool rules (`mcp__iterbar-web`).
 
-  Since Claude Code v2.1.207 this file counts only once you have trusted the folder (accepted the trust dialog there
-  once); earlier versions applied it in any folder. An approval committed to `.claude/settings.json` does not count in
-  an untrusted folder: a repository cannot approve its own servers. This file is not MCP "local scope", which is
-  `~/.claude.json`.
+`"iterbar"` in `disabledMcpjsonServers` in any settings file Claude Code reads (`.claude/settings.local.json`, the
+committed `.claude/settings.json`, `~/.claude/settings.json` or managed settings) wins over any approval: `get` shows
+`✘ Rejected` and `list` leaves the server out. To undo it, remove only that entry from the file that has it.
 
-An approval, either way, is for the name `iterbar`, not for one command or one file: it covers an `iterbar` entry
-in every `.mcp.json` the settings file applies to (with the file at the repository root, every `.mcp.json` in the
-repository), and it stays when someone changes that entry's command. So after pulling, read what changed in the
-`.mcp.json` files themselves, for example with `git diff ORIG_HEAD HEAD -- '*.mcp.json'` right after `git pull`,
-before you start `claude` or run `claude mcp get` or `claude mcp list`: each of those starts an approved server's
-command. When entries need separate decisions, such as one for each app in a monorepo, give each its own name
-(`claude mcp add --scope project iterbar-web -- ...`), and use that name in `enabledMcpjsonServers` and in tool
-rules (`mcp__iterbar-web`).
+Headless runs differ by version. The current [reference](https://code.claude.com/docs/en/mcp#project-scope) says
+`claude -p` runs and Agent SDK sessions cannot show the prompt, so by default they load project servers without
+asking, while `get` still reports `Pending approval`; a rejection or options such as `--strict-mcp-config` can still
+keep the server out. Some earlier versions left an unapproved project server out of `-p` runs, so approving `iterbar`
+in advance works on either kind.
 
-A rejection wins over any approval. Rejecting `iterbar` in the dialog adds it to `disabledMcpjsonServers` in
-`.claude/settings.local.json`, and the same entry in any other settings file Claude Code reads (the project's
-committed `.claude/settings.json`, your `~/.claude/settings.json`, or your organization's managed settings) rejects
-it too. While one does, `enabledMcpjsonServers` does nothing and `claude mcp get iterbar` shows
-`✘ Rejected (see disabledMcpjsonServers in settings)` (`claude mcp list` leaves a rejected server out). To undo it,
-find each settings file whose `disabledMcpjsonServers` lists `"iterbar"`, remove only that entry and keep the rest,
-then check with `claude mcp get iterbar`; ask your administrator about managed settings.
-`claude mcp reset-project-choices` is not a targeted undo: it clears the approvals and rejections stored for the
-project for every server, `.claude/settings.local.json` included, and leaves a rejection in any other settings file in
-place (it names the servers that stay rejected).
-
-Headless runs (`claude -p`) differ by version. The current
-[Claude Code MCP reference](https://code.claude.com/docs/en/mcp#project-scope) says `-p` runs and Agent SDK sessions
-cannot show the prompt, so by default they load project servers without asking, while `claude mcp get` still reports
-`Pending approval`. Other settings can still keep the server out: a `disabledMcpjsonServers` entry,
-`--strict-mcp-config`, `--setting-sources` that leaves out project settings, turning the server off for the project in
-`/mcp` (`⊘ Disabled for this project`), or an organization MCP policy (see also
-[approvals and workspace trust](https://code.claude.com/docs/en/mcp#project-server-approvals-and-workspace-trust)).
-Some earlier versions left an unapproved project server out of `-p` runs. Approving `iterbar` first works on either
-kind of version; check the reference for yours.
-
-Approval only lets Claude Code start the server and offer its tools. Each tool call still follows your permission
-rules: interactively Claude Code asks, and in a `-p` run, with no one to ask, a call that needs permission is denied.
-Allow Iterbar's tools with `--allowedTools "mcp__iterbar__*"` or an `allow` rule in your settings: `mcp__iterbar__*`,
-or the server-level `mcp__iterbar`, which also covers every tool of the server.
+Approval does not allow tool calls, which still follow your permission rules: interactively Claude Code asks, and in a
+`-p` run a call that needs permission is denied. Allow Iterbar's tools with `--allowedTools "mcp__iterbar__*"` or an
+`allow` rule in your settings (`mcp__iterbar__*`, or `mcp__iterbar` for every tool of the server).
 
 Codex, in `~/.codex/config.toml`. Codex starts the server from any folder, so give both paths absolute: the `$cli`
 and `$root` from above (`echo "$cli" "$root"`). Use `command = "iterbar"` with `args = ["mcp", "--root", ...]`
