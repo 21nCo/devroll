@@ -80,7 +80,8 @@ With npm, in the npm project root:
 ```bash
 npm install --save-dev iterbar                          # the project's copy
 cli="$PWD/node_modules/iterbar/dist/cli.js"             # the app's own copy, if npm put one there,
-[ -f "$cli" ] || cli="$(npm root)/iterbar/dist/cli.js"  # else the hoisted one (npm root prints where)
+[ -d "$PWD/node_modules/iterbar" ] ||                  # else the hoisted one (npm root prints where)
+  cli="$(npm root)/iterbar/dist/cli.js"
 node "$cli" --help                                      # checks that copy is there
 root="$PWD"                                             # the Vite plugin's project root (below)
 ```
@@ -123,8 +124,9 @@ claude mcp add iterbar -- node "$cli" mcp --root "$root"
 it in, for you to commit, and Claude Code reads it in sessions started in that folder or below it. Run it, and start
 `claude`, in the npm project root, and give both paths relative to that folder: absolute paths from your machine do
 not exist on theirs. Claude Code starts the server in the folder you started `claude` in, where the relative entry
-point resolves and `iterbar mcp` serves that folder unless `--root` names another one. (Started in a subfolder, the
-relative paths miss and `claude mcp get iterbar` reports `✘ Failed to connect`.)
+point resolves and `iterbar mcp` serves that folder unless `--root` names another one. So start `claude` in the
+folder that holds `.mcp.json`: in a folder below it the relative paths resolve from there, which can fail or start
+another installed copy that serves that folder, including another Iterbar project's daemon.
 
 ```bash
 rel="$(node -p 'path.relative(fs.realpathSync("."), fs.realpathSync(process.argv[1]))' "$cli")"
@@ -156,8 +158,9 @@ git diff ORIG_HEAD HEAD -- ':/*.mcp.json'
 Then `claude mcp get iterbar`, in the folder you start `claude` in, shows the scope (`Local config`, `User config` or
 `Project config (shared via .mcp.json)`), the command and arguments, and a status such as `✔ Connected`,
 ``⏸ Pending approval (run `claude` to approve)`` or `✘ Rejected`. `claude mcp list` shows the other servers too, and
-`/mcp` does inside a session. To report `✔ Connected`, `get` and `list` start the command of every entry that needs
-no approval or is approved, which is why you read `.mcp.json` first.
+`/mcp` does inside a session. To report `✔ Connected`, `get` starts the `iterbar` entry it shows if that entry is
+approved or needs no approval; `list` and `/mcp` start every such server in every scope. So before running them, read
+every server in the `.mcp.json` files that apply, not only `iterbar`.
 
 Register the name `iterbar` in one scope only. A same-named local entry takes the shared one's place, and so does a
 user entry while the shared one is not approved; `get` then shows that entry. So read a status as the project
