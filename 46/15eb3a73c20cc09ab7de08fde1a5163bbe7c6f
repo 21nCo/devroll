@@ -1,0 +1,19 @@
+products/iterbar/skills/iterbar/references/setup.md
+  s_04f71112ecebc7::t_aa4edc85549d74 83-84,127-129,161-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4615eb3a73c20cc09ab7de08fde1a5163bbe7c6f",
+  "prompts": {},
+  "sessions": {
+    "s_04f71112ecebc7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a21f6e-addb-7381-be35-53c462932c10",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Aravind Samala <samalaaravind02@gmail.com>"
+    }
+  }
+}
