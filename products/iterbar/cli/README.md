@@ -11,7 +11,13 @@ npx iterbar dev                   # the daemon, when no Iterbar dev-server plugi
 ```
 
 Run `iterbar <command> --help` for each command's options. The Vite plugin (`@iterbar/vite`) starts the daemon
-with the dev server and shows the bar; see the skill's `references/setup.md` for the full setup.
+with the dev server and shows the bar.
+
+The complete setup guide is the skill's `references/setup.md`: `skills/iterbar/references/setup.md` in this package
+(`node_modules/iterbar/skills/iterbar/references/setup.md` in a project), or
+[on GitHub](https://github.com/21nCo/devroll/blob/main/products/iterbar/skills/iterbar/references/setup.md). It covers
+npm projects with no global `iterbar` command, registering the MCP server by hand for you or for the whole project,
+checking it with `claude mcp get iterbar`, and approving the project's server in Claude Code, `claude -p` included.
 
 ## Known limits
 
