@@ -7,10 +7,11 @@ These steps are for the user (or for you, when the user asks you to set it up).
 
 ## The quick way: `iterbar init`
 
-The `iterbar` package carries the `iterbar` command, the MCP server and this skill. In the project's root:
+The `iterbar` package carries the `iterbar` command, the MCP server and this skill. In the project's root, run this
+with `--agent claude`, `codex`, `cursor` or `all`:
 
 ```bash
-npx iterbar init --agent claude     # or codex, cursor, all
+npx iterbar init --agent claude
 ```
 
 It copies this skill into the agent's skills folder (`--scope project` puts it in the project instead), registers the
@@ -75,15 +76,15 @@ needs nothing on `PATH`. Every form below settles three things:
   local MCP entries, workspace trust and `.claude/settings.local.json` on the **repository root** (the top of the git
   repository), which in a monorepo is above the app folder.
 
-With npm, in the npm project root:
+With npm, in the npm project root, install the project's copy, set `cli` to the app's own copy if npm put one in
+the app's `node_modules`, else to the hoisted one (`npm root` prints where), check with `--help` that the copy is
+there, and set `root` to the Vite plugin's project root (below):
 
 ```bash
-npm install --save-dev iterbar                          # the project's copy
-cli="$PWD/node_modules/iterbar/dist/cli.js"             # the app's own copy, if npm put one there,
-[ -d "$PWD/node_modules/iterbar" ] ||                  # else the hoisted one (npm root prints where)
-  cli="$(npm root)/iterbar/dist/cli.js"
-node "$cli" --help                                      # checks that copy is there
-root="$PWD"                                             # the Vite plugin's project root (below)
+npm install --save-dev iterbar
+cli="$PWD/node_modules/iterbar/dist/cli.js"; [ -d "$PWD/node_modules/iterbar" ] || cli="$(npm root)/iterbar/dist/cli.js"
+node "$cli" --help
+root="$PWD"
 ```
 
 `root="$PWD"` is right in the usual case: the dev script runs `vite` with no folder in the npm project root, and
@@ -94,10 +95,11 @@ and keep `root="$PWD"`.)
 
 To confirm it, run the dev server and open the app in a browser. The dev server logs
 `Iterbar daemon: http://127.0.0.1:<port>`, and while it runs this prints that same port and your root (with
-symlinks resolved, such as `/private/tmp/...` for `/tmp/...` on macOS):
+symlinks resolved, such as `/private/tmp/...` for `/tmp/...` on macOS). The file also holds a token, so this prints
+only those two fields:
 
 ```bash
-grep -E '"(projectRoot|port)"' "$root/.iterbar/daemon.json"   # the file also holds a token: print only these
+grep -E '"(projectRoot|port)"' "$root/.iterbar/daemon.json"
 ```
 
 No such file means `root` names no running project; another port means another dev server's project. Fix `root`
@@ -126,11 +128,12 @@ it in, for you to commit, and Claude Code reads it in sessions started in that f
 not exist on theirs. Claude Code starts the server in the folder you started `claude` in, where the relative entry
 point resolves and `iterbar mcp` serves that folder unless `--root` names another one. So start `claude` in the
 folder that holds `.mcp.json`: in a folder below it the relative paths resolve from there, which can fail or start
-another installed copy that serves that folder, including another Iterbar project's daemon.
+another installed copy that serves that folder, including another Iterbar project's daemon. The `echo` prints
+`node_modules/iterbar/dist/cli.js`, or `../../node_modules/iterbar/dist/cli.js` for a copy hoisted from `apps/web`:
 
 ```bash
 rel="$(node -p 'path.relative(fs.realpathSync("."), fs.realpathSync(process.argv[1]))' "$cli")"
-echo "$rel"   # node_modules/iterbar/dist/cli.js, or ../../node_modules/iterbar/dist/cli.js hoisted from apps/web
+echo "$rel"
 claude mcp add --scope project iterbar -- node "$rel" mcp
 ```
 
