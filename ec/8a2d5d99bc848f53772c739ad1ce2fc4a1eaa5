@@ -1,0 +1,23 @@
+.github/workflows/publish-tag.yml
+  s_4ded9ba77a0730::t_d85d0e055a333b 105-111
+products/iterbar/cli/package.json
+  s_4ded9ba77a0730::t_e0223d3e6961f2 41
+scripts/verify-package-consumer.mjs
+  s_4ded9ba77a0730::t_ac66149249f35b 6,34-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ec8a2d5d99bc848f53772c739ad1ce2fc4a1eaa5",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

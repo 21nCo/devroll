@@ -1,0 +1,33 @@
+products/iterbar/bar/src/element.ts
+  s_4ded9ba77a0730::t_a53f466125ff05 1238-1239,1253-1255
+products/iterbar/bar/src/settings.ts
+  s_4ded9ba77a0730::t_5db93c3b14d4f9 150-153,192-199,252-265,268-269,280-283
+products/iterbar/bar/src/threads.ts
+  s_f6c2acfa4984f5::t_55f1fcb0d81c8a 392-396
+products/iterbar/bar/test/settings.pw.ts
+  s_4ded9ba77a0730::t_36882eae087ae1 186-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d3e57f1b31e505e8df47b438879e4fde888f4c5",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    },
+    "s_f6c2acfa4984f5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68d94dea-57c3-4bcc-9063-b8a805261225",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

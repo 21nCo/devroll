@@ -1,0 +1,21 @@
+products/iterbar/core/src/node.win32.test.ts
+  s_2cd8e700ac0da3::t_054467393362d0 104-105
+products/iterbar/bar/test/comment.pw.ts
+  s_2cd8e700ac0da3::t_054467393362d0 53-58,72,172,369,404,1092,1504,1523,1546,1620,1691,1727,1750,1767,1962
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b507b5cc4d9b1508c97e5a6dc67c325f656bd8a",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

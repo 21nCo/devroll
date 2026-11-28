@@ -1,0 +1,21 @@
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_63d7721565011a 174-183
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_38e817f06cd207 110-112,122-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "88ad8b20d2f35bf58c58c5c56c4a5ceabb4b345d",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

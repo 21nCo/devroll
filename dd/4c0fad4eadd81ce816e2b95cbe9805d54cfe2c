@@ -1,0 +1,34 @@
+products/iterbar/bar/src/element.ts
+  s_2cd8e700ac0da3::t_4f2cc69697df9a 195-199,254-256,620,657-658,661,663,688,690-692,696
+  s_2cd8e700ac0da3::t_7314e7015e871c 693-695,698-709
+products/iterbar/cli/src/mcp/server.ts
+  s_2cd8e700ac0da3::t_4f2cc69697df9a 27-29
+products/iterbar/bar/test/drafts.pw.ts
+  s_2cd8e700ac0da3::t_903ed9dc44cde5 156-174,216-217
+products/iterbar/bar/src/drafts.ts
+  s_2cd8e700ac0da3::t_4f2cc69697df9a 37,45
+products/iterbar/skills/iterbar/SKILL.md
+  s_2cd8e700ac0da3::t_4f2cc69697df9a 89-91
+products/iterbar/bar/src/position.test.ts
+  s_2cd8e700ac0da3::t_903ed9dc44cde5 51-55
+products/iterbar/bar/src/position.ts
+  s_2cd8e700ac0da3::t_4f2cc69697df9a 105-106
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_2cd8e700ac0da3::t_903ed9dc44cde5 28-29,67,110-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dd4c0fad4eadd81ce816e2b95cbe9805d54cfe2c",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

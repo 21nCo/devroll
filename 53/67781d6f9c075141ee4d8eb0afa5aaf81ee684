@@ -1,0 +1,29 @@
+.gitignore
+  s_4ded9ba77a0730::t_8d81ee1f3faa8e 18
+products/iterbar/cli/scripts/pack-manifest.mjs
+  s_4ded9ba77a0730::t_2d715738bf7a8f 1-23
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_8d213dac969490 157-161
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_ce9f6a37cd2e39 241-247,254-256,284,361,363-364
+scripts/verify-package-consumer.mjs
+  s_4ded9ba77a0730::t_631913e0d303ed 154
+products/iterbar/cli/package.json
+  s_4ded9ba77a0730::t_7e533469cf63b0 41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5367781d6f9c075141ee4d8eb0afa5aaf81ee684",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

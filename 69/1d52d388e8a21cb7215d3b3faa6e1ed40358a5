@@ -1,0 +1,21 @@
+products/iterbar/bar/src/element.ts
+  s_2cd8e700ac0da3::t_b5b318400b03b3 74-87,100-102
+products/iterbar/bar/test/keyboard.pw.ts
+  s_2cd8e700ac0da3::t_b5b318400b03b3 159-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "691d52d388e8a21cb7215d3b3faa6e1ed40358a5",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

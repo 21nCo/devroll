@@ -1,0 +1,119 @@
+products/iterbar/bar/test/comment.pw.ts
+  s_2cd8e700ac0da3::t_04cf419bf13649 1783
+  s_2cd8e700ac0da3::t_88ed963745c507 1858,1869,1898,1936
+  s_2cd8e700ac0da3::t_ac2308b4241f33 40-47,1487,1702-1703,1706,1710-1712,1714-1716
+  s_2cd8e700ac0da3::t_63f996e9d9d8b1 57,1955
+  s_2cd8e700ac0da3::t_86cab85a42b187 1509-1510
+products/iterbar/cli/src/mcp/tools.ts
+  s_2cd8e700ac0da3::t_4e8dc336d5c02e 111-130,147-149,155-156,178,196-215,217-221,223
+products/iterbar/bar/test/slots.pw.ts
+  s_2cd8e700ac0da3::t_eb20d5ce74e3b5 8,18,28,40,55,79,106,122,134,148
+  s_2cd8e700ac0da3::t_b84b68e2b7ff88 1
+products/iterbar/bar/src/position.ts
+  s_2cd8e700ac0da3::t_7a61aa70b8bdba 54
+  s_2cd8e700ac0da3::t_e97cb55104c992 1-2,4-5,7,9-17,19-28,31,34-35,37-38,50,52-53,55,60-73,83-85,87-89,91-107
+products/iterbar/bar/test/drafts.pw.ts
+  s_2cd8e700ac0da3::t_ce6bff696d6bba 191-193
+  s_2cd8e700ac0da3::t_b346d955e62d43 1-190,194-200
+products/iterbar/bar/src/pick/pick.test.ts
+  s_2cd8e700ac0da3::t_19f931737bd373 4,103-126
+  s_2cd8e700ac0da3::t_74fd58e74e22c1 127
+products/iterbar/bar/test/real-daemon.pw.ts
+  s_2cd8e700ac0da3::t_144773f7b7dd8b 7,76,81
+  s_2cd8e700ac0da3::t_b84b68e2b7ff88 69
+products/iterbar/bar/test/threads.pw.ts
+  s_2cd8e700ac0da3::t_eb20d5ce74e3b5 3,11,34,79,91,174
+  s_2cd8e700ac0da3::t_b84b68e2b7ff88 121
+products/iterbar/cli/src/store/store.ts
+  s_2cd8e700ac0da3::t_b080ece5aa9b40 308
+products/iterbar/bar/src/index.ts
+  s_2cd8e700ac0da3::t_3771c7dc9a42d0 11
+products/iterbar/bar/src/drafts.ts
+  s_2cd8e700ac0da3::t_8508592c0eb7ca 1-44,46-137
+  s_2cd8e700ac0da3::t_45f8fbd52f35c5 45
+products/iterbar/skills/iterbar/SKILL.md
+  s_2cd8e700ac0da3::t_ef940ca54daf3c 17-18,86-101
+  s_2cd8e700ac0da3::t_d30e99d2d73940 102
+products/iterbar/examples/e2e/test/examples.pw.ts
+  s_2cd8e700ac0da3::t_b3c336e1317561 10
+products/iterbar/bar/test/support/fixtures.ts
+  s_2cd8e700ac0da3::t_eb20d5ce74e3b5 95-103
+products/iterbar/bar/src/pick/target.ts
+  s_2cd8e700ac0da3::t_db747a80f322f9 90-181
+products/iterbar/core/src/contract.test.ts
+  s_2cd8e700ac0da3::t_c0282b028e983f 496-502
+products/iterbar/bar/test/position.pw.ts
+  s_2cd8e700ac0da3::t_88f2fcec626f02 1-2,4-7,9-11,14-22,24-31,33-36,38-43,45-47,49-50,52-54,56-62,64,66-68,70-74,77,80-82,84,86-88,90,92-93,96-97,102-121,125,129,133,135
+products/iterbar/cli/src/store/store.test.ts
+  s_2cd8e700ac0da3::t_c0282b028e983f 154-155,159,161-163,165-166
+  s_2cd8e700ac0da3::t_b4cea746f3c6ec 156-158,160,164
+products/iterbar/bar/src/theme.ts
+  s_2cd8e700ac0da3::t_45f8fbd52f35c5 126-127
+  s_2cd8e700ac0da3::t_6d2d9dd3736b3a 93-94
+  s_2cd8e700ac0da3::t_77e48ff892a3c2 34,62
+  s_2cd8e700ac0da3::t_14600f65b635b1 36-41,43-44,46-47,63-65,67-72,74-75,80,82-92,95-105,107-109,111,113,117-120,122-125,129,141,148-235,241-253,262-266,268-270,273,276-295,300,303,309-359,361,368,374-376,394,405
+products/iterbar/cli/src/mcp/server.ts
+  s_2cd8e700ac0da3::t_1775b4b5e33f55 27-28
+products/iterbar/bar/src/pick/picker.ts
+  s_2cd8e700ac0da3::t_68ad1a6f60877f 33,35-36,49,75-78,88-113,125-130,135,262
+products/iterbar/bar/src/threads.ts
+  s_2cd8e700ac0da3::t_3771c7dc9a42d0 81
+  s_2cd8e700ac0da3::t_bd6eda6302ec90 3-4,12,26-34,38,57,62,71-72,77-79,83,85,97-98,101,103-123,125-138,195-201,204-205,209
+products/iterbar/bar/src/icons.ts
+  s_2cd8e700ac0da3::t_68ad1a6f60877f 1-35
+products/iterbar/bar/src/composer.ts
+  s_2cd8e700ac0da3::t_96f719bd43787a 2,8,10-11,16-20,22-23,32,34-40,47,49-55,57,59,61-62,70-73,75-81,83,87-92,95,104,112,120-123,126,130-131
+  s_2cd8e700ac0da3::t_77e48ff892a3c2 48
+products/iterbar/bar/src/position.test.ts
+  s_2cd8e700ac0da3::t_5b62069bb4e82d 2,4,6,8,15-21,25-28,30-35,37,39-44,47-48,51-55
+products/iterbar/core/src/daemon.ts
+  s_2cd8e700ac0da3::t_909f8ab4bea678 8
+  s_2cd8e700ac0da3::t_b080ece5aa9b40 96-97
+pnpm-workspace.yaml
+  s_2cd8e700ac0da3::t_708719ad075599 13-15
+products/iterbar/bar/test/style.pw.ts
+  s_2cd8e700ac0da3::t_f2824c1b69db51 31,43-45,58,75,77,80,123,126,153,162,178,183,185,197
+patches/modern-screenshot@4.7.0.patch
+  s_2cd8e700ac0da3::t_708719ad075599 1-59
+products/iterbar/cli/src/mcp/mcp.test.ts
+  s_2cd8e700ac0da3::t_1775b4b5e33f55 22,167-171,174-195,234
+  s_2cd8e700ac0da3::t_b4cea746f3c6ec 172-173
+products/iterbar/core/src/feedback.ts
+  s_2cd8e700ac0da3::t_b080ece5aa9b40 124-128
+products/iterbar/bar/THIRD-PARTY-NOTICES.md
+  s_2cd8e700ac0da3::t_d85cefad7e8086 9-12
+products/iterbar/cli/src/daemon/routes.ts
+  s_2cd8e700ac0da3::t_b080ece5aa9b40 208
+products/iterbar/bar/src/element.ts
+  s_2cd8e700ac0da3::t_45f8fbd52f35c5 163
+  s_2cd8e700ac0da3::t_ff58f296523df3 263,667-668
+  s_2cd8e700ac0da3::t_6d2d9dd3736b3a 234
+  s_2cd8e700ac0da3::t_457fbd697d0f2e 5-6,8,10,12,15-16,22,56-60,62,67-75,84-91,99,101,111-117,121-126,134-137,140,142-162,168-169,172,186-190,198-199,201-202,208,214-233,235,245,249-259,262,287-289,302-303,309-311,314-315,317,321-322,326-339,348,350-352,354-355,362-365,376-377,387,391-402,404,412,414-416,422-425,468,470-505,509-511,517-519,530,533,544-666,669-729,747,749-750,753-754,756,762,767-768,771,827,832,847-849,858,863-885,889-892
+products/iterbar/bar/README.md
+  s_2cd8e700ac0da3::t_7b97ea8b5300d3 21-27,36-48,76-82,86-87,92-96,223-226,228-235,244,249
+  s_2cd8e700ac0da3::t_d85cefad7e8086 189-192
+products/iterbar/skills/iterbar/references/tools.md
+  s_2cd8e700ac0da3::t_b3c336e1317561 35-36,40-41,76-84
+  s_2cd8e700ac0da3::t_1045960c938170 85
+products/iterbar/bar/test/keyboard.pw.ts
+  s_2cd8e700ac0da3::t_d53fd42ed26829 78-79
+  s_2cd8e700ac0da3::t_1ab68c0825982b 12,18-30,37,40-41,43,45-46,48-51,61-64,66-72,75-77,81,85-86,89-92,94-95,97-100,102-106,109,111,113-114,116,118-130
+pnpm-lock.yaml
+  s_2cd8e700ac0da3::t_f566c5dbe064c4 7-9,264,1412,3835,7006
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7330de2a61b0e9dada87cee6197d16a4861df1c2",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

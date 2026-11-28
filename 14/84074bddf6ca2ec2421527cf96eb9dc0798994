@@ -1,0 +1,22 @@
+products/iterbar/bar/test/position.pw.ts
+  s_2cd8e700ac0da3::t_18872c477fd8b1 200-216
+products/iterbar/bar/src/element.ts
+  s_2cd8e700ac0da3::t_18872c477fd8b1 436-437
+  s_2cd8e700ac0da3::t_6ed9453565a459 113-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1484074bddf6ca2ec2421527cf96eb9dc0798994",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

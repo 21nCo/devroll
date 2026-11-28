@@ -1,0 +1,23 @@
+products/iterbar/cli/src/mcp/tools.ts
+  s_2cd8e700ac0da3::t_9863f6a172c871 221-222
+products/iterbar/skills/iterbar/SKILL.md
+  s_2cd8e700ac0da3::t_57fb47398aed34 104-105
+products/iterbar/skills/iterbar/references/tools.md
+  s_2cd8e700ac0da3::t_0d0f4862861aae 84-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c4ec89928251e9389d1e3470f2f24d97c6952fb1",
+  "prompts": {},
+  "sessions": {
+    "s_2cd8e700ac0da3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa56bf8e-3da2-4a0b-b4bc-43acc85ec3b5",
+        "model": "unknown"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

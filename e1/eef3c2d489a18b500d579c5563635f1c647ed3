@@ -1,0 +1,19 @@
+products/iterbar/bar/src/element.ts
+  s_a4c487c54312b5::t_d70290ca4df0da 442,447
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e1eef3c2d489a18b500d579c5563635f1c647ed3",
+  "prompts": {},
+  "sessions": {
+    "s_a4c487c54312b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "52ead023-eb1e-4adb-9b06-3ab854cc5103",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

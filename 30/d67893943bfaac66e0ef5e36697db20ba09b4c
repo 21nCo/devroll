@@ -1,0 +1,33 @@
+products/iterbar/cli/package.json
+  s_4ded9ba77a0730::t_53fb994ec83c32 3
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_2bd54cae0c839d 145-146,152-162
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_8a578cb96a9687 241-251,282-289
+products/iterbar/cli/tsup.config.ts
+  s_4ded9ba77a0730::t_1104254d4b81d7 8-16
+products/iterbar/core/src/node.test.ts
+  s_4ded9ba77a0730::t_cf8f82bd084812 11,20
+products/iterbar/core/src/node.win32.test.ts
+  s_4ded9ba77a0730::t_ab3075f45b92f7 11,41
+products/iterbar/core/src/primitives.ts
+  s_4ded9ba77a0730::t_fa420e8bd889a1 83,104
+scripts/verify-package-consumer.mjs
+  s_4ded9ba77a0730::t_8f899662dae514 142-153,155-158,160,163-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "30d67893943bfaac66e0ef5e36697db20ba09b4c",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

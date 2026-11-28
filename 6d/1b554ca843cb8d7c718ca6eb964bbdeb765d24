@@ -1,0 +1,271 @@
+.github/workflows/publish-tag.yml
+  s_4ded9ba77a0730::t_0ecee1791a9cbe 12
+pnpm-lock.yaml
+  s_4ded9ba77a0730::t_5466939c05f485 243-245,265-267,283-285,333,335,344,417-419,466-468,508,527,529,532
+products/iterbar/bar/README.md
+  s_4ded9ba77a0730::t_aac98f019f6631 40-41,134,308
+products/iterbar/bar/package.json
+  s_4ded9ba77a0730::t_917f797ee7b32d 41,46
+products/iterbar/bar/src/agent-help.ts
+  s_4ded9ba77a0730::t_f4da6129d9bce5 33-34,38,46,58,67,79,87
+products/iterbar/bar/src/connection.test.ts
+  s_4ded9ba77a0730::t_e817ccc3be02c4 1,75-76,123,363,374,407,420,436,438,442,444,449,466,473,477,492,502,522,531
+products/iterbar/bar/src/connection.ts
+  s_4ded9ba77a0730::t_184b65345870f8 22
+products/iterbar/bar/src/element.ts
+  s_4ded9ba77a0730::t_1a963f6742bf5c 1
+products/iterbar/bar/src/pick/screenshot.ts
+  s_4ded9ba77a0730::t_24a21dcf733b49 1
+products/iterbar/bar/src/pick/selector.ts
+  s_4ded9ba77a0730::t_e24ffc22c82ead 1
+products/iterbar/bar/src/pick/target.ts
+  s_4ded9ba77a0730::t_710d8801d0a956 11,67,72
+products/iterbar/bar/src/slots.test.ts
+  s_4ded9ba77a0730::t_dfd319e35bcc8f 32
+products/iterbar/bar/src/slots.ts
+  s_4ded9ba77a0730::t_36d172641e9f96 8,14,25,29,32-33,72,74,90,99,112,187,216-218,221-224,226,230-231,245-246,250-255
+products/iterbar/bar/src/threads-state.test.ts
+  s_4ded9ba77a0730::t_711d79d5ac6879 1,9
+products/iterbar/bar/src/threads-state.ts
+  s_4ded9ba77a0730::t_5155b571498ad5 1
+products/iterbar/bar/src/threads.ts
+  s_4ded9ba77a0730::t_f66de4ee7b3709 1,32
+products/iterbar/bar/test/comment.pw.ts
+  s_4ded9ba77a0730::t_26da7e4338df5c 2,261
+products/iterbar/bar/test/drafts.pw.ts
+  s_4ded9ba77a0730::t_142fe3ae0f4669 2
+products/iterbar/bar/test/global.d.ts
+  s_4ded9ba77a0730::t_05687890bf77e1 1
+products/iterbar/bar/test/inbox.pw.ts
+  s_4ded9ba77a0730::t_3d94b7d1e551c6 1
+products/iterbar/bar/test/keyboard.pw.ts
+  s_4ded9ba77a0730::t_0a29aeb680f6a5 12,59,70
+products/iterbar/bar/test/position.pw.ts
+  s_4ded9ba77a0730::t_1b84cdd5ce0379 168,170,344
+products/iterbar/bar/test/real-daemon.pw.ts
+  s_4ded9ba77a0730::t_fc396181228804 4-6,10,54,61,80,82,84-85,123
+products/iterbar/bar/test/slots.pw.ts
+  s_4ded9ba77a0730::t_9ba928ffd34dfb 32-33,36,48,57,65,72,74,82,84,87,97,107,113,115,123-124,131,141,144
+products/iterbar/bar/test/style.pw.ts
+  s_4ded9ba77a0730::t_12ed4f770ca5f8 45,75,82,104,107,148-149,151-152,171,197
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_4ded9ba77a0730::t_36b47d2636b03b 3
+products/iterbar/bar/test/support/fixtures.ts
+  s_4ded9ba77a0730::t_34c47715eb666a 43-44,119-120
+products/iterbar/bar/test/threads.pw.ts
+  s_4ded9ba77a0730::t_74c61402bf9531 1,89,177,179,182-183,213-214,227,240
+products/iterbar/cli/LICENSE
+  s_4ded9ba77a0730::t_87db3ffe8ef12a 1-21
+products/iterbar/cli/README.md
+  s_4ded9ba77a0730::t_38ea398b4956b9 1-14
+products/iterbar/cli/package.json
+  s_4ded9ba77a0730::t_f1a019e71cf98e 2,7,10-12,32-36,41,46
+products/iterbar/cli/src/commands/init.test.ts
+  s_4ded9ba77a0730::t_d7d05d57c93d6b 107
+products/iterbar/cli/src/commands/init.ts
+  s_4ded9ba77a0730::t_7ba1f32df6efe9 7
+products/iterbar/cli/src/daemon/access.test.ts
+  s_4ded9ba77a0730::t_7abc063abdf4d7 2-3,39,73,197-199,209
+products/iterbar/cli/src/daemon/access.ts
+  s_4ded9ba77a0730::t_dd0382189dc6c0 3
+products/iterbar/cli/src/daemon/daemon-file.ts
+  s_4ded9ba77a0730::t_eeb9bfec44ecd9 2-3
+products/iterbar/cli/src/daemon/daemon.test.ts
+  s_4ded9ba77a0730::t_7199a3a5abe449 11-12,95,137,142,166,176,211,221,264,268-270,315-317,319,327-328,338-340,346-348,352,355,379,385-386,389,402,417,432-433
+products/iterbar/cli/src/daemon/daemon.ts
+  s_4ded9ba77a0730::t_75d5bc6c141d7a 14
+products/iterbar/cli/src/daemon/dev-command.test.ts
+  s_4ded9ba77a0730::t_a1c6be858671f8 5-6
+products/iterbar/cli/src/daemon/events.test.ts
+  s_4ded9ba77a0730::t_c656bf8d1e3846 3,52,54
+products/iterbar/cli/src/daemon/events.ts
+  s_4ded9ba77a0730::t_e465428e6be204 3
+products/iterbar/cli/src/daemon/http.ts
+  s_4ded9ba77a0730::t_06f204a10d3dd0 10
+products/iterbar/cli/src/daemon/routes.ts
+  s_4ded9ba77a0730::t_773ca95973533b 21
+products/iterbar/cli/src/daemon/startup-failure.test.ts
+  s_4ded9ba77a0730::t_3cca898ed92fd0 5-6
+products/iterbar/cli/src/daemon/test-support/client.ts
+  s_4ded9ba77a0730::t_13af2f1f40c53c 3
+products/iterbar/cli/src/mcp/cursor.ts
+  s_4ded9ba77a0730::t_606e099a0d1071 1
+products/iterbar/cli/src/mcp/daemon-client.test.ts
+  s_4ded9ba77a0730::t_ec0c27d7e29532 4,34,43,49,71
+products/iterbar/cli/src/mcp/daemon-client.ts
+  s_4ded9ba77a0730::t_8302b92617e183 23-24
+products/iterbar/cli/src/mcp/errors.ts
+  s_4ded9ba77a0730::t_062e001fcb7b9d 1
+products/iterbar/cli/src/mcp/mcp.test.ts
+  s_4ded9ba77a0730::t_859514e7ffe618 9-10,87,130,199,204,207,275,671
+products/iterbar/cli/src/mcp/test-support/feedback.ts
+  s_4ded9ba77a0730::t_56e3b561a4bd06 1,12
+products/iterbar/cli/src/mcp/tools.test.ts
+  s_4ded9ba77a0730::t_465f8177cb7e57 6
+products/iterbar/cli/src/mcp/tools.ts
+  s_4ded9ba77a0730::t_011bcbac8e154a 12-13,312-313
+products/iterbar/cli/src/mcp/wait.test.ts
+  s_4ded9ba77a0730::t_585ed31a59f7b7 2,16
+products/iterbar/cli/src/mcp/wait.ts
+  s_4ded9ba77a0730::t_104d0bb6aa3ef7 1
+products/iterbar/cli/src/store/crash.test.ts
+  s_4ded9ba77a0730::t_94f91bdbb67677 3
+products/iterbar/cli/src/store/errors.ts
+  s_4ded9ba77a0730::t_fe855a4f1fb0f4 1
+products/iterbar/cli/src/store/files.test.ts
+  s_4ded9ba77a0730::t_ce5cd1db6a6cbf 3
+products/iterbar/cli/src/store/lock.test.ts
+  s_4ded9ba77a0730::t_4fe504d699af5b 2-3,76,99,113,118,136,147,160,168,180,201,203,257,292,334,347,392,413,458
+products/iterbar/cli/src/store/lock.ts
+  s_4ded9ba77a0730::t_1a16633363a4fb 5
+products/iterbar/cli/src/store/store.test.ts
+  s_4ded9ba77a0730::t_e73637a7f6d456 5-6,98,312
+products/iterbar/cli/src/store/store.ts
+  s_4ded9ba77a0730::t_5f62f0fc1387bd 28,36,58
+products/iterbar/cli/src/store/test-support/helpers.ts
+  s_4ded9ba77a0730::t_38a7053063195c 7,100,102,123
+products/iterbar/core/README.md
+  s_4ded9ba77a0730::t_94399408280d5c 8,17,23
+products/iterbar/core/package.json
+  s_4ded9ba77a0730::t_a1e82f2cc3ed5a 2
+products/iterbar/core/src/contract.test.ts
+  s_4ded9ba77a0730::t_f162e53825ba57 49,55,69,78,87,89,91,93,95,105,124,127,139,143,147,165-166,246,275-276,281-282,287-288,299-300,305-306,312-313,318-319,325-326,333-334,340-341,347-348,354-355,361-362,396,402,437-438,455,474,476-478,482,488-489,560,568,574-576,581,589,703-736
+products/iterbar/core/src/errors.ts
+  s_4ded9ba77a0730::t_7d2b47e7451d86 3-10,13,92-136,138-140,145
+products/iterbar/core/src/feedback.ts
+  s_4ded9ba77a0730::t_170f198640dc80 143
+products/iterbar/core/src/primitives.ts
+  s_4ded9ba77a0730::t_6e00982edc0c43 4,38,48-52
+products/iterbar/core/src/registry.ts
+  s_4ded9ba77a0730::t_eb5b24c3d37856 2,9,15,18,24,27,30,39-41,45-46,48-49,51-52,66,80,84,104-105,107,135,140,151-152,157,165
+products/iterbar/examples/e2e/package.json
+  s_4ded9ba77a0730::t_c3677e9cf4b883 10,14,17
+products/iterbar/examples/e2e/test/examples.pw.ts
+  s_4ded9ba77a0730::t_00d0278996c10a 3,5-6,32,35,40-41,49-50,90,112
+products/iterbar/examples/sveltekit/README.md
+  s_4ded9ba77a0730::t_475d7489fa4270 7,9
+products/iterbar/examples/sveltekit/src/routes/+page.svelte
+  s_4ded9ba77a0730::t_430caeb9e67452 7,24-25
+products/iterbar/examples/vite-react/README.md
+  s_4ded9ba77a0730::t_f878ef7bae3e5b 6,9
+products/iterbar/examples/vite-react/src/App.tsx
+  s_4ded9ba77a0730::t_89639a87c952c7 31,35-36
+products/iterbar/react/README.md
+  s_4ded9ba77a0730::t_18399f0bc28242 8-9,12,18,21,25,27,29-30,36,39,52,55,58,60-61
+products/iterbar/react/package.json
+  s_4ded9ba77a0730::t_7406b880078ee8 51
+products/iterbar/react/src/index.tsx
+  s_4ded9ba77a0730::t_9828fd52503d0e 29,32-35,38,41-67,90,96-98,103,105,107,115-116,122,126,129,131-133,135-136,138-139,143-145,152-153,162,172
+products/iterbar/react/src/package.test.tsx
+  s_4ded9ba77a0730::t_edb4a84aefa655 2,51,86,96,109,114,118-119
+products/iterbar/react/src/variants.test.tsx
+  s_4ded9ba77a0730::t_9932c3b5b9b638 3,22,81-82,113,149,155,164,183,189,193,198,202,207,220,226-227,232,234,259,265,270,275-276,281,286,297,303,307,309,313,315,321,323,330,333,350,362,369-370,372-373,378,381,406,416,450,806,820
+products/iterbar/skills/README.md
+  s_4ded9ba77a0730::t_cd42ea72f59e53 4,8-9
+products/iterbar/skills/iterbar/SKILL.md
+  s_4ded9ba77a0730::t_60f667dc12c390 3,8-9,28,31,33-35,42,46-47,49,51,73,79,142,144,148,151-153,155
+products/iterbar/skills/iterbar/references/setup.md
+  s_4ded9ba77a0730::t_88692ab879744f 8,11,18,20,28,46
+products/iterbar/skills/iterbar/references/tools.md
+  s_4ded9ba77a0730::t_6aaf8222ebae78 31-32,117
+products/iterbar/svelte/README.md
+  s_4ded9ba77a0730::t_c94f73dcffbc95 14,18,21,28,31,36-38,42,44,46,53,56,65-66,79,107
+products/iterbar/svelte/package.json
+  s_4ded9ba77a0730::t_ebdce582261ddd 51
+products/iterbar/svelte/src/DevelopmentVariants.svelte
+  s_4ded9ba77a0730::t_fed10c53532f7a 7,9,11,13,18-20,23,31,38,40-41,44,69-70,72,79-80
+products/iterbar/svelte/src/ProductionVariants.svelte
+  s_4ded9ba77a0730::t_8958b9e12d63d8 2-4,6,9
+products/iterbar/svelte/src/Variant.svelte
+  s_4ded9ba77a0730::t_158ff62b821a1b 2,4
+products/iterbar/svelte/src/Variants.svelte
+  s_4ded9ba77a0730::t_c2a43673b8aaa4 2,7,10-11,13-15,33
+products/iterbar/svelte/src/content.ts
+  s_4ded9ba77a0730::t_6d64a9d4dce9be 1,3-15
+products/iterbar/svelte/src/index.ts
+  s_4ded9ba77a0730::t_afa86d84d68687 3-5
+products/iterbar/svelte/src/types.ts
+  s_4ded9ba77a0730::t_5cb42a816c29bc 4,7,10,14-22,25,28-47
+products/iterbar/svelte/test/fixtures/AfterSlot.svelte
+  s_4ded9ba77a0730::t_159875eb38a533 1,4,7
+products/iterbar/svelte/test/fixtures/BuiltPricing.svelte
+  s_4ded9ba77a0730::t_a93ecb49ce1aa0 8
+products/iterbar/svelte/test/fixtures/Contexts.svelte
+  s_4ded9ba77a0730::t_544f1453c4a043 16,18,20
+products/iterbar/svelte/test/fixtures/Disclosure.svelte
+  s_4ded9ba77a0730::t_ef4ae5dd7198e9 1
+products/iterbar/svelte/test/fixtures/InCard.svelte
+  s_4ded9ba77a0730::t_77ba22b1c07d0c 10
+products/iterbar/svelte/test/fixtures/Inner.svelte
+  s_4ded9ba77a0730::t_96aa2e110b8dd3 8
+products/iterbar/svelte/test/fixtures/Invalid.svelte
+  s_4ded9ba77a0730::t_701eefed2a9e59 9
+products/iterbar/svelte/test/fixtures/Logged.svelte
+  s_4ded9ba77a0730::t_7cf54a568da1be 1
+products/iterbar/svelte/test/fixtures/Nested.svelte
+  s_4ded9ba77a0730::t_4ac100c1c7bb10 1,13
+products/iterbar/svelte/test/fixtures/Observed.svelte
+  s_4ded9ba77a0730::t_aee4de2c4f3d26 1,10,17-18
+products/iterbar/svelte/test/fixtures/Pricing.svelte
+  s_4ded9ba77a0730::t_246e937221b881 7
+products/iterbar/svelte/test/fixtures/Slot.svelte
+  s_4ded9ba77a0730::t_705e72221462db 4,8-9,11,16,19
+products/iterbar/svelte/test/fixtures/Snippets.svelte
+  s_4ded9ba77a0730::t_3f1ce872a1bd16 1,11
+products/iterbar/svelte/test/fixtures/Toggle.svelte
+  s_4ded9ba77a0730::t_50fb3664a5b7b7 1
+products/iterbar/svelte/test/package.test.ts
+  s_4ded9ba77a0730::t_6663ada5f0df0e 1,101,128-129
+products/iterbar/svelte/test/ssr.server.test.ts
+  s_4ded9ba77a0730::t_ac8a9ce222ebbe 1,61,69
+products/iterbar/svelte/test/variants.test.ts
+  s_4ded9ba77a0730::t_9c34accdb161d8 3,8,61-62,128,146,151,154,160,163,171,190-191,194,198-199,203,210,222,246,249,259,265,273,281,297,303,305-307,309,311,318,321-322,327,339,344-350,374,385,387,391-392,416,452,460,472-473,506,513,536-542
+products/iterbar/variants/README.md
+  s_4ded9ba77a0730::t_02c896fe923d41 4-5,15,21,35,37,43-44,49,59,67,69-70,72-74,76-77
+products/iterbar/variants/package.json
+  s_4ded9ba77a0730::t_132458537b0d39 38
+products/iterbar/variants/src/environment.ts
+  s_4ded9ba77a0730::t_8a75ad5499ca2a 1,59
+products/iterbar/variants/src/index.ts
+  s_4ded9ba77a0730::t_d42ea3751f9043 36
+products/iterbar/variants/src/registry.test.ts
+  s_4ded9ba77a0730::t_df7fd956db0d57 7,24-25,54-55,66,68-70,76-77,82,87,89,92,94,98,103,106,114,136,139,149,152,155-156,193,197,211,217,223,227-228,230,233,236,240,242,245,248,251,258,262-263,265,270,274-275,278,281-282,286,291,294-295,297,301,304,307,309,319,323,325,327,331,336,339,358,376,426,450-455,479,481,488
+products/iterbar/variants/src/registry.ts
+  s_4ded9ba77a0730::t_6937be1daf02be 10,17,51-53,63-64,66,78,84-86,91-92,97-99,136,138,165,167-168,179,189,211-212,215,217-218,222,224,229,231,237-238,242-243,247,251,254,258,260,267-268,290,292,306-308,316,320,322,324-326,330,354-355,358,364,375,447
+products/iterbar/variants/src/slot-root.ts
+  s_4ded9ba77a0730::t_accb09c1a3afba 1,3
+products/iterbar/vite/package.json
+  s_4ded9ba77a0730::t_2af4b2365c735f 54
+products/iterbar/vite/src/daemon.test.ts
+  s_4ded9ba77a0730::t_ae251786e3b1fa 6-8
+products/iterbar/vite/src/daemon.ts
+  s_4ded9ba77a0730::t_fee9c3ebaba705 3,12-13
+products/iterbar/vite/src/origins.ts
+  s_4ded9ba77a0730::t_afb8e4efa260c5 1
+products/iterbar/vite/src/plugin.test.ts
+  s_4ded9ba77a0730::t_6908ae59f4031e 227
+products/iterbar/vite/src/source/location.ts
+  s_4ded9ba77a0730::t_87258579e5231c 5
+release-packages.json
+  s_4ded9ba77a0730::t_e7ae8ebcf0377d 8
+scripts/verify-browser-imports.mjs
+  s_4ded9ba77a0730::t_f1b72eb6c325ec 19
+scripts/verify-package-consumer.mjs
+  s_4ded9ba77a0730::t_0c6e0f61c9f659 72-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6d1b554ca843cb8d7c718ca6eb964bbdeb765d24",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}

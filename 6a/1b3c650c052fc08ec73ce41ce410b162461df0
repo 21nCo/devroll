@@ -1,0 +1,23 @@
+products/iterbar/bar/test/support/fake-daemon.ts
+  s_4ded9ba77a0730::t_ce4ec76b965640 48-51
+products/iterbar/bar/test/support/fixtures.ts
+  s_4ded9ba77a0730::t_3ae118895f6012 92-93
+products/iterbar/bar/src/pins.ts
+  s_4ded9ba77a0730::t_0f02a8484f2fdd 102-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a1b3c650c052fc08ec73ce41ce410b162461df0",
+  "prompts": {},
+  "sessions": {
+    "s_4ded9ba77a0730": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db8b8206-ac73-4606-8f19-e27147be0806",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "thyaravind <samalaaravind02@gmail.com>"
+    }
+  }
+}
